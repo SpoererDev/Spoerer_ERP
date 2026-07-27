@@ -181,7 +181,6 @@ export default function App() {
   // VÍNCULO: APROBACIÓN Y CREACIÓN DE PROYECTO CON CUOTAS
   const handleApproveBudgetAndCreateProject = async (projectForm, budgetId, installmentsList, budgetForm = null) => {
     try {
-      setLoading(true);
       const result = await supabaseService.approveBudgetAndCreateProject(
         projectForm, 
         budgetId, 
@@ -207,8 +206,6 @@ export default function App() {
     } catch (err) {
       console.error("Error al aprobar presupuesto:", err);
       throw err;
-    } finally {
-      setLoading(false);
     }
   };
 

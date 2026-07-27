@@ -237,24 +237,24 @@ export default function CRM({ clients, onAddClient, onDeleteClient, searchTerm, 
       </section>
 
       {/* CRM Main Table Container */}
-      <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[900px]">
-            <thead>
-              <tr className="bg-surface-container-low border-b border-outline-variant">
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">RUT</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Nombre o Razón Social</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente Real</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Giro</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Contacto</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Correo Electrónico</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Teléfono</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant">
-              {filteredClients.length > 0 ? (
-                filteredClients.map((client) => (
+      {filteredClients.length > 0 ? (
+        <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse min-w-[900px]">
+              <thead>
+                <tr className="bg-surface-container-low border-b border-outline-variant">
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">RUT</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Nombre o Razón Social</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente Real</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Giro</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Contacto</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Correo Electrónico</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Teléfono</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant">
+                {filteredClients.map((client) => (
                   <tr key={client.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="p-md font-body-md font-bold text-primary">{client.rut || 'N/A'}</td>
                     <td className="p-md">
@@ -296,33 +296,31 @@ export default function CRM({ clients, onAddClient, onDeleteClient, searchTerm, 
                       </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="8" className="text-center py-8 text-on-surface-variant italic">
-                    No se encontraron clientes que coincidan con la búsqueda.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {/* Pagination */}
-        <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
-          <p className="text-body-sm text-on-surface-variant italic">
-            Mostrando {filteredClients.length} de {clients.length} clientes registrados
-          </p>
-          <div className="flex items-center gap-base">
-            <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
-              <span className="material-symbols-outlined">chevron_left</span>
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded bg-secondary text-white font-bold text-xs">1</button>
-            <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination */}
+          <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+            <p className="text-body-sm text-on-surface-variant italic">
+              Mostrando {filteredClients.length} de {clients.length} clientes registrados
+            </p>
+            <div className="flex items-center gap-base">
+              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
+                <span className="material-symbols-outlined">chevron_left</span>
+              </button>
+              <button className="w-8 h-8 flex items-center justify-center rounded bg-secondary text-white font-bold text-xs">1</button>
+              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
+                <span className="material-symbols-outlined">chevron_right</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white border border-outline-variant rounded-xl p-12 text-center text-on-surface-variant italic">
+          No se encontraron clientes que coincidan con la búsqueda.
+        </div>
+      )}
 
       {/* modal window / Crear o Editar cliente */}
       {isModalOpen && (

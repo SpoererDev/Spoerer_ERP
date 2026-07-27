@@ -986,7 +986,7 @@ export default function Proyectos({
             );
           })
         ) : (
-          <div className="p-xl text-center text-on-surface-variant italic border-2 border-dashed border-outline-variant/40 rounded-xl bg-white/40">
+          <div className="bg-white border border-outline-variant rounded-xl p-12 text-center text-on-surface-variant italic">
             No se encontraron proyectos activos.
           </div>
         )}

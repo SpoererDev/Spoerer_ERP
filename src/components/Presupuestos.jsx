@@ -1298,25 +1298,25 @@ export default function Presupuestos({
       </section>
 
       {/* Data Table Section */}
-      <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="bg-surface-container-low border-b border-outline-variant">
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">ID Presupuesto</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título / Proyecto</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Fecha de Emisión</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto Total (UF)</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Validez</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Respaldo</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Estado</th>
-                <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant">
-              {filteredQuotes.length > 0 ? (
-                filteredQuotes.map((quote) => (
+      {filteredQuotes.length > 0 ? (
+        <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+          <div className="overflow-x-auto custom-scrollbar">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="bg-surface-container-low border-b border-outline-variant">
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">ID Presupuesto</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título / Proyecto</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Fecha de Emisión</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto Total (UF)</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Validez</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Respaldo</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Estado</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant">
+                {filteredQuotes.map((quote) => (
                   <tr key={quote.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-md font-body-md font-bold text-primary">{quote.quoteId}</td>
                     <td className="p-md">
@@ -1419,33 +1419,31 @@ export default function Presupuestos({
                       </div>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="9" className="text-center py-8 text-on-surface-variant italic">
-                    No se encontraron presupuestos que coincidan.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {/* Pagination */}
-        <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
-          <p className="text-body-sm text-on-surface-variant italic">
-            Mostrando {filteredQuotes.length} de {quotes.length} presupuestos registrados
-          </p>
-          <div className="flex items-center gap-base">
-            <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
-              <span className="material-symbols-outlined">chevron_left</span>
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded bg-secondary text-white font-bold text-xs">1</button>
-            <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination */}
+          <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+            <p className="text-body-sm text-on-surface-variant italic">
+              Mostrando {filteredQuotes.length} de {quotes.length} presupuestos registrados
+            </p>
+            <div className="flex items-center gap-base">
+              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
+                <span className="material-symbols-outlined">chevron_left</span>
+              </button>
+              <button className="w-8 h-8 flex items-center justify-center rounded bg-secondary text-white font-bold text-xs">1</button>
+              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-white text-on-surface-variant disabled:opacity-30" disabled>
+                <span className="material-symbols-outlined">chevron_right</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white border border-outline-variant rounded-xl p-12 text-center text-on-surface-variant italic">
+          No se encontraron presupuestos que coincidan.
+        </div>
+      )}
 
       {/* Modal Backdrop: View Quote */}
       {isViewModalOpen && viewingQuote && (
