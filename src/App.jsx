@@ -17,6 +17,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   // Flat SQL-aligned states
+  const [mainClients, setMainClients] = useState([]);
   const [clients, setClients] = useState([]);
   const [quotes, setQuotes] = useState([]); // Budgets
   const [projects, setProjects] = useState([]);
@@ -92,7 +93,8 @@ export default function App() {
         }
 
         // 2. Cargar datos de Supabase
-        const [cls, bgs, prjs, insts, costs, usrs] = await Promise.all([
+        const [mainCls, cls, bgs, prjs, insts, costs, usrs] = await Promise.all([
+          supabaseService.getMainClients(),
           supabaseService.getClients(),
           supabaseService.getBudgets(),
           supabaseService.getProjects(),
@@ -100,6 +102,7 @@ export default function App() {
           supabaseService.getExtraCosts(),
           supabaseService.getProfiles()
         ]);
+        setMainClients(mainCls);
         setClients(cls);
         setQuotes(bgs);
         setProjects(prjs);
@@ -114,6 +117,34 @@ export default function App() {
     }
     checkSessionAndLoadData();
   }, []);
+
+  // MAIN CLIENTS ACTIONS
+  const addMainClient = async (newMainClient) => {
+    try {
+      const savedMain = await supabaseService.saveMainClient(newMainClient);
+      setMainClients(prev => {
+        const exists = prev.some(c => c.id === savedMain.id || c.name.toLowerCase() === savedMain.name.toLowerCase());
+        if (exists) {
+          return prev.map(c => c.id === savedMain.id ? savedMain : c);
+        }
+        return [...prev, savedMain];
+      });
+      return savedMain;
+    } catch (err) {
+      console.error("Error al guardar cliente principal:", err);
+      throw err;
+    }
+  };
+
+  const deleteMainClient = async (id) => {
+    try {
+      await supabaseService.deleteMainClient(id);
+      setMainClients(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error("Error al eliminar cliente principal:", err);
+      throw new Error("Error al eliminar cliente principal. Verifique que no tenga razones sociales asociadas.");
+    }
+  };
 
   // CLIENTS ACTIONS
   const addClient = async (newClient) => {
@@ -491,6 +522,9 @@ export default function App() {
         <>
           {currentTab === 'crm' && (
             <CRM 
+              mainClients={mainClients}
+              onAddMainClient={addMainClient}
+              onDeleteMainClient={deleteMainClient}
               clients={clients} 
               onAddClient={addClient} 
               onDeleteClient={deleteClient}
@@ -501,6 +535,7 @@ export default function App() {
           {currentTab === 'presupuestos' && (
             <Presupuestos 
               quotes={quotes} 
+              mainClients={mainClients}
               clients={clients} 
               onAddQuote={addQuote} 
               onDeleteQuote={deleteQuote}

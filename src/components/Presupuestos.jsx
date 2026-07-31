@@ -14,6 +14,19 @@ const PROJECT_TYPES = [
   "Mind & Lean"
 ];
 
+const COMMENT_OPTIONS = [
+  "Anticipo",
+  "Entrega Municipal",
+  "Integración Temprana",
+  "Entrega de Espesores",
+  "Entrega al Revisor",
+  "Entrega APC",
+  "Aumento de Superficie",
+  "Modificación/Adicional",
+  "Elementos Secundarios/OOEE",
+  "Cuotas Sucesivas"
+];
+
 // Helper to parse date strings of format DD/MM/YYYY or YYYY-MM-DD to Date object
 const parseDate = (dateStr) => {
   if (!dateStr) return null;
@@ -71,6 +84,7 @@ const isQuoteInPeriod = (quote, period) => {
 
 export default function Presupuestos({
   quotes,
+  mainClients = [],
   clients,
   onAddQuote,
   onDeleteQuote,
@@ -215,6 +229,8 @@ export default function Presupuestos({
   // New quote form state
   const [quoteId, setQuoteId] = useState('');
   const [currentBudgetUuid, setCurrentBudgetUuid] = useState(null);
+  const [selectedMainClient, setSelectedMainClient] = useState('');
+  const [selectedLegalEntity, setSelectedLegalEntity] = useState('');
   const [selectedClient, setSelectedClient] = useState('');
   const [issueDate, setIssueDate] = useState(getTodayDDMMYYYY());
   const [validity, setValidity] = useState(30);
@@ -504,6 +520,10 @@ export default function Presupuestos({
       setValidationError("El nombre del proyecto no cumple con el formato requerido. Debe ser: Nº Proyecto-Nombre - Cliente (Ej: 0280-Edificio Ciudad - TechNova Solutions).");
       return;
     }
+    if (!tipo || !tipo.trim()) {
+      setValidationError("Por favor seleccione o ingrese el tipo de proyecto.");
+      return;
+    }
     if (!fechaInicio) {
       setValidationError("Por favor seleccione la fecha de inicio de facturación.");
       return;
@@ -548,7 +568,9 @@ export default function Presupuestos({
       id: matchedProjectId,
       projectNumber: projectNumber,
       rawProjectName: rawProjectName,
-      clientId: approvingQuote.clientId,
+      clientId: approvingQuote.clientId || approvingQuote.legalEntityId || null,
+      mainClientId: approvingQuote.mainClientId || null,
+      legalEntityId: approvingQuote.legalEntityId || approvingQuote.clientId || null,
       superficie: parseFloat(superficie) || 0,
       rentabilidad: parseFloat(rentabilidad) || 0,
       anio: parseInt(anio) || new Date().getFullYear(),
@@ -664,6 +686,8 @@ export default function Presupuestos({
   const handleOpenNewQuoteModal = () => {
     setQuoteId(getNextQuoteId());
     setCurrentBudgetUuid(null);
+    setSelectedMainClient('');
+    setSelectedLegalEntity('');
     setSelectedClient('');
     setIssueDate(getTodayDDMMYYYY());
     setValidity(30);
@@ -679,13 +703,22 @@ export default function Presupuestos({
   const handleEditQuote = (quote) => {
     setQuoteId(quote.quoteId);
     setCurrentBudgetUuid(quote.id);
-    const matchedClient = clients.find(c =>
-      (quote.clientId && c.id === quote.clientId) ||
-      c.name === quote.clientName ||
-      c.company === quote.company ||
-      (c.name || c.company) === quote.clientName
+    
+    const matchedMC = mainClients.find(mc =>
+      (quote.mainClientId && mc.id === quote.mainClientId) ||
+      (quote.mainClientName && mc.name.toLowerCase() === quote.mainClientName.toLowerCase()) ||
+      (quote.clientName && mc.name.toLowerCase() === quote.clientName.toLowerCase())
     );
-    setSelectedClient(matchedClient ? matchedClient.id : (quote.clientId || ''));
+    const targetMainId = matchedMC ? matchedMC.id : (quote.mainClientId || quote.clientName || '');
+    setSelectedMainClient(targetMainId);
+
+    const matchedLE = clients.find(c =>
+      (quote.legalEntityId && c.id === quote.legalEntityId) ||
+      (quote.clientId && c.id === quote.clientId)
+    );
+    const targetLegalId = matchedLE ? matchedLE.id : (quote.legalEntityId || quote.clientId || '');
+    setSelectedLegalEntity(targetLegalId);
+    setSelectedClient(targetMainId || targetLegalId);
 
     setIssueDate(ensureDDMMYYYY(quote.date) || getTodayDDMMYYYY());
 
@@ -727,13 +760,22 @@ export default function Presupuestos({
     if (existing) {
       setIsExistingQuote(true);
       setCurrentBudgetUuid(existing.id);
-      const matchedClient = clients.find(c =>
-        (existing.clientId && c.id === existing.clientId) ||
-        c.name === existing.clientName ||
-        c.company === existing.company ||
-        (c.name || c.company) === existing.clientName
+
+      const matchedMC = mainClients.find(mc =>
+        (existing.mainClientId && mc.id === existing.mainClientId) ||
+        (existing.mainClientName && mc.name.toLowerCase() === existing.mainClientName.toLowerCase()) ||
+        (existing.clientName && mc.name.toLowerCase() === existing.clientName.toLowerCase())
       );
-      setSelectedClient(matchedClient ? matchedClient.id : (existing.clientId || ''));
+      const targetMainId = matchedMC ? matchedMC.id : (existing.mainClientId || existing.clientName || '');
+      setSelectedMainClient(targetMainId);
+
+      const matchedLE = clients.find(c =>
+        (existing.legalEntityId && c.id === existing.legalEntityId) ||
+        (existing.clientId && c.id === existing.clientId)
+      );
+      const targetLegalId = matchedLE ? matchedLE.id : (existing.legalEntityId || existing.clientId || '');
+      setSelectedLegalEntity(targetLegalId);
+      setSelectedClient(targetMainId || targetLegalId);
 
       setIssueDate(ensureDDMMYYYY(existing.date) || getTodayDDMMYYYY());
 
@@ -763,7 +805,7 @@ export default function Presupuestos({
       setCurrentBudgetUuid(null);
       setEditBillingTable([]);
     }
-  }, [quoteId, isModalOpen, quotes, clients]);
+  }, [quoteId, isModalOpen, quotes, clients, mainClients]);
 
   // Helper to convert file to Base64 (needed for Gemini PDF upload)
   const fileToBase64 = (file) => {
@@ -993,20 +1035,21 @@ export default function Presupuestos({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedClient || selectedClient === 'Select Client...') {
+    if (!selectedMainClient) {
       setNotification({
         type: 'error',
         title: 'Error de Validación',
-        message: 'Por favor seleccione un cliente.'
+        message: 'Por favor seleccione un Cliente Principal.'
       });
       return;
     }
 
-    const clientObj = clients.find(c => c.id === selectedClient) || clients.find(c => (c.name || c.company) === selectedClient) || { name: selectedClient };
-    const clientName = clientObj.company
-      ? (clientObj.company + (clientObj.realClient ? ` (${clientObj.realClient})` : ''))
-      : (clientObj.name || selectedClient);
-    const companyName = clientObj.company || 'N/A';
+    const mainClientObj = mainClients.find(mc => mc.id === selectedMainClient) || { name: selectedMainClient, id: null };
+    const legalEntityObj = clients.find(c => c.id === selectedLegalEntity) || null;
+
+    const mainClientName = mainClientObj.name || selectedMainClient;
+    const companyName = legalEntityObj ? legalEntityObj.company : mainClientName;
+    const targetClientId = legalEntityObj ? legalEntityObj.id : null;
 
     const formattedId = quoteId.replace(/\D/g, '').padStart(4, '0');
     if (!formattedId) {
@@ -1052,7 +1095,7 @@ export default function Presupuestos({
           const newProj = await onSaveProject({
             projectNumber: projectNumber,
             rawProjectName: rawProjectName,
-            clientId: clientObj.id,
+            clientId: targetClientId,
             superficie: 0,
             rentabilidad: 0,
             anio: new Date().getFullYear(),
@@ -1070,8 +1113,11 @@ export default function Presupuestos({
     const newQuote = {
       id: currentBudgetUuid || formattedId,
       quoteId: formattedId,
-      clientId: clientObj.id,
-      clientName: clientName,
+      mainClientId: mainClientObj.id || null,
+      mainClientName: mainClientName,
+      legalEntityId: targetClientId,
+      clientId: targetClientId,
+      clientName: mainClientName, // Display main client name in budget list as requested
       company: companyName,
       title: quoteTitle,
       date: ensureDDMMYYYY(issueDate),
@@ -1094,6 +1140,8 @@ export default function Presupuestos({
         message: 'El presupuesto ha sido registrado/actualizado exitosamente.'
       });
       // Reset form
+      setSelectedMainClient('');
+      setSelectedLegalEntity('');
       setSelectedClient('');
       setValidity(30);
       setQuoteTitle('Servicios ERP');
@@ -1707,7 +1755,7 @@ export default function Presupuestos({
                     </h3>
 
                     {/* Fila 1: N° Presupuesto y Cliente */}
-                    <div className="grid grid-cols-3 gap-md">
+                    <div className="grid grid-cols-2 gap-md">
                       <div className="flex flex-col gap-xs col-span-1">
                         <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">N° Presupuesto</label>
                         <input
@@ -1727,27 +1775,60 @@ export default function Presupuestos({
                           required
                         />
                       </div>
-                      <div className="flex flex-col gap-xs col-span-2">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Cliente</label>
+                      {/* Cliente Principal */}
+                      <div className="flex flex-col gap-xs col-span-1">
+                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
+                          <span>Cliente *</span>
+                        </label>
                         <select
-                          className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                          value={selectedClient}
-                          onChange={(e) => setSelectedClient(e.target.value)}
+                          className="w-full border-slate-300 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium"
+                          value={selectedMainClient}
+                          onChange={(e) => {
+                            setSelectedMainClient(e.target.value);
+                            setSelectedClient(e.target.value);
+                            setSelectedLegalEntity('');
+                          }}
                           required
                         >
-                          <option value="">Seleccione Cliente...</option>
-                          {clients.map(c => {
-                            const val = c.id;
-                            const label = c.company + (c.realClient ? ` (${c.realClient})` : '');
-                            return (
-                              <option key={c.id} value={val}>{label}</option>
-                            );
-                          })}
-                          {selectedClient && !clients.some(c => c.id === selectedClient) && (
-                            <option value={selectedClient}>{selectedClient}</option>
+                          <option value="">Seleccionar Cliente Principal...</option>
+                          {mainClients.map(mc => (
+                            <option key={mc.id} value={mc.id}>{mc.name}</option>
+                          ))}
+                          {selectedMainClient && !mainClients.some(mc => mc.id === selectedMainClient) && (
+                            <option value={selectedMainClient}>{selectedMainClient}</option>
                           )}
                         </select>
                       </div>
+                    </div>
+
+                    {/* Fila 2: Razón Social (Asociada al cliente principal - Opcional) */}
+                    <div className="flex flex-col gap-xs">
+                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
+                        <span>Razón Social</span>
+                        <span className="text-[11px] text-on-surface-variant font-normal">Opcional</span>
+                      </label>
+                      <select
+                        className="w-full border-slate-300 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium"
+                        value={selectedLegalEntity}
+                        onChange={(e) => setSelectedLegalEntity(e.target.value)}
+                      >
+                        <option value="">-- Sin Razón Social --</option>
+                        {clients
+                          .filter(c => {
+                            if (!selectedMainClient) return true;
+                            const mcObj = mainClients.find(mc => mc.id === selectedMainClient);
+                            const mcName = mcObj ? mcObj.name : selectedMainClient;
+                            return (
+                              c.mainClientId === selectedMainClient ||
+                              (c.realClient && c.realClient.toLowerCase() === mcName.toLowerCase()) ||
+                              (c.mainClientName && c.mainClientName.toLowerCase() === mcName.toLowerCase())
+                            );
+                          })
+                          .map(c => (
+                            <option key={c.id} value={c.id}>{c.company} ({c.rut})</option>
+                          ))
+                        }
+                      </select>
                     </div>
 
                     {/* Fila 2: Título / Proyecto */}
@@ -2371,7 +2452,9 @@ export default function Presupuestos({
 
                     {/* Fila: Tipo de Proyecto */}
                     <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Tipo de Proyecto</label>
+                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                        Tipo de Proyecto <span className="text-red-500">*</span>
+                      </label>
                       <select
                         className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
                         value={isCustomTipo ? 'custom' : tipo}
@@ -2385,6 +2468,7 @@ export default function Presupuestos({
                             setTipo(val);
                           }
                         }}
+                        required
                       >
                         <option value="">Seleccione un tipo...</option>
                         {PROJECT_TYPES.map(t => (
@@ -2572,7 +2656,7 @@ export default function Presupuestos({
                               <tr>
                                 <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
                                 <th className="p-2 border-b border-slate-200">Fecha</th>
-                                <th className="p-2 border-b border-slate-200 text-right w-28">UF</th>
+                                <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota (UF)</th>
                                 <th className="p-2 border-b border-slate-200">Comentario</th>
                                 <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
                               </tr>
@@ -2621,11 +2705,17 @@ export default function Presupuestos({
                                   <td className="p-1">
                                     <input
                                       type="text"
-                                      value={row.comment}
+                                      list={`approve-comments-options-${idx}`}
+                                      value={row.comment || ''}
                                       onChange={(e) => handleRowChange(idx, 'comment', e.target.value)}
-                                      placeholder="..."
+                                      placeholder="Seleccionar o escribir..."
                                       className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm"
                                     />
+                                    <datalist id={`approve-comments-options-${idx}`}>
+                                      {COMMENT_OPTIONS.map((opt) => (
+                                        <option key={opt} value={opt} />
+                                      ))}
+                                    </datalist>
                                   </td>
                                   <td className="p-1 w-12 text-center">
                                     <button

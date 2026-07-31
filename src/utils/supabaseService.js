@@ -6,12 +6,31 @@ const isUuid = (id) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 };
 
+// Helper: Map main client fields
+const mapMainClientFromDb = (dbMainClient) => ({
+  id: dbMainClient.id,
+  name: dbMainClient.name,
+  contactName: dbMainClient.contact_name || '',
+  contactEmail: dbMainClient.contact_email || '',
+  initials: dbMainClient.name 
+    ? dbMainClient.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() 
+    : 'CP'
+});
+
+const mapMainClientToDb = (mainClient) => ({
+  name: mainClient.name,
+  contact_name: mainClient.contactName || null,
+  contact_email: mainClient.contactEmail || null
+});
+
 // Helper: Map client fields between database (snake_case) and frontend (camelCase)
 const mapClientFromDb = (dbClient) => ({
   id: dbClient.id,
   rut: dbClient.rut,
   company: dbClient.company_name,
-  realClient: dbClient.real_client,
+  mainClientId: dbClient.main_client_id || null,
+  realClient: dbClient.main_clients ? dbClient.main_clients.name : (dbClient.real_client || ''),
+  mainClientName: dbClient.main_clients ? dbClient.main_clients.name : (dbClient.real_client || ''),
   giro: dbClient.giro,
   address: dbClient.address,
   comuna: dbClient.comuna,
@@ -27,7 +46,8 @@ const mapClientFromDb = (dbClient) => ({
 const mapClientToDb = (client) => ({
   rut: client.rut,
   company_name: client.company,
-  real_client: client.realClient,
+  main_client_id: client.mainClientId || null,
+  real_client: client.realClient || client.mainClientName || null,
   giro: client.giro,
   address: client.address,
   comuna: client.comuna,
@@ -38,43 +58,71 @@ const mapClientToDb = (client) => ({
 });
 
 // Helper: Map budget fields between database and frontend
-const mapBudgetFromDb = (dbBudget) => ({
-  id: dbBudget.id,
-  quoteId: dbBudget.budget_number,
-  clientId: dbBudget.client_id,
-  projectId: dbBudget.project_id,
-  clientName: dbBudget.clients 
-    ? (dbBudget.clients.company_name + (dbBudget.clients.real_client ? ` (${dbBudget.clients.real_client})` : '')) 
-    : '',
-  company: dbBudget.clients ? dbBudget.clients.company_name : '',
-  title: dbBudget.title,
-  date: dbBudget.date ? dbBudget.date.split('-').reverse().join('/') : '', // YYYY-MM-DD -> DD/MM/YYYY
-  amount: parseFloat(dbBudget.total_amount) || 0,
-  validity: `${dbBudget.validity_days} días`,
-  status: dbBudget.status,
-  items: dbBudget.budget_items ? dbBudget.budget_items.map(item => ({
-    id: item.id,
-    description: item.description,
-    qty: parseFloat(item.quantity) || 0,
-    price: parseFloat(item.unit_price) || 0
-  })) : [],
-  backupFiles: dbBudget.backup_files || []
-});
+const mapBudgetFromDb = (dbBudget) => {
+  if (!dbBudget) return null;
+
+  const mainClientName = dbBudget.main_clients 
+    ? dbBudget.main_clients.name 
+    : (dbBudget.clients 
+        ? (dbBudget.clients.main_clients ? dbBudget.clients.main_clients.name : (dbBudget.clients.real_client || dbBudget.clients.company_name))
+        : '');
+
+  const legalEntityCompany = dbBudget.clients ? dbBudget.clients.company_name : '';
+
+  return {
+    id: dbBudget.id,
+    quoteId: dbBudget.budget_number,
+    clientId: dbBudget.client_id,
+    mainClientId: dbBudget.main_client_id || null,
+    legalEntityId: dbBudget.legal_entity_id || dbBudget.client_id || null,
+    projectId: dbBudget.project_id,
+    clientName: mainClientName || legalEntityCompany || 'Cliente',
+    mainClientName: mainClientName,
+    company: legalEntityCompany || mainClientName,
+    title: dbBudget.title,
+    date: dbBudget.date ? dbBudget.date.split('-').reverse().join('/') : '', // YYYY-MM-DD -> DD/MM/YYYY
+    amount: parseFloat(dbBudget.total_amount) || 0,
+    validity: `${dbBudget.validity_days} días`,
+    status: dbBudget.status,
+    items: dbBudget.budget_items ? dbBudget.budget_items.map(item => ({
+      id: item.id,
+      description: item.description,
+      qty: parseFloat(item.quantity) || 0,
+      price: parseFloat(item.unit_price) || 0
+    })) : [],
+    backupFiles: dbBudget.backup_files || []
+  };
+};
 
 // Helper: Map project fields between database and frontend
-const mapProjectFromDb = (dbProject) => ({
-  id: dbProject.id,
-  projectNumber: dbProject.project_number,
-  projectName: `${dbProject.project_number}-${dbProject.project_name} - ${dbProject.clients ? dbProject.clients.company_name : ''}`, // Concatenated for legacy UI
-  rawProjectName: dbProject.project_name, // Clean name
-  superficie: parseFloat(dbProject.superficie) || 0,
-  rentabilidad: parseFloat(dbProject.rentabilidad) || 0,
-  anio: dbProject.year,
-  cliente: dbProject.clients ? dbProject.clients.company_name : '',
-  clientId: dbProject.client_id,
-  status: dbProject.status,
-  tipo: dbProject.tipo
-});
+const mapProjectFromDb = (dbProject) => {
+  if (!dbProject) return null;
+
+  const mainClientName = dbProject.main_clients 
+    ? dbProject.main_clients.name 
+    : (dbProject.clients 
+        ? (dbProject.clients.main_clients ? dbProject.clients.main_clients.name : (dbProject.clients.real_client || dbProject.clients.company_name))
+        : '');
+
+  const legalEntityCompany = dbProject.clients ? dbProject.clients.company_name : '';
+  const displayClient = legalEntityCompany || mainClientName || 'Cliente';
+
+  return {
+    id: dbProject.id,
+    projectNumber: dbProject.project_number,
+    projectName: `${dbProject.project_number}-${dbProject.project_name} - ${displayClient}`, // Concatenated for legacy UI
+    rawProjectName: dbProject.project_name, // Clean name
+    superficie: parseFloat(dbProject.superficie) || 0,
+    rentabilidad: parseFloat(dbProject.rentabilidad) || 0,
+    anio: dbProject.year,
+    cliente: displayClient,
+    clientId: dbProject.client_id,
+    mainClientId: dbProject.main_client_id || null,
+    legalEntityId: dbProject.legal_entity_id || dbProject.client_id || null,
+    status: dbProject.status,
+    tipo: dbProject.tipo
+  };
+};
 
 const mapInstallmentStatusToDb = (status) => {
   if (status === 'Factura emitida') return 'Facturado';
@@ -201,17 +249,99 @@ const moveQuoteFiles = async (budgetNumber, oldStatus, newStatus, existingFiles)
   return movedFiles;
 };
 
-// Main Database Service
 export const supabaseService = {
-  // CLIENTS CRM CRUD
-  async getClients() {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('company_name', { ascending: true });
+  // MAIN CLIENTS CRM CRUD
+  async getMainClients() {
+    try {
+      const { data, error } = await supabase
+        .from('main_clients')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) {
+        console.warn("Table main_clients not available or error:", error.message);
+        return [];
+      }
+      return data.map(mapMainClientFromDb);
+    } catch (err) {
+      console.warn("Error fetching main clients:", err.message);
+      return [];
+    }
+  },
+
+  async saveMainClient(mainClient) {
+    const dbData = mapMainClientToDb(mainClient);
+    
+    try {
+      if (mainClient.id && isUuid(mainClient.id)) {
+        // Update
+        const { data, error } = await supabase
+          .from('main_clients')
+          .update(dbData)
+          .eq('id', mainClient.id)
+          .select();
+        
+        if (error) {
+          if (error.message && error.message.includes('main_clients')) {
+            throw new Error("La tabla 'main_clients' no existe en Supabase. Por favor ejecute el script SQL en el Editor SQL de Supabase.");
+          }
+          throw error;
+        }
+        return mapMainClientFromDb(data[0]);
+      } else {
+        // Insert
+        const { data, error } = await supabase
+          .from('main_clients')
+          .insert([dbData])
+          .select();
+        
+        if (error) {
+          if (error.message && error.message.includes('main_clients')) {
+            throw new Error("La tabla 'main_clients' no existe en Supabase. Por favor ejecute el script SQL en el Editor SQL de Supabase.");
+          }
+          throw error;
+        }
+        return mapMainClientFromDb(data[0]);
+      }
+    } catch (err) {
+      if (err.message && err.message.includes('main_clients')) {
+        throw new Error("La tabla 'main_clients' no existe en Supabase. Por favor ejecute el script SQL proporcionado en el Editor SQL de Supabase.");
+      }
+      throw err;
+    }
+  },
+
+  async deleteMainClient(id) {
+    const { error } = await supabase
+      .from('main_clients')
+      .delete()
+      .eq('id', id);
     
     if (error) throw error;
-    return data.map(mapClientFromDb);
+    return id;
+  },
+
+  // CLIENTS (Razones Sociales) CRM CRUD
+  async getClients() {
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*, main_clients(*)')
+        .order('company_name', { ascending: true });
+      
+      if (error) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('clients')
+          .select('*')
+          .order('company_name', { ascending: true });
+        if (fallbackError) throw fallbackError;
+        return fallbackData.map(mapClientFromDb);
+      }
+      return data.map(mapClientFromDb);
+    } catch (err) {
+      console.error("Error in getClients:", err);
+      throw err;
+    }
   },
 
   async saveClient(client) {
@@ -223,18 +353,33 @@ export const supabaseService = {
         .from('clients')
         .update(dbData)
         .eq('id', client.id)
-        .select();
+        .select('*, main_clients(*)');
       
-      if (error) throw error;
+      if (error) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('clients')
+          .update(dbData)
+          .eq('id', client.id)
+          .select();
+        if (fallbackError) throw fallbackError;
+        return mapClientFromDb(fallbackData[0]);
+      }
       return mapClientFromDb(data[0]);
     } else {
       // Insert
       const { data, error } = await supabase
         .from('clients')
         .insert([dbData])
-        .select();
+        .select('*, main_clients(*)');
       
-      if (error) throw error;
+      if (error) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('clients')
+          .insert([dbData])
+          .select();
+        if (fallbackError) throw fallbackError;
+        return mapClientFromDb(fallbackData[0]);
+      }
       return mapClientFromDb(data[0]);
     }
   },
@@ -251,13 +396,25 @@ export const supabaseService = {
 
   // BUDGETS CRUD
   async getBudgets() {
-    const { data, error } = await supabase
-      .from('budgets')
-      .select('*, clients(*), budget_items(*)')
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    return data.map(mapBudgetFromDb);
+    try {
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('budgets')
+          .select('*, clients:clients!client_id(*), budget_items(*)')
+          .order('created_at', { ascending: false });
+        if (fallbackError) throw fallbackError;
+        return fallbackData.map(mapBudgetFromDb).filter(Boolean);
+      }
+      return data.map(mapBudgetFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Error in getBudgets:", err);
+      throw err;
+    }
   },
 
   async saveQuote(quote, items, billingInstallments) {
@@ -306,7 +463,9 @@ export const supabaseService = {
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
       const budgetData = {
-        client_id: quote.clientId,
+        client_id: quote.clientId || quote.legalEntityId || null,
+        main_client_id: quote.mainClientId || null,
+        legal_entity_id: quote.legalEntityId || quote.clientId || null,
         project_id: quote.projectId || (oldBudget ? oldBudget.project_id : null),
         title: quote.title,
         date: formattedDate,
@@ -329,7 +488,9 @@ export const supabaseService = {
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
       const budgetData = {
-        client_id: quote.clientId,
+        client_id: quote.clientId || quote.legalEntityId || null,
+        main_client_id: quote.mainClientId || null,
+        legal_entity_id: quote.legalEntityId || quote.clientId || null,
         project_id: quote.projectId || null,
         title: quote.title,
         date: formattedDate,
@@ -431,13 +592,23 @@ export const supabaseService = {
     }
 
     // Retrieve fully hydrated budget
-    const { data: finalBudget, error: finalError } = await supabase
+    let finalBudget = null;
+    const { data: hydratedBudget, error: finalError } = await supabase
       .from('budgets')
-      .select('*, clients(*), budget_items(*)')
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
       .eq('id', savedBudget.id)
       .single();
 
-    if (finalError) throw finalError;
+    if (finalError) {
+      const { data: fallbackBudget } = await supabase
+        .from('budgets')
+        .select('*, clients:clients!client_id(*), budget_items(*)')
+        .eq('id', savedBudget.id)
+        .single();
+      finalBudget = fallbackBudget;
+    } else {
+      finalBudget = hydratedBudget;
+    }
 
     return {
       budget: mapBudgetFromDb(finalBudget),
@@ -480,18 +651,27 @@ export const supabaseService = {
   async getProjects() {
     const { data, error } = await supabase
       .from('projects')
-      .select('*, clients(*)')
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))')
       .order('created_at', { ascending: false });
     
-    if (error) throw error;
-    return data.map(mapProjectFromDb);
+    if (error) {
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('projects')
+        .select('*, clients:clients!client_id(*)')
+        .order('created_at', { ascending: false });
+      if (fallbackError) throw fallbackError;
+      return fallbackData.map(mapProjectFromDb).filter(Boolean);
+    }
+    return data.map(mapProjectFromDb).filter(Boolean);
   },
 
   async saveProject(project) {
     const projectData = {
       project_number: project.projectNumber,
       project_name: project.rawProjectName,
-      client_id: project.clientId,
+      client_id: project.clientId || project.legalEntityId || null,
+      main_client_id: project.mainClientId || null,
+      legal_entity_id: project.legalEntityId || project.clientId || null,
       superficie: parseFloat(project.superficie) || 0,
       rentabilidad: parseFloat(project.rentabilidad) || 0,
       year: parseInt(project.anio) || new Date().getFullYear(),
@@ -505,7 +685,7 @@ export const supabaseService = {
         .from('projects')
         .update(projectData)
         .eq('id', project.id)
-        .select('*, clients(*)');
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))');
       
       if (error) throw error;
       return mapProjectFromDb(data[0]);
@@ -514,7 +694,7 @@ export const supabaseService = {
       const { data, error } = await supabase
         .from('projects')
         .insert([projectData])
-        .select('*, clients(*)');
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))');
       
       if (error) throw error;
       return mapProjectFromDb(data[0]);
@@ -663,7 +843,9 @@ export const supabaseService = {
     const projectData = {
       project_number: projectForm.projectNumber,
       project_name: projectForm.rawProjectName,
-      client_id: projectForm.clientId,
+      client_id: projectForm.clientId || projectForm.legalEntityId || null,
+      main_client_id: projectForm.mainClientId || null,
+      legal_entity_id: projectForm.legalEntityId || projectForm.clientId || null,
       superficie: parseFloat(projectForm.superficie) || 0,
       rentabilidad: parseFloat(projectForm.rentabilidad) || 0,
       year: parseInt(projectForm.anio) || new Date().getFullYear(),
@@ -677,7 +859,7 @@ export const supabaseService = {
         .from('projects')
         .update(projectData)
         .eq('id', projectForm.id)
-        .select('*, clients(*)')
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))')
         .single();
       dbProj = data;
       projError = error;
@@ -685,7 +867,7 @@ export const supabaseService = {
       const { data, error } = await supabase
         .from('projects')
         .insert([projectData])
-        .select('*, clients(*)')
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))')
         .single();
       dbProj = data;
       projError = error;
@@ -845,7 +1027,7 @@ export const supabaseService = {
     // Retrieve fresh budgets and installments to sync states
     const { data: freshBudget } = await supabase
       .from('budgets')
-      .select('*, clients(*), budget_items(*)')
+      .select('*, clients:clients!client_id(*), budget_items(*)')
       .eq('id', budgetId)
       .single();
 
@@ -887,7 +1069,7 @@ export const supabaseService = {
         title: newTitle
       })
       .eq('id', budgetId)
-      .select('*, clients(*), budget_items(*)');
+      .select('*, clients:clients!client_id(*), budget_items(*)');
     if (error) throw error;
     return mapBudgetFromDb(data[0]);
   },
@@ -898,7 +1080,7 @@ export const supabaseService = {
       .from('budgets')
       .update({ project_id: projectId })
       .eq('id', budgetId)
-      .select('*, clients(*), budget_items(*)');
+      .select('*, clients:clients!client_id(*), budget_items(*)');
 
     if (error) throw error;
 

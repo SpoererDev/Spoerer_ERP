@@ -264,6 +264,8 @@ export default function Proyectos({
         rentabilidad: parseFloat(editRentabilidad) || 0,
         anio: parseInt(editAnio) || new Date().getFullYear(),
         clientId: selectedCli ? selectedCli.id : editingProject.clientId,
+        mainClientId: selectedCli ? selectedCli.mainClientId : editingProject.mainClientId,
+        legalEntityId: selectedCli ? selectedCli.id : editingProject.legalEntityId,
         status: editingProject.status,
         tipo: editTipo || null
       });

@@ -61,14 +61,14 @@ export default function Facturacion({
       currency: 'CLP',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(amount);
+    }).format(Math.round(amount));
   };
 
-  const formatUF = (uf) => {
+  const formatUF = (uf, decimals = 2) => {
     if (uf === null || uf === undefined || isNaN(uf)) return '0 UF';
     return `${new Intl.NumberFormat('es-CL', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
     }).format(uf)} UF`;
   };
 
@@ -192,11 +192,12 @@ export default function Facturacion({
         const client = clients.find(c => c.id === clientId);
         const clientCompany = client?.company?.toLowerCase() || '';
         const clientName = client?.name?.toLowerCase() || '';
+        const projectClient = project?.cliente?.toLowerCase() || '';
         
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
 
         const matchesProject = projectCode.includes(term) || projectName.includes(term);
-        const matchesClient = clientCompany.includes(term) || clientName.includes(term);
+        const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term);
         const matchesInvoice = invNum.includes(term);
 
         if (!matchesProject && !matchesClient && !matchesInvoice) return false;
@@ -382,7 +383,7 @@ export default function Facturacion({
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
         "Estado F#": installment.status || '',
         "Tipo": '',
-        "Cliente": client ? (client.company || client.name || '') : '',
+        "Cliente": client ? (client.company || client.name || '') : (project ? project.cliente : ''),
         "N° Proyecto": project ? project.projectNumber || '' : '',
         "Revisor": '',
         "Firma": '',
@@ -480,7 +481,7 @@ export default function Facturacion({
   const openPaymentModal = (installment) => {
     setSelectedInstallment(installment);
     setActualPaymentDate(installment.actualPaymentDate || new Date().toISOString().split('T')[0]);
-    setTotalClpReceived(installment.total_clp ? installment.total_clp.toString() : '');
+    setTotalClpReceived(installment.total_clp !== null && installment.total_clp !== undefined ? Math.round(installment.total_clp).toLocaleString('es-CL') : '');
     setPaymentFile(null);
     setPaymentComment(installment.comment || '');
     setIsPaymentModalOpen(true);
@@ -536,7 +537,10 @@ export default function Facturacion({
 
   const handleSavePayment = async (e) => {
     e.preventDefault();
-    if (!totalClpReceived || isNaN(parseFloat(totalClpReceived))) {
+    const rawClp = totalClpReceived ? totalClpReceived.toString().replace(/\D/g, '') : '';
+    const numericClp = parseFloat(rawClp);
+
+    if (!rawClp || isNaN(numericClp)) {
       alert("Por favor, ingrese un monto en pesos válido.");
       return;
     }
@@ -554,7 +558,7 @@ export default function Facturacion({
       const updates = {
         status: 'Pagada',
         actualPaymentDate,
-        total_clp: parseFloat(totalClpReceived),
+        total_clp: numericClp,
         paymentBackupUrl: fileUrl,
         comment: paymentComment.trim()
       };
@@ -608,7 +612,7 @@ export default function Facturacion({
           <div className="space-y-1">
             <span className="text-label-md text-slate-800 uppercase font-bold tracking-wider">Por Facturar (Planificado)</span>
             <div className="font-display-lg text-[34px] text-slate-950 font-extrabold">
-              {formatUF(stats.totalPorFacturarUf)}
+              {formatUF(stats.totalPorFacturarUf, 0)}
             </div>
           </div>
           <div className="p-3 bg-slate-100 rounded-full text-slate-600 flex items-center justify-center">
@@ -647,7 +651,7 @@ export default function Facturacion({
           <div className="space-y-1">
             <span className="text-label-md text-red-800 uppercase font-bold tracking-wider font-bold">Vencido Atrasado</span>
             <div className="font-display-lg text-[34px] text-red-950 font-extrabold">
-              {formatUF(stats.totalVencidoUf)}
+              {formatUF(stats.totalVencidoUf, 0)}
             </div>
           </div>
           <div className="p-3 bg-red-100 rounded-full text-red-600 flex items-center justify-center">
@@ -1251,10 +1255,14 @@ export default function Facturacion({
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Monto Recibido en CLP ($)</label>
                 <input 
-                  type="number"
+                  type="text"
                   className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
                   value={totalClpReceived}
-                  onChange={(e) => setTotalClpReceived(e.target.value)}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/\D/g, '');
+                    setTotalClpReceived(raw ? Number(raw).toLocaleString('es-CL') : '');
+                  }}
+                  placeholder="0"
                   required
                   disabled={isSaving}
                 />
