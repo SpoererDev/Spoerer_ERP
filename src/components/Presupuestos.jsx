@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 
@@ -179,9 +179,18 @@ export default function Presupuestos({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [tipo, setTipo] = useState('');
   const [isCustomTipo, setIsCustomTipo] = useState(false);
+  const [encargado, setEncargado] = useState('');
   const [isApproving, setIsApproving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const suggestionsRef = useRef(null);
+
+  const adminUsers = useMemo(() => {
+    if (!users || !Array.isArray(users)) return [];
+    return users.filter(u => {
+      const roleLower = (u.role || '').toLowerCase();
+      return roleLower === 'admin' || roleLower === 'administrador' || roleLower === 'system administrator' || roleLower.includes('admin');
+    });
+  }, [users]);
 
   // Reviewers modal states
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -354,6 +363,7 @@ export default function Presupuestos({
         const existingTipo = existing.tipo || '';
         setTipo(existingTipo);
         setIsCustomTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
+        setEncargado(existing.encargado || '');
       }
     } else {
       setMatchedProjectId(null);
@@ -574,7 +584,8 @@ export default function Presupuestos({
       superficie: parseFloat(superficie) || 0,
       rentabilidad: parseFloat(rentabilidad) || 0,
       anio: parseInt(anio) || new Date().getFullYear(),
-      tipo: tipo || null
+      tipo: tipo || null,
+      encargado: encargado || null
     };
 
     const budgetForm = {
@@ -601,6 +612,7 @@ export default function Presupuestos({
       setShowSuggestions(false);
       setTipo('');
       setIsCustomTipo(false);
+      setEncargado('');
     } catch (err) {
       setValidationError(err.message || 'Error al aprobar presupuesto.');
     } finally {
@@ -645,6 +657,7 @@ export default function Presupuestos({
         setAnio(currentYear);
         setTipo('');
         setIsCustomTipo(false);
+        setEncargado('');
 
         setValorProyecto(quote.amount || 0);
 
@@ -2318,6 +2331,7 @@ export default function Presupuestos({
                   setShowSuggestions(false);
                   setTipo('');
                   setIsCustomTipo(false);
+                  setEncargado('');
                 }}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all"
               >
@@ -2437,17 +2451,39 @@ export default function Presupuestos({
                       </div>
                     </div>
 
-                    {/* Fila: Año del Proyecto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Año del Proyecto</label>
-                      <input
-                        className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                        type="number"
-                        value={anio}
-                        onChange={(e) => setAnio(e.target.value)}
-                        placeholder="Ej: 2026"
-                        required
-                      />
+                    {/* Fila: Año y Encargado del Proyecto */}
+                    <div className="grid grid-cols-12 gap-md">
+                      <div className="col-span-4 sm:col-span-3 flex flex-col gap-xs">
+                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Año</label>
+                        <input
+                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                          type="number"
+                          value={anio}
+                          onChange={(e) => setAnio(e.target.value)}
+                          placeholder="2026"
+                          required
+                        />
+                      </div>
+                      <div className="col-span-8 sm:col-span-9 flex flex-col gap-xs">
+                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                          Encargado del Proyecto
+                        </label>
+                        <select
+                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
+                          value={encargado}
+                          onChange={(e) => setEncargado(e.target.value)}
+                        >
+                          <option value="">Seleccione un encargado...</option>
+                          {adminUsers.map((u) => (
+                            <option key={u.id} value={u.name}>
+                              {u.name}
+                            </option>
+                          ))}
+                          {encargado && !adminUsers.some((u) => u.name === encargado) && (
+                            <option value={encargado}>{encargado}</option>
+                          )}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Fila: Tipo de Proyecto */}

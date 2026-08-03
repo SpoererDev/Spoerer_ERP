@@ -120,7 +120,8 @@ const mapProjectFromDb = (dbProject) => {
     mainClientId: dbProject.main_client_id || null,
     legalEntityId: dbProject.legal_entity_id || dbProject.client_id || null,
     status: dbProject.status,
-    tipo: dbProject.tipo
+    tipo: dbProject.tipo,
+    encargado: dbProject.encargado || ''
   };
 };
 
@@ -676,7 +677,8 @@ export const supabaseService = {
       rentabilidad: parseFloat(project.rentabilidad) || 0,
       year: parseInt(project.anio) || new Date().getFullYear(),
       status: project.status || 'Activo',
-      tipo: project.tipo || null
+      tipo: project.tipo || null,
+      encargado: project.encargado || null
     };
 
     if (project.id && isUuid(project.id)) {
@@ -850,7 +852,8 @@ export const supabaseService = {
       rentabilidad: parseFloat(projectForm.rentabilidad) || 0,
       year: parseInt(projectForm.anio) || new Date().getFullYear(),
       status: 'Activo',
-      tipo: projectForm.tipo || null
+      tipo: projectForm.tipo || null,
+      encargado: projectForm.encargado || null
     };
 
     let dbProj, projError;

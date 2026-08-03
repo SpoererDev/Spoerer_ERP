@@ -22,6 +22,7 @@ export default function Proyectos({
   budgets,
   installments,
   extraCosts,
+  users = [],
   onUpdateInstallment,
   onDisassociateBudget,
   onAssociateBudget,
@@ -33,7 +34,9 @@ export default function Proyectos({
   searchTerm,
   setSearchTerm,
   tipoFilter,
-  setTipoFilter
+  setTipoFilter,
+  encargadoFilter = 'Todos',
+  setEncargadoFilter
 }) {
   const [expandedProjectId, setExpandedProjectId] = useState(null);
 
@@ -122,7 +125,35 @@ export default function Proyectos({
   const [editCliente, setEditCliente] = useState('');
   const [editTipo, setEditTipo] = useState('');
   const [isCustomEditTipo, setIsCustomEditTipo] = useState(false);
+  const [editEncargado, setEditEncargado] = useState('');
   const [disassociatingBudgetId, setDisassociatingBudgetId] = useState(null);
+
+  const adminUsers = useMemo(() => {
+    if (!users || !Array.isArray(users)) return [];
+    return users.filter(u => {
+      const roleLower = (u.role || '').toLowerCase();
+      return roleLower === 'admin' || roleLower === 'administrador' || roleLower === 'system administrator' || roleLower.includes('admin');
+    });
+  }, [users]);
+
+  const availableEncargados = useMemo(() => {
+    const set = new Set();
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        if (p.encargado && p.encargado.trim() !== '') {
+          set.add(p.encargado.trim());
+        }
+      });
+    }
+    if (adminUsers && Array.isArray(adminUsers)) {
+      adminUsers.forEach(u => {
+        if (u.name && u.name.trim() !== '') {
+          set.add(u.name.trim());
+        }
+      });
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [projects, adminUsers]);
 
   // Custom modal / alert states
   const [notification, setNotification] = useState(null); // { type: 'success' | 'error', title: string, message: string }
@@ -178,22 +209,30 @@ export default function Proyectos({
   const handleClearFilters = () => {
     setSearchTerm('');
     setTipoFilter(null);
+    setEncargadoFilter('Todos');
   };
 
   // Search and Project Type filter
   const filteredProjects = projects.filter(project => {
-    // 1. Tipo filter
+    // 1. Encargado filter
+    if (encargadoFilter && encargadoFilter !== 'Todos') {
+      if (project.encargado !== encargadoFilter) {
+        return false;
+      }
+    }
+    // 2. Tipo filter
     if (tipoFilter !== null) {
       const pTipo = project.tipo || '';
       if (!tipoFilter.includes(pTipo)) {
         return false;
       }
     }
-    // 2. Search query filter
+    // 3. Search query filter
     const term = searchTerm.toLowerCase();
     return (
       project.projectName.toLowerCase().includes(term) ||
       project.cliente.toLowerCase().includes(term) ||
+      (project.encargado && project.encargado.toLowerCase().includes(term)) ||
       project.anio.toString().includes(term)
     );
   });
@@ -233,6 +272,7 @@ export default function Proyectos({
     const existingTipo = project.tipo || '';
     setEditTipo(existingTipo);
     setIsCustomEditTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
+    setEditEncargado(project.encargado || '');
   };
 
   // Save project general parameters edit
@@ -267,7 +307,8 @@ export default function Proyectos({
         mainClientId: selectedCli ? selectedCli.mainClientId : editingProject.mainClientId,
         legalEntityId: selectedCli ? selectedCli.id : editingProject.legalEntityId,
         status: editingProject.status,
-        tipo: editTipo || null
+        tipo: editTipo || null,
+        encargado: editEncargado || null
       });
       setNotification({
         type: 'success',
@@ -667,6 +708,21 @@ export default function Proyectos({
               </div>
             )}
           </div>
+
+          {/* Encargado Filter */}
+          <div className="flex flex-col w-full sm:w-[220px]">
+            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold text-left">Encargado</label>
+            <select
+              value={encargadoFilter}
+              onChange={(e) => setEncargadoFilter(e.target.value)}
+              className="w-full px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md text-primary font-medium hover:bg-slate-50 transition-all h-[38px] text-left outline-none"
+            >
+              <option value="Todos">Todos los encargados</option>
+              {availableEncargados.map(enc => (
+                <option key={enc} value={enc}>{enc}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </section>
 
@@ -699,9 +755,19 @@ export default function Proyectos({
                       <span className="material-symbols-outlined text-[20px]">folder_special</span>
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={project.projectName}>
-                        {project.projectName}
-                      </h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={project.projectName}>
+                          {project.projectName}
+                        </h3>
+                        {projectBudgets.length === 0 && (
+                          <span
+                            className="material-symbols-outlined text-amber-500 text-[20px] flex-shrink-0 cursor-help"
+                            title="Este proyecto no tiene ningún presupuesto asociado"
+                          >
+                            warning
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-x-base gap-y-1 text-body-sm text-on-surface-variant mt-1 items-center font-medium">
                         <span className="font-semibold text-on-surface-variant">
                           {project.cliente}
@@ -713,6 +779,15 @@ export default function Proyectos({
                             <span className="text-outline-variant">•</span>
                             <span className="bg-secondary-container text-primary text-[11px] font-bold px-2 py-0.5 rounded-full border border-secondary/20 uppercase tracking-wider">
                               {project.tipo}
+                            </span>
+                          </>
+                        )}
+                        {project.encargado && (
+                          <>
+                            <span className="text-outline-variant">•</span>
+                            <span className="bg-slate-100 text-slate-800 text-[11px] font-bold px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[13px] text-secondary">person</span>
+                              Encargado: {project.encargado}
                             </span>
                           </>
                         )}
@@ -1116,6 +1191,24 @@ export default function Proyectos({
                       required
                     />
                   )}
+                </div>
+
+                {/* Campo: Encargado del Proyecto */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Encargado del Proyecto</label>
+                  <select
+                    className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
+                    value={editEncargado}
+                    onChange={(e) => setEditEncargado(e.target.value)}
+                  >
+                    <option value="">Seleccione un encargado (Solo Admins)...</option>
+                    {adminUsers.map(u => (
+                      <option key={u.id} value={u.name}>{u.name}</option>
+                    ))}
+                    {editEncargado && !adminUsers.some(u => u.name === editEncargado) && (
+                      <option value={editEncargado}>{editEncargado}</option>
+                    )}
+                  </select>
                 </div>
               </div>
 

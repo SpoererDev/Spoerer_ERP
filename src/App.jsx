@@ -44,10 +44,12 @@ export default function App() {
   const [facturacionTemporalFilter, setFacturacionTemporalFilter] = useState('Todos');
   const [facturacionStatusFilter, setFacturacionStatusFilter] = useState('Todos');
   const [facturacionClientFilter, setFacturacionClientFilter] = useState('Todos');
+  const [facturacionEncargadoFilter, setFacturacionEncargadoFilter] = useState('Todos');
   const [facturacionSearch, setFacturacionSearch] = useState('');
 
   const [proyectosSearch, setProyectosSearch] = useState('');
   const [proyectosTipoFilter, setProyectosTipoFilter] = useState(null);
+  const [proyectosEncargadoFilter, setProyectosEncargadoFilter] = useState('Todos');
 
   const [usuariosSearch, setUsuariosSearch] = useState('');
 
@@ -558,14 +560,20 @@ export default function App() {
               budgets={quotes}
               installments={installments}
               clients={clients}
+              mainClients={mainClients}
+              users={users}
               onUpdateInstallment={handleUpdateInstallment}
               onSaveInstallments={handleSaveInstallments}
+              onSaveProject={handleSaveProject}
+              onAddClient={addClient}
               temporalFilter={facturacionTemporalFilter}
               setTemporalFilter={setFacturacionTemporalFilter}
               statusFilter={facturacionStatusFilter}
               setStatusFilter={setFacturacionStatusFilter}
               clientFilter={facturacionClientFilter}
               setClientFilter={setFacturacionClientFilter}
+              encargadoFilter={facturacionEncargadoFilter}
+              setEncargadoFilter={setFacturacionEncargadoFilter}
               searchTerm={facturacionSearch}
               setSearchTerm={setFacturacionSearch}
             />
@@ -590,6 +598,7 @@ export default function App() {
               budgets={quotes}
               installments={installments}
               extraCosts={extraCosts}
+              users={users}
               onUpdateInstallment={handleUpdateInstallment}
               onDisassociateBudget={handleDisassociateBudget}
               onAssociateBudget={handleAssociateBudget}
@@ -602,6 +611,8 @@ export default function App() {
               setSearchTerm={setProyectosSearch}
               tipoFilter={proyectosTipoFilter}
               setTipoFilter={setProyectosTipoFilter}
+              encargadoFilter={proyectosEncargadoFilter}
+              setEncargadoFilter={setProyectosEncargadoFilter}
             />
           )}
         </>

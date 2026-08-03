@@ -2,20 +2,27 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import * as XLSX from 'xlsx';
 import InstallmentsModal from './InstallmentsModal';
+import { validateRut, formatRut } from '../utils/validation';
 
 export default function Facturacion({
   projects,
   budgets,
   installments,
   clients,
+  mainClients = [],
   onUpdateInstallment,
   onSaveInstallments,
+  onSaveProject,
+  onAddClient,
   temporalFilter,
   setTemporalFilter,
   statusFilter,
   setStatusFilter,
   clientFilter,
   setClientFilter,
+  encargadoFilter = 'Todos',
+  setEncargadoFilter,
+  users = [],
   searchTerm,
   setSearchTerm
 }) {
@@ -35,8 +42,56 @@ export default function Facturacion({
   const [isInstallmentsModalOpen, setIsInstallmentsModalOpen] = useState(false);
   const [activeBudgetForInstallments, setActiveBudgetForInstallments] = useState(null);
 
+  // Assign Razón Social Modal State
+  const [isAssignRazonSocialModalOpen, setIsAssignRazonSocialModalOpen] = useState(false);
+  const [targetProjectForRazonSocial, setTargetProjectForRazonSocial] = useState(null);
+  const [assignMode, setAssignMode] = useState('select'); // 'select' | 'create'
+  const [selectedRazonSocialId, setSelectedRazonSocialId] = useState('');
+  const [razonSocialSearch, setRazonSocialSearch] = useState('');
+  const [isSavingRazonSocial, setIsSavingRazonSocial] = useState(false);
+  const [assignError, setAssignError] = useState('');
+
+  // Form state for creating new Razón Social on the fly
+  const [newRazonSocialCompany, setNewRazonSocialCompany] = useState('');
+  const [newRazonSocialRut, setNewRazonSocialRut] = useState('');
+  const [newRazonSocialGiro, setNewRazonSocialGiro] = useState('');
+  const [newRazonSocialAddress, setNewRazonSocialAddress] = useState('');
+  const [newRazonSocialComuna, setNewRazonSocialComuna] = useState('');
+  const [newRazonSocialCiudad, setNewRazonSocialCiudad] = useState('');
+  const [newRazonSocialContactName, setNewRazonSocialContactName] = useState('');
+  const [newRazonSocialContactEmail, setNewRazonSocialContactEmail] = useState('');
+  const [newRazonSocialContactPhone, setNewRazonSocialContactPhone] = useState('');
+
   // --- FORM STATES ---
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- ENCARGADOS COMPUTATION ---
+  const adminUsers = useMemo(() => {
+    if (!users || !Array.isArray(users)) return [];
+    return users.filter(u => {
+      const roleLower = (u.role || '').toLowerCase();
+      return roleLower === 'admin' || roleLower === 'administrador' || roleLower === 'system administrator' || roleLower.includes('admin');
+    });
+  }, [users]);
+
+  const availableEncargados = useMemo(() => {
+    const set = new Set();
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        if (p.encargado && p.encargado.trim() !== '') {
+          set.add(p.encargado.trim());
+        }
+      });
+    }
+    if (adminUsers && Array.isArray(adminUsers)) {
+      adminUsers.forEach(u => {
+        if (u.name && u.name.trim() !== '') {
+          set.add(u.name.trim());
+        }
+      });
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [projects, adminUsers]);
   
   // Emit Invoice Form
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -182,12 +237,16 @@ export default function Facturacion({
       // 3. Client Filter
       if (clientFilter !== 'Todos' && clientId !== clientFilter) return false;
 
-      // 4. Text Search
+      // 4. Encargado Filter
+      if (encargadoFilter && encargadoFilter !== 'Todos' && project?.encargado !== encargadoFilter) return false;
+
+      // 5. Text Search
       if (searchTerm.trim() !== '') {
         const term = searchTerm.toLowerCase();
         
         const projectCode = project?.projectNumber?.toLowerCase() || '';
         const projectName = project?.rawProjectName?.toLowerCase() || '';
+        const projectEncargado = project?.encargado?.toLowerCase() || '';
         
         const client = clients.find(c => c.id === clientId);
         const clientCompany = client?.company?.toLowerCase() || '';
@@ -196,7 +255,7 @@ export default function Facturacion({
         
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
 
-        const matchesProject = projectCode.includes(term) || projectName.includes(term);
+        const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
         const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term);
         const matchesInvoice = invNum.includes(term);
 
@@ -205,7 +264,7 @@ export default function Facturacion({
 
       return true;
     });
-  }, [installments, projects, clients, temporalFilter, statusFilter, clientFilter, searchTerm, todayStr]);
+  }, [installments, projects, clients, temporalFilter, statusFilter, clientFilter, encargadoFilter, searchTerm, todayStr]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -467,8 +526,133 @@ export default function Facturacion({
     XLSX.writeFile(workbook, "Reporte_Facturacion.xlsx");
   };
 
+  // --- RAZÓN SOCIAL HELPERS & HANDLERS ---
+  const getProjectRazonSocial = (project, projectBudgets = []) => {
+    if (!project) return null;
+
+    const targetId = project.clientId || project.legalEntityId ||
+      (projectBudgets.length > 0 ? (projectBudgets[0]?.budget?.clientId || projectBudgets[0]?.budget?.legalEntityId) : null);
+
+    if (targetId) {
+      const found = clients.find(c => c.id === targetId && c.company);
+      if (found) return found;
+    }
+
+    if (project.cliente && project.cliente !== 'Cliente no definido') {
+      const foundByName = clients.find(c => c.company && c.company.trim().toLowerCase() === project.cliente.trim().toLowerCase());
+      if (foundByName) return foundByName;
+    }
+
+    return null;
+  };
+
+  const handleOpenAssignRazonSocialModal = (project) => {
+    const pBudgets = (groupedData.find(g => g.project?.id === project.id)?.budgets) || [];
+    const currentRazonSocial = getProjectRazonSocial(project, pBudgets);
+
+    setTargetProjectForRazonSocial(project);
+    setSelectedRazonSocialId(currentRazonSocial ? currentRazonSocial.id : '');
+    setAssignMode('select');
+    setRazonSocialSearch('');
+    setAssignError('');
+
+    setNewRazonSocialCompany('');
+    setNewRazonSocialRut('');
+    setNewRazonSocialGiro('');
+    setNewRazonSocialAddress('');
+    setNewRazonSocialComuna('');
+    setNewRazonSocialCiudad('');
+    setNewRazonSocialContactName('');
+    setNewRazonSocialContactEmail('');
+    setNewRazonSocialContactPhone('');
+
+    setIsAssignRazonSocialModalOpen(true);
+  };
+
+  const handleSaveAssignRazonSocial = async () => {
+    if (!targetProjectForRazonSocial) return;
+    setAssignError('');
+    setIsSavingRazonSocial(true);
+
+    try {
+      let clientToAssignId = selectedRazonSocialId;
+      let clientCompanyToAssign = '';
+
+      if (assignMode === 'create') {
+        if (!newRazonSocialCompany.trim()) {
+          setAssignError('Por favor, ingrese el nombre de la Razón Social.');
+          setIsSavingRazonSocial(false);
+          return;
+        }
+        if (newRazonSocialRut.trim() && !validateRut(newRazonSocialRut)) {
+          setAssignError('El RUT ingresado no es válido.');
+          setIsSavingRazonSocial(false);
+          return;
+        }
+
+        const newClientData = {
+          company: newRazonSocialCompany.trim(),
+          rut: formatRut(newRazonSocialRut),
+          giro: newRazonSocialGiro.trim(),
+          address: newRazonSocialAddress.trim(),
+          comuna: newRazonSocialComuna.trim(),
+          ciudad: newRazonSocialCiudad.trim(),
+          name: newRazonSocialContactName.trim(),
+          email: newRazonSocialContactEmail.trim(),
+          phone: newRazonSocialContactPhone.trim(),
+          mainClientId: targetProjectForRazonSocial.mainClientId || null,
+          realClient: targetProjectForRazonSocial.cliente || ''
+        };
+
+        if (onAddClient) {
+          const savedClient = await onAddClient(newClientData);
+          clientToAssignId = savedClient.id;
+          clientCompanyToAssign = savedClient.company;
+        }
+      } else {
+        if (!clientToAssignId) {
+          setAssignError('Por favor, seleccione una Razón Social de la lista.');
+          setIsSavingRazonSocial(false);
+          return;
+        }
+        const chosenClient = clients.find(c => c.id === clientToAssignId);
+        clientCompanyToAssign = chosenClient ? chosenClient.company : '';
+      }
+
+      const updatedProject = {
+        ...targetProjectForRazonSocial,
+        clientId: clientToAssignId,
+        legalEntityId: clientToAssignId,
+        cliente: clientCompanyToAssign || targetProjectForRazonSocial.cliente
+      };
+
+      if (onSaveProject) {
+        await onSaveProject(updatedProject);
+      }
+
+      setIsAssignRazonSocialModalOpen(false);
+      setTargetProjectForRazonSocial(null);
+    } catch (err) {
+      console.error('Error al asignar Razón Social:', err);
+      setAssignError('Ocurrió un error al intentar asignar la Razón Social.');
+    } finally {
+      setIsSavingRazonSocial(false);
+    }
+  };
+
   // --- MODAL TRIGGERS ---
   const openEmitModal = (installment) => {
+    const project = projects.find(p => p.id === installment.project_id);
+    const budget = budgets.find(b => b.id === installment.origin_budget_id);
+    const pBudgets = (groupedData.find(g => g.project?.id === project?.id)?.budgets) || (budget ? [{ budget }] : []);
+    const razonSocial = getProjectRazonSocial(project, pBudgets);
+
+    if (!razonSocial) {
+      alert("No se puede emitir factura sin un cliente con Razón Social asignado. Por favor, asigne una Razón Social primero.");
+      if (project) handleOpenAssignRazonSocialModal(project);
+      return;
+    }
+
     setSelectedInstallment(installment);
     setInvoiceNumber(installment.invoiceNumber || '');
     setActualInvoiceDate(installment.actualInvoiceDate || new Date().toISOString().split('T')[0]);
@@ -677,7 +861,7 @@ export default function Facturacion({
             </div>
           </div>
           <button
-            onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); }}
+            onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
             className="flex items-center gap-2 px-md py-2 border border-outline-variant rounded bg-white text-on-surface hover:bg-slate-50 transition-all font-label-md active:scale-95 h-[38px]"
             title="Limpiar Filtros"
           >
@@ -757,6 +941,23 @@ export default function Facturacion({
               ))}
             </select>
           </div>
+
+          {/* Encargado Filter */}
+          <div className="flex flex-col">
+            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Encargado</label>
+            <select
+              value={encargadoFilter}
+              onChange={(e) => setEncargadoFilter(e.target.value)}
+              className="px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:border-outline-none h-[38px] max-w-[220px] font-medium text-on-surface"
+            >
+              <option value="Todos">Todos los encargados</option>
+              {availableEncargados.map(enc => (
+                <option key={enc} value={enc}>
+                  {enc}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </section>
 
@@ -765,6 +966,8 @@ export default function Facturacion({
         {groupedData.length > 0 ? (
           groupedData.map(({ id: pId, project, plannedTotalUf, budgets: projectBudgets }) => {
             const isExpanded = expandedProjects[pId];
+            const razonSocial = getProjectRazonSocial(project, projectBudgets);
+
             return (
               <div 
                 key={pId} 
@@ -780,9 +983,19 @@ export default function Facturacion({
                       <span className="material-symbols-outlined text-[20px]">attach_money</span>
                     </div>
                     <div className="flex flex-col min-w-0">
-                      <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={`${project.projectNumber} - ${project.rawProjectName}`}>
-                        {project.projectNumber} - {project.rawProjectName}
-                      </h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={`${project.projectNumber} - ${project.rawProjectName}`}>
+                          {project.projectNumber} - {project.rawProjectName}
+                        </h3>
+                        {(!budgets || budgets.filter(b => b.projectId === project.id).length === 0) && (
+                          <span
+                            className="material-symbols-outlined text-amber-500 text-[20px] flex-shrink-0 cursor-help"
+                            title="Este proyecto no tiene ningún presupuesto asociado"
+                          >
+                            warning
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-x-base gap-y-1 text-body-sm text-on-surface-variant mt-1 items-center font-medium">
                         <span className="font-semibold text-on-surface-variant">
                           {project.cliente || 'Cliente no definido'}
@@ -792,6 +1005,33 @@ export default function Facturacion({
                             <span className="text-outline-variant">•</span>
                             <span>Año {project.anio}</span>
                           </>
+                        )}
+                      </div>
+
+                      {/* Razón Social Status / Warning Button */}
+                      <div className="mt-1 flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        {razonSocial ? (
+                          <div className="inline-flex items-center gap-1.5 text-body-sm text-on-surface-variant font-medium">
+                            <span>Razón Social: <strong className="font-semibold text-slate-700">{razonSocial.company}</strong> {razonSocial.rut ? `(${razonSocial.rut})` : ''}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenAssignRazonSocialModal(project)}
+                              className="text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-0.5 rounded transition-all"
+                              title="Cambiar Razón Social"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">edit</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAssignRazonSocialModal(project)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded text-xs font-bold transition-all active:scale-95 shadow-2xs"
+                            title="Este proyecto no tiene una Razón Social asignada para facturación"
+                          >
+                            <span className="material-symbols-outlined text-[15px] text-amber-600 font-bold">warning</span>
+                            <span>Asignar razón social</span>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -830,9 +1070,13 @@ export default function Facturacion({
                               <button
                                 type="button"
                                 onClick={() => {
+                                  const allBudgetInstallments = installments
+                                    .filter(i => i.origin_budget_id === bId)
+                                    .sort((a, b) => (a.numQuota || 0) - (b.numQuota || 0));
+
                                   setActiveBudgetForInstallments({
-                                    budget: budget,
-                                    installments: budgetInstallments,
+                                    budget: budget || { id: bId, quoteId: title, amount: amount },
+                                    installments: allBudgetInstallments,
                                     project: project
                                   });
                                   setIsInstallmentsModalOpen(true);
@@ -949,13 +1193,27 @@ export default function Facturacion({
                                       </td>
                                       <td className="px-md py-md text-right">
                                         {inst.status === 'Por facturar' && (
-                                          <button
-                                            onClick={() => openEmitModal(inst)}
-                                            className="inline-flex items-center gap-xs px-2 py-1 bg-primary text-white rounded hover:bg-primary-container font-semibold transition-all active:scale-95 text-[11px]"
-                                          >
-                                            <span className="material-symbols-outlined text-[14px]">send</span>
-                                            <span>Emitir Factura</span>
-                                          </button>
+                                          razonSocial ? (
+                                            <button
+                                              onClick={() => openEmitModal(inst)}
+                                              className="inline-flex items-center gap-xs px-2 py-1 bg-primary text-white rounded hover:bg-primary-container font-semibold transition-all active:scale-95 text-[11px]"
+                                            >
+                                              <span className="material-symbols-outlined text-[14px]">send</span>
+                                              <span>Emitir Factura</span>
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onClick={() => {
+                                                alert("Debe asignar una Razón Social (con RUT) al proyecto antes de facturar cuotas.");
+                                                handleOpenAssignRazonSocialModal(project);
+                                              }}
+                                              title="No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
+                                              className="inline-flex items-center gap-xs px-2 py-1 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded font-semibold transition-all active:scale-95 text-[11px]"
+                                            >
+                                              <span className="material-symbols-outlined text-[14px] text-amber-600 font-bold">warning</span>
+                                              <span>Asignar Razón Social</span>
+                                            </button>
+                                          )
                                         )}
                                         {inst.status === 'Factura emitida' && (
                                           <button
@@ -1483,6 +1741,273 @@ export default function Facturacion({
           projectNumber={activeBudgetForInstallments.project.projectNumber}
           isDeferredSave={false}
         />
+      )}
+
+      {/* Modal: Asignar Razón Social */}
+      {isAssignRazonSocialModalOpen && targetProjectForRazonSocial && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
+            {/* Header */}
+            <div className="bg-primary text-white p-5 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center text-amber-400 font-bold">
+                  <span className="material-symbols-outlined text-[22px]">domain_add</span>
+                </div>
+                <div>
+                  <h3 className="font-title-md text-title-md font-bold text-white">Asignar Razón Social para Facturación</h3>
+                  <p className="text-xs text-slate-300">Proyecto: {targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignRazonSocialModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-5">
+              {assignError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px]">error</span>
+                  <span>{assignError}</span>
+                </div>
+              )}
+
+              {/* Tabs Mode */}
+              <div className="flex border-b border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => { setAssignMode('select'); setAssignError(''); }}
+                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${
+                    assignMode === 'select'
+                      ? 'border-primary text-primary font-bold'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">list</span>
+                  <span>Seleccionar Existente</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAssignMode('create'); setAssignError(''); }}
+                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${
+                    assignMode === 'create'
+                      ? 'border-primary text-primary font-bold'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">add_business</span>
+                  <span>+ Registrar Nueva Razón Social</span>
+                </button>
+              </div>
+
+              {/* Mode: Select Existing */}
+              {assignMode === 'select' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Buscar Razón Social o RUT
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={razonSocialSearch}
+                        onChange={(e) => setRazonSocialSearch(e.target.value)}
+                        placeholder="Ej: Constructora Spoerer, 76.123.456-7..."
+                        className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none"
+                      />
+                      <span className="material-symbols-outlined absolute left-2.5 top-2.5 text-slate-400 text-[18px]">
+                        search
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border border-slate-100 rounded-xl p-2 bg-slate-50/50">
+                    {(() => {
+                      const term = razonSocialSearch.toLowerCase().trim();
+                      const filtered = clients.filter(c => {
+                        if (!c.company) return false;
+                        if (!term) return true;
+                        return (
+                          (c.company && c.company.toLowerCase().includes(term)) ||
+                          (c.rut && c.rut.toLowerCase().includes(term)) ||
+                          (c.realClient && c.realClient.toLowerCase().includes(term))
+                        );
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="p-4 text-center text-slate-500 text-xs italic">
+                            No se encontraron razones sociales. Puede registrar una nueva en la pestaña "+ Registrar Nueva Razón Social".
+                          </div>
+                        );
+                      }
+
+                      return filtered.map(client => {
+                        const isSelected = selectedRazonSocialId === client.id;
+                        const isSameMainClient = targetProjectForRazonSocial.mainClientId && client.mainClientId === targetProjectForRazonSocial.mainClientId;
+
+                        return (
+                          <div
+                            key={client.id}
+                            onClick={() => setSelectedRazonSocialId(client.id)}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${
+                              isSelected
+                                ? 'bg-primary/5 border-primary shadow-2xs ring-1 ring-primary/20'
+                                : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-primary">{client.company}</span>
+                                {client.rut && (
+                                  <span className="text-xs font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-semibold">
+                                    {client.rut}
+                                  </span>
+                                )}
+                                {isSameMainClient && (
+                                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded-full">
+                                    Sugerido
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-500 flex flex-wrap gap-x-3">
+                                {client.giro && <span>Giro: {client.giro}</span>}
+                                {client.address && <span>Dirección: {client.address} {client.comuna ? `, ${client.comuna}` : ''}</span>}
+                              </div>
+                            </div>
+                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
+                              isSelected ? 'border-primary bg-primary text-white' : 'border-slate-300'
+                            }`}>
+                              {isSelected && <span className="material-symbols-outlined text-[14px]">check</span>}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Mode: Create New */}
+              {assignMode === 'create' && (
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Razón Social / Nombre Empresa <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialCompany}
+                        onChange={(e) => setNewRazonSocialCompany(e.target.value)}
+                        placeholder="Ej: Constructora Spoerer S.A."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        RUT Empresa
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialRut}
+                        onChange={(e) => setNewRazonSocialRut(formatRut(e.target.value))}
+                        placeholder="76.123.456-7"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Giro Comercial
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialGiro}
+                        onChange={(e) => setNewRazonSocialGiro(e.target.value)}
+                        placeholder="Ej: Construcción e Ingeniería"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Dirección Comercial
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialAddress}
+                        onChange={(e) => setNewRazonSocialAddress(e.target.value)}
+                        placeholder="Ej: Av. Providencia 1234, Of. 501"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Comuna
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialComuna}
+                        onChange={(e) => setNewRazonSocialComuna(e.target.value)}
+                        placeholder="Ej: Providencia"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Ciudad
+                      </label>
+                      <input
+                        type="text"
+                        value={newRazonSocialCiudad}
+                        onChange={(e) => setNewRazonSocialCiudad(e.target.value)}
+                        placeholder="Ej: Santiago"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsAssignRazonSocialModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 font-semibold text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSavingRazonSocial}
+                onClick={handleSaveAssignRazonSocial}
+                className="px-5 py-2 bg-primary hover:bg-primary-container text-white font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 active:scale-95 shadow-sm disabled:opacity-50"
+              >
+                {isSavingRazonSocial ? (
+                  <>
+                    <span className="material-symbols-outlined text-[16px] animate-spin">progress_activity</span>
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                    <span>Guardar y Asignar Razón Social</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
