@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
+import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 
 const PROJECT_TYPES = [
@@ -484,7 +485,7 @@ export default function Proyectos({
   };
 
   // Export Budgets and Extra Costs to Excel
-  const handleExportBudgets = () => {
+  const handleExportBudgets = async () => {
     const rows = [];
 
     filteredProjects.forEach(project => {
@@ -556,7 +557,7 @@ export default function Proyectos({
     }));
 
     // Trigger download
-    XLSX.writeFile(workbook, "Reporte_Presupuestos_y_Costos.xlsx");
+    await exportExcelFile(workbook, "PresupuestosSPR.xlsx", "presupuestos_spr_proyectos");
   };
 
   return (

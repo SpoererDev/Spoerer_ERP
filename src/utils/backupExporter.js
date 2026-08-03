@@ -205,7 +205,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     });
 
     // File name with today's date YYYY-MM-DD
-    const today = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const fileName = `Respaldo_SPOERER_${today}.xlsx`;
 
     // Download file

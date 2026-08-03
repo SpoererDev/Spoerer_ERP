@@ -96,7 +96,7 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
           <div className="flex items-center gap-lg">
             {/* Quick Actions */}
             <div className="flex items-center gap-md">
-              {isAdmin && (
+               {isAdmin && (
                 <button
                   onClick={onOpenBackupHistory}
                   className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all"
@@ -105,13 +105,6 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
                   <span className="material-symbols-outlined text-[22px]">cloud_download</span>
                 </button>
               )}
-              <button className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all relative">
-                <span className="material-symbols-outlined text-[22px]">notifications</span>
-                <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
-              </button>
-              <button className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all">
-                <span className="material-symbols-outlined text-[22px]">settings</span>
-              </button>
               <button
                 onClick={onLogout}
                 className="p-1.5 hover:bg-error-container hover:text-error rounded-full text-on-surface-variant transition-all"

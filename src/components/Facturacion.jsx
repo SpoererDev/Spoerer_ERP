@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import * as XLSX from 'xlsx';
+import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import { validateRut, formatRut } from '../utils/validation';
 
@@ -388,7 +389,7 @@ export default function Facturacion({
   };
 
   // Export Billing Installments to Excel
-  const handleExportBilling = () => {
+  const handleExportBilling = async () => {
     const rows = [];
 
     const formatDateExcel = (dateStr) => {
@@ -523,7 +524,7 @@ export default function Facturacion({
     }));
 
     // Download Workbook
-    XLSX.writeFile(workbook, "Reporte_Facturacion.xlsx");
+    await exportExcelFile(workbook, "DTE Spoerer.xlsx", "dte_spoerer_facturacion");
   };
 
   // --- RAZÓN SOCIAL HELPERS & HANDLERS ---

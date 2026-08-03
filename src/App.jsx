@@ -67,13 +67,21 @@ export default function App() {
                   user?.role?.toLowerCase() === 'administrador' || 
                   user?.role?.toLowerCase() === 'system administrator';
 
+  const getTodayLocalDate = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Check if today's backup is pending for Admin users
   useEffect(() => {
     async function checkDailyBackup() {
       if (!user || !isAdmin) return;
       try {
         const latestLog = await supabaseService.getLatestBackupLog();
-        const today = new Date().toISOString().split('T')[0];
+        const today = getTodayLocalDate();
         if (!latestLog || latestLog.backup_date !== today) {
           setIsBackupModalOpen(true);
           setIsBackupBannerVisible(true);
@@ -87,6 +95,7 @@ export default function App() {
     }
     checkDailyBackup();
   }, [user, isAdmin]);
+
 
   const handleExecuteBackup = async (backupType = 'daily') => {
     try {
