@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import logoSpr from '../assets/logo SPR.PNG';
 
-export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout }) {
+export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout, onOpenBackupHistory }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -58,6 +58,17 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
               </button>
             );
           })}
+
+          {isAdmin && (
+            <button
+              onClick={onOpenBackupHistory}
+              className="flex items-center gap-md px-md py-sm rounded-lg transition-all active:scale-[0.98] w-full text-left text-on-primary-container hover:text-on-primary hover:bg-primary-container/40 border-t border-outline-variant/20 pt-3 mt-2"
+              title="Respaldos e Historial"
+            >
+              <span className="material-symbols-outlined text-[22px]">cloud_download</span>
+              {!isCollapsed && <span className="font-body-md text-body-md whitespace-nowrap">Respaldos</span>}
+            </button>
+          )}
         </nav>
 
         {/* Collapse Button and Footer */}
@@ -85,6 +96,15 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
           <div className="flex items-center gap-lg">
             {/* Quick Actions */}
             <div className="flex items-center gap-md">
+              {isAdmin && (
+                <button
+                  onClick={onOpenBackupHistory}
+                  className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all"
+                  title="Historial de Respaldos"
+                >
+                  <span className="material-symbols-outlined text-[22px]">cloud_download</span>
+                </button>
+              )}
               <button className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all relative">
                 <span className="material-symbols-outlined text-[22px]">notifications</span>
                 <span className="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
@@ -117,22 +137,34 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
               </button>
 
               {showUserMenu && (
-                <div className="absolute right-0 top-12 w-48 bg-white border border-outline-variant rounded-lg shadow-lg py-sm z-50 text-left">
+                <div className="absolute right-0 top-12 w-52 bg-white border border-outline-variant rounded-lg shadow-lg py-sm z-50 text-left">
                   <div className="px-md py-sm border-b border-outline-variant/30 sm:hidden">
                     <p className="font-label-md text-label-md text-primary font-bold">{user?.name}</p>
                     <p className="text-xs text-on-surface-variant">{user?.role}</p>
                   </div>
                   {isAdmin && (
-                    <button
-                      onClick={() => {
-                        setCurrentTab('usuarios');
-                        setShowUserMenu(false);
-                      }}
-                      className="w-full px-md py-sm hover:bg-surface-container-low text-body-md text-on-surface flex items-center gap-sm"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">manage_accounts</span>
-                      Mi Perfil / Accesos
-                    </button>
+                    <>
+                      <button
+                        onClick={() => {
+                          setCurrentTab('usuarios');
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full px-md py-sm hover:bg-surface-container-low text-body-md text-on-surface flex items-center gap-sm"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">manage_accounts</span>
+                        Mi Perfil / Accesos
+                      </button>
+                      <button
+                        onClick={() => {
+                          onOpenBackupHistory();
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full px-md py-sm hover:bg-surface-container-low text-body-md text-on-surface flex items-center gap-sm"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">history</span>
+                        Respaldos e Historial
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={onLogout}

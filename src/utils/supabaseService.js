@@ -1255,5 +1255,153 @@ export const supabaseService = {
     if (error) {
       console.error(`Error deleting file at path ${path}:`, error);
     }
+  },
+
+  // BACKUP LOGS AND RECOVERY DATA
+  _getLocalBackupLogs() {
+    try {
+      const stored = localStorage.getItem('SPOERER_BACKUP_LOGS');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  _saveLocalBackupLog(newLog) {
+    try {
+      const logs = this._getLocalBackupLogs();
+      const updated = [newLog, ...logs.filter(l => l.id !== newLog.id)];
+      localStorage.setItem('SPOERER_BACKUP_LOGS', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Could not save to localStorage:', e);
+    }
+  },
+
+  async getLatestBackupLog() {
+    const logs = await this.getBackupLogs();
+    return logs && logs.length > 0 ? logs[0] : null;
+  },
+
+  async getBackupLogs() {
+    let dbLogs = [];
+    try {
+      const { data, error } = await supabase
+        .from('backup_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        dbLogs = data;
+      }
+    } catch (err) {
+      console.warn('Error fetching backup logs from Supabase:', err);
+    }
+
+    const localLogs = this._getLocalBackupLogs();
+
+    // Merge DB logs and local logs, removing duplicates by id or file_name + backup_date
+    const mergedMap = new Map();
+    [...dbLogs, ...localLogs].forEach(log => {
+      const key = log.id || `${log.file_name}_${log.created_at}`;
+      if (!mergedMap.has(key)) {
+        mergedMap.set(key, log);
+      }
+    });
+
+    const combined = Array.from(mergedMap.values());
+    combined.sort((a, b) => new Date(b.created_at || b.backup_date || 0) - new Date(a.created_at || a.backup_date || 0));
+    return combined;
+  },
+
+  async createBackupLog({ userName, backupType = 'daily', fileName }) {
+    const today = new Date().toISOString().split('T')[0];
+    const nowIso = new Date().toISOString();
+    let authUserId = null;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      authUserId = user ? user.id : null;
+    } catch (e) {
+      authUserId = null;
+    }
+
+    const logEntry = {
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `log_${Date.now()}`,
+      backup_date: today,
+      created_at: nowIso,
+      created_by: authUserId,
+      user_name: userName || 'Administrador',
+      backup_type: backupType,
+      file_name: fileName,
+      status: 'completed'
+    };
+
+    // Save to local storage first for instant availability
+    this._saveLocalBackupLog(logEntry);
+
+    // Try saving to Supabase
+    try {
+      const insertPayload = {
+        backup_date: today,
+        user_name: userName || 'Administrador',
+        backup_type: backupType,
+        file_name: fileName,
+        status: 'completed'
+      };
+      if (authUserId) {
+        insertPayload.created_by = authUserId;
+      }
+
+      const { data, error } = await supabase
+        .from('backup_logs')
+        .insert([insertPayload])
+        .select();
+
+      if (error) {
+        console.warn('Supabase insert to backup_logs failed (using local storage fallback):', error.message || error);
+      } else if (data && data[0]) {
+        this._saveLocalBackupLog(data[0]);
+        return data[0];
+      }
+    } catch (err) {
+      console.warn('Error saving backup_log to Supabase (using local storage fallback):', err);
+    }
+
+    return logEntry;
+  },
+
+
+  async getAllRawDataForBackup() {
+    const [
+      { data: mainClients },
+      { data: clients },
+      { data: budgets },
+      { data: budgetItems },
+      { data: projects },
+      { data: extraCosts },
+      { data: installments },
+      { data: profiles }
+    ] = await Promise.all([
+      supabase.from('main_clients').select('*'),
+      supabase.from('clients').select('*'),
+      supabase.from('budgets').select('*'),
+      supabase.from('budget_items').select('*'),
+      supabase.from('projects').select('*'),
+      supabase.from('extra_costs').select('*'),
+      supabase.from('billing_installments').select('*'),
+      supabase.from('profiles').select('*')
+    ]);
+
+    return {
+      mainClients: mainClients || [],
+      clients: clients || [],
+      budgets: budgets || [],
+      budgetItems: budgetItems || [],
+      projects: projects || [],
+      extraCosts: extraCosts || [],
+      installments: installments || [],
+      profiles: profiles || []
+    };
   }
 };
+

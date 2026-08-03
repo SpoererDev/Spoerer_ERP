@@ -141,18 +141,7 @@ export default function Usuarios({ users, currentUser, onAddUser, onToggleUserSt
           <h2 className="font-display-lg text-display-lg text-primary font-bold">Control de Usuarios y Accesos</h2>
           <p className="text-on-surface-variant font-body-md mt-1">Administra el personal, sus roles y permisos de seguridad granulares.</p>
         </div>
-        <div className="flex gap-sm">
-          <button 
-            onClick={() => setSearchTerm('')}
-            className="flex items-center gap-sm px-md py-sm bg-white border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container transition-all active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[20px]">filter_list</span>
-            <span>Limpiar</span>
-          </button>
-          <button className="flex items-center gap-sm px-md py-sm bg-white border border-outline-variant text-on-surface font-semibold rounded-lg hover:bg-surface-container transition-all active:scale-95">
-            <span className="material-symbols-outlined text-[20px]">file_download</span>
-            <span>Exportar</span>
-          </button>
+        <div>
           <button 
             onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-sm px-md py-sm bg-secondary text-white font-semibold rounded-lg hover:opacity-95 transition-all shadow-sm active:scale-95"

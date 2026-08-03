@@ -6,6 +6,10 @@ import Presupuestos from './components/Presupuestos';
 import Facturacion from './components/Facturacion';
 import Usuarios from './components/Usuarios';
 import Proyectos from './components/Proyectos';
+import DailyBackupModal from './components/DailyBackupModal';
+import DailyBackupBanner from './components/DailyBackupBanner';
+import BackupHistoryModal from './components/BackupHistoryModal';
+import { generateConsolidatedBackup } from './utils/backupExporter';
 import { supabaseService } from './utils/supabaseService';
 import { supabase } from './utils/supabaseClient';
 import './App.css';
@@ -15,6 +19,12 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('crm');
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  // Backup states
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isBackupBannerVisible, setIsBackupBannerVisible] = useState(false);
+  const [backupHistoryModalOpen, setBackupHistoryModalOpen] = useState(false);
+
 
   // Flat SQL-aligned states
   const [mainClients, setMainClients] = useState([]);
@@ -52,6 +62,46 @@ export default function App() {
   const [proyectosEncargadoFilter, setProyectosEncargadoFilter] = useState('Todos');
 
   const [usuariosSearch, setUsuariosSearch] = useState('');
+
+  const isAdmin = user?.role?.toLowerCase() === 'admin' || 
+                  user?.role?.toLowerCase() === 'administrador' || 
+                  user?.role?.toLowerCase() === 'system administrator';
+
+  // Check if today's backup is pending for Admin users
+  useEffect(() => {
+    async function checkDailyBackup() {
+      if (!user || !isAdmin) return;
+      try {
+        const latestLog = await supabaseService.getLatestBackupLog();
+        const today = new Date().toISOString().split('T')[0];
+        if (!latestLog || latestLog.backup_date !== today) {
+          setIsBackupModalOpen(true);
+          setIsBackupBannerVisible(true);
+        } else {
+          setIsBackupModalOpen(false);
+          setIsBackupBannerVisible(false);
+        }
+      } catch (err) {
+        console.warn('Error verificando respaldo diario:', err);
+      }
+    }
+    checkDailyBackup();
+  }, [user, isAdmin]);
+
+  const handleExecuteBackup = async (backupType = 'daily') => {
+    try {
+      await generateConsolidatedBackup({
+        userName: user?.name || 'Administrador',
+        backupType
+      });
+      setIsBackupModalOpen(false);
+      setIsBackupBannerVisible(false);
+    } catch (err) {
+      console.error("Error al ejecutar respaldo:", err);
+      alert("Ocurrió un error al generar el archivo de respaldo.");
+      throw err;
+    }
+  };
 
   // Authenticate user on load or session
   const handleLogin = (userData) => {
@@ -536,12 +586,21 @@ export default function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  const isAdmin = user?.role?.toLowerCase() === 'admin' || 
-                  user?.role?.toLowerCase() === 'administrador' || 
-                  user?.role?.toLowerCase() === 'system administrator';
-
   return (
-    <Sidebar currentTab={currentTab} setCurrentTab={setCurrentTab} user={user} onLogout={handleLogout}>
+    <Sidebar 
+      currentTab={currentTab} 
+      setCurrentTab={setCurrentTab} 
+      user={user} 
+      onLogout={handleLogout}
+      onOpenBackupHistory={() => setBackupHistoryModalOpen(true)}
+    >
+      {isBackupBannerVisible && isAdmin && (
+        <DailyBackupBanner 
+          onDownloadBackup={() => handleExecuteBackup('daily')}
+          onDismiss={() => setIsBackupBannerVisible(false)}
+        />
+      )}
+
       {loading && (
         <div className="fixed inset-0 z-[999] bg-primary/20 backdrop-blur-[2px] flex flex-col items-center justify-center gap-md">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -652,6 +711,21 @@ export default function App() {
           )}
         </>
       )}
+
+      {/* Backup Modals */}
+      <DailyBackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        onDownloadBackup={() => handleExecuteBackup('daily')}
+        userName={user?.name}
+      />
+
+      <BackupHistoryModal
+        isOpen={backupHistoryModalOpen}
+        onClose={() => setBackupHistoryModalOpen(false)}
+        onDownloadBackup={(type) => handleExecuteBackup(type)}
+      />
     </Sidebar>
   );
 }
+
