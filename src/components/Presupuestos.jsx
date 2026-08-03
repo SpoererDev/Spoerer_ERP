@@ -98,12 +98,15 @@ export default function Presupuestos({
   setStatusFilter,
   calcPeriod,
   setCalcPeriod,
-  onSaveProject
+  onSaveProject,
+  onDisassociateBudget,
+  onUnapproveBudget
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [notification, setNotification] = useState(null); // { type: 'success' | 'error', title: string, message: string }
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [viewingQuote, setViewingQuote] = useState(null);
+  const [changeStatusFromApprovedConfirm, setChangeStatusFromApprovedConfirm] = useState(null); // { quote, newStatus }
 
   const handleViewQuote = (quote) => {
     setViewingQuote(quote);
@@ -341,6 +344,18 @@ export default function Presupuestos({
   };
 
   const handleDeleteQuote = (id) => {
+    const hasInvoicedOrPaid = installments && installments.some(
+      i => i.origin_budget_id === id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+    );
+    if (hasInvoicedOrPaid) {
+      const quoteObj = quotes.find(q => q.id === id);
+      setNotification({
+        type: 'error',
+        title: 'Acción No Permitida',
+        message: `No se puede eliminar el presupuesto #${quoteObj?.quoteId || ''} porque posee cuotas facturadas o pagadas.`
+      });
+      return;
+    }
     setDeleteConfirmId(id);
   };
 
@@ -620,11 +635,56 @@ export default function Presupuestos({
     }
   };
 
+  const handleConfirmChangeStatusFromApproved = async () => {
+    if (!changeStatusFromApprovedConfirm) return;
+    const { quote, newStatus } = changeStatusFromApprovedConfirm;
+    setChangeStatusFromApprovedConfirm(null);
+
+    try {
+      if (onUnapproveBudget) {
+        await onUnapproveBudget(quote.id, newStatus);
+      } else {
+        if (onDisassociateBudget && quote.projectId) {
+          await onDisassociateBudget(quote.id);
+        }
+        await onAddQuote({
+          ...quote,
+          status: newStatus,
+          projectId: null
+        });
+      }
+      setNotification({
+        type: 'success',
+        title: 'Presupuesto Desaprobado',
+        message: `El presupuesto #${quote.quoteId} cambió su estado a "${newStatus}", fue desasociado del proyecto y sus cuotas asociadas fueron eliminadas.`
+      });
+    } catch (err) {
+      setNotification({
+        type: 'error',
+        title: 'Error al Desaprobar',
+        message: err.message || 'Ocurrió un error al desaprobar el presupuesto.'
+      });
+    }
+  };
+
   const handleStatusChange = (id, newStatus) => {
     const quote = quotes.find(q => q.id === id);
     if (quote) {
-      if (quote.status === 'Aprobado' || quote.status === 'Aprovado') {
-        alert('Por razones de seguridad, no se puede cambiar el estado de un presupuesto que ya está aprobado.');
+      if (quote.status === newStatus) return;
+
+      const hasInvoicedOrPaid = installments && installments.some(
+        i => i.origin_budget_id === id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+      );
+      if (hasInvoicedOrPaid) {
+        setNotification({
+          type: 'error',
+          title: 'Acción No Permitida',
+          message: `No se puede cambiar el estado del presupuesto #${quote.quoteId} porque posee cuotas facturadas o pagadas.`
+        });
+        return;
+      }
+      if ((quote.status === 'Aprobado' || quote.status === 'Aprovado') && newStatus !== 'Aprobado' && newStatus !== 'Aprovado') {
+        setChangeStatusFromApprovedConfirm({ quote, newStatus });
         return;
       }
       if (newStatus === 'En revisión') {
@@ -1123,6 +1183,15 @@ export default function Presupuestos({
       projectIdToLink = null;
     }
 
+    if (!isExistingQuote && quotes.some(q => q.quoteId === formattedId)) {
+      setNotification({
+        type: 'error',
+        title: 'Número de Presupuesto Duplicado',
+        message: `El número de presupuesto #${formattedId} ya existe. Por favor utilice un número diferente.`
+      });
+      return;
+    }
+
     const newQuote = {
       id: currentBudgetUuid || formattedId,
       quoteId: formattedId,
@@ -1166,10 +1235,13 @@ export default function Presupuestos({
       setIsExistingQuote(false);
       setIsModalOpen(false);
     } catch (err) {
+      const isDuplicateError = err.message && (err.message.includes('unique') || err.message.includes('23505') || err.message.includes('budgets_budget_number_key'));
       setNotification({
         type: 'error',
-        title: 'Error al Guardar',
-        message: err.message || 'Ocurrió un error al guardar el presupuesto.'
+        title: isDuplicateError ? 'Número de Presupuesto Duplicado' : 'Error al Guardar',
+        message: isDuplicateError
+          ? `El número de presupuesto #${formattedId} ya existe en el sistema. Por favor utilice un número diferente.`
+          : (err.message || 'Ocurrió un error al guardar el presupuesto.')
       });
     } finally {
       setIsSaving(false);
@@ -1432,9 +1504,7 @@ export default function Presupuestos({
                       <select
                         value={quote.status}
                         onChange={(e) => handleStatusChange(quote.id, e.target.value)}
-                        disabled={quote.status === 'Aprobado' || quote.status === 'Aprovado'}
-                        className={`px-2 py-0.5 rounded-full text-label-sm font-bold border outline-none transition-all ${quote.status === 'Aprobado' || quote.status === 'Aprovado' ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'
-                          } ${quote.status === 'Borrador'
+                        className={`px-2 py-0.5 rounded-full text-label-sm font-bold border outline-none transition-all cursor-pointer ${quote.status === 'Borrador'
                             ? 'bg-slate-100 text-slate-700 border-slate-300'
                             : quote.status === 'En revisión'
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1446,6 +1516,7 @@ export default function Presupuestos({
                                     ? 'bg-red-100 text-red-800 border-red-200'
                                     : 'bg-slate-100 text-slate-700 border-slate-300'
                           }`}
+                        title="Cambiar estado del presupuesto"
                       >
                         <option value="Borrador">Borrador</option>
                         <option value="En revisión">En revisión</option>
@@ -2308,6 +2379,44 @@ export default function Presupuestos({
           </div>
         );
       })()}
+      {/* Modal Confirmación Desaprobar Presupuesto y Eliminar Cuotas */}
+      {changeStatusFromApprovedConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in text-left">
+          <div className="bg-white rounded-xl shadow-2xl p-lg max-w-md w-full text-center border border-outline-variant/30 animate-scale-up space-y-md">
+            <div className="mx-auto w-14 h-14 bg-red-50 rounded-full flex items-center justify-center text-red-600">
+              <span className="material-symbols-outlined text-[32px] text-error animate-pulse" style={{ fontVariationSettings: "'FILL' 0" }}>
+                warning
+              </span>
+            </div>
+            <div className="space-y-xs text-center">
+              <h3 className="font-headline-sm text-headline-sm text-primary font-bold">
+                ¿Desaprobar Presupuesto y Eliminar Cuotas?
+              </h3>
+              <p className="text-body-md text-on-surface-variant leading-relaxed">
+                El presupuesto <strong>#{changeStatusFromApprovedConfirm.quote.quoteId}</strong> pasará de <strong>Aprobado</strong> a <strong>"{changeStatusFromApprovedConfirm.newStatus}"</strong>.
+                <br /><br />
+                Esta acción <strong>desasociará el presupuesto del proyecto</strong> y <strong>eliminará permanentemente todas sus cuotas de facturación asociadas</strong>. ¿Desea continuar?
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setChangeStatusFromApprovedConfirm(null)}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all font-bold text-label-md active:scale-95 border border-slate-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmChangeStatusFromApproved}
+                className="flex-1 py-2 bg-error hover:bg-red-700 text-white rounded-lg transition-all font-bold text-label-md active:scale-95 shadow-md shadow-error/20"
+              >
+                Sí, Desaprobar y Eliminar Cuotas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal: Aprobar Presupuesto y Crear Proyecto */}
       {isApproveModalOpen && approvingQuote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">

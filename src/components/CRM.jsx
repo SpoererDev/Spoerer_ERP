@@ -23,6 +23,10 @@ export default function CRM({
   const [mainName, setMainName] = useState('');
   const [mainContactName, setMainContactName] = useState('');
   const [mainContactEmail, setMainContactEmail] = useState('');
+  const [mainAddress, setMainAddress] = useState('');
+  const [mainComuna, setMainComuna] = useState('');
+  const [mainCiudad, setMainCiudad] = useState('');
+  const [mainPhone, setMainPhone] = useState('');
   const [mainNameError, setMainNameError] = useState('');
 
   // Auto-complete suggestion state for Main Client Name
@@ -34,7 +38,8 @@ export default function CRM({
     return (
       (mc.name && mc.name.toLowerCase().includes(term)) ||
       (mc.contactName && mc.contactName.toLowerCase().includes(term)) ||
-      (mc.contactEmail && mc.contactEmail.toLowerCase().includes(term))
+      (mc.contactEmail && mc.contactEmail.toLowerCase().includes(term)) ||
+      (mc.phone && mc.phone.toLowerCase().includes(term))
     );
   });
 
@@ -48,6 +53,10 @@ export default function CRM({
     setMainName('');
     setMainContactName('');
     setMainContactEmail('');
+    setMainAddress('');
+    setMainComuna('');
+    setMainCiudad('');
+    setMainPhone('');
     setMainNameError('');
     setShowMainSuggestions(false);
     setIsMainModalOpen(false);
@@ -58,6 +67,10 @@ export default function CRM({
     setMainName(mc.name || '');
     setMainContactName(mc.contactName || '');
     setMainContactEmail(mc.contactEmail || '');
+    setMainAddress(mc.address || '');
+    setMainComuna(mc.comuna || '');
+    setMainCiudad(mc.ciudad || '');
+    setMainPhone(mc.phone || '');
     setMainNameError('');
     setShowMainSuggestions(false);
     setIsMainModalOpen(true);
@@ -90,7 +103,11 @@ export default function CRM({
       id: editingMainClientId || undefined,
       name: cleanName,
       contactName: mainContactName.trim() || null,
-      contactEmail: mainContactEmail.trim() || null
+      contactEmail: mainContactEmail.trim() || null,
+      address: mainAddress.trim() || null,
+      comuna: mainComuna.trim() || null,
+      ciudad: mainCiudad.trim() || null,
+      phone: mainPhone.trim() || null
     };
 
     try {
@@ -159,6 +176,10 @@ export default function CRM({
     if (!mainId) {
       setName('');
       setEmail('');
+      setAddress('');
+      setComuna('');
+      setCiudad('');
+      setPhone('');
       return;
     }
 
@@ -170,9 +191,17 @@ export default function CRM({
       setMainClientSearchText(selectedMC.name);
       setName(selectedMC.contactName || '');
       setEmail(selectedMC.contactEmail || '');
+      setAddress(selectedMC.address || '');
+      setComuna(selectedMC.comuna || '');
+      setCiudad(selectedMC.ciudad || '');
+      setPhone(selectedMC.phone || '');
     } else {
       setName('');
       setEmail('');
+      setAddress('');
+      setComuna('');
+      setCiudad('');
+      setPhone('');
     }
   };
 
@@ -427,6 +456,7 @@ export default function CRM({
                       <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente / Empresa Principal</th>
                       <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Contacto Directo</th>
                       <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Correo Electrónico</th>
+                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Teléfono</th>
                       <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Razones Sociales</th>
                       <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
                     </tr>
@@ -452,6 +482,7 @@ export default function CRM({
                           </td>
                           <td className="p-md font-body-md text-on-surface">{mc.contactName || 'Sin registrar'}</td>
                           <td className="p-md font-body-md text-on-surface">{mc.contactEmail || 'Sin registrar'}</td>
+                          <td className="p-md font-body-md text-on-surface">{mc.phone || 'Sin registrar'}</td>
                           <td className="p-md text-center">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
                               associatedEntities.length > 0 ? 'bg-secondary-container/60 text-secondary' : 'bg-slate-100 text-slate-500'
@@ -682,6 +713,62 @@ export default function CRM({
                     placeholder="Ej: contacto@spoerer.cl"
                     value={mainContactEmail}
                     onChange={(e) => setMainContactEmail(e.target.value)}
+                  />
+                </div>
+
+                {/* Dirección */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Dirección (Opcional)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white" 
+                    placeholder="Ej: Av. Providencia 1234, Of. 501"
+                    value={mainAddress}
+                    onChange={(e) => setMainAddress(e.target.value)}
+                  />
+                </div>
+
+                {/* Comuna */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Comuna (Opcional)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white" 
+                    placeholder="Ej: Providencia"
+                    value={mainComuna}
+                    onChange={(e) => setMainComuna(e.target.value)}
+                  />
+                </div>
+
+                {/* Ciudad */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Ciudad (Opcional)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white" 
+                    placeholder="Ej: Santiago"
+                    value={mainCiudad}
+                    onChange={(e) => setMainCiudad(e.target.value)}
+                  />
+                </div>
+
+                {/* Teléfono */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Teléfono (Opcional)
+                  </label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white" 
+                    placeholder="Ej: +56 9 1234 5678"
+                    value={mainPhone}
+                    onChange={(e) => setMainPhone(e.target.value)}
                   />
                 </div>
               </div>
@@ -1008,6 +1095,24 @@ export default function CRM({
               <div className="bg-surface-container-low p-md rounded-xl border border-outline-variant/40">
                 <span className="text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Mail de Contacto</span>
                 <span className="text-body-lg text-primary block mt-1">{viewingMainClient.contactEmail || 'Sin registrar'}</span>
+              </div>
+              <div className="bg-surface-container-low p-md rounded-xl border border-outline-variant/40">
+                <span className="text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Dirección</span>
+                <span className="text-body-lg text-primary block mt-1">{viewingMainClient.address || 'Sin registrar'}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-md">
+                <div className="bg-surface-container-low p-md rounded-xl border border-outline-variant/40">
+                  <span className="text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Comuna</span>
+                  <span className="text-body-lg text-primary block mt-1">{viewingMainClient.comuna || 'Sin registrar'}</span>
+                </div>
+                <div className="bg-surface-container-low p-md rounded-xl border border-outline-variant/40">
+                  <span className="text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Ciudad</span>
+                  <span className="text-body-lg text-primary block mt-1">{viewingMainClient.ciudad || 'Sin registrar'}</span>
+                </div>
+              </div>
+              <div className="bg-surface-container-low p-md rounded-xl border border-outline-variant/40">
+                <span className="text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Teléfono</span>
+                <span className="text-body-lg text-primary block mt-1">{viewingMainClient.phone || 'Sin registrar'}</span>
               </div>
               <div className="flex justify-end pt-md">
                 <button

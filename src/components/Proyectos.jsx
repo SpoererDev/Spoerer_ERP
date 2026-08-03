@@ -411,6 +411,17 @@ export default function Proyectos({
 
   // Disassociate budget
   const handleDisassociateBudgetLocal = (budgetId) => {
+    const hasInvoicedOrPaid = localInstallments.some(
+      i => i.origin_budget_id === budgetId && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+    );
+    if (hasInvoicedOrPaid) {
+      setNotification({
+        type: 'error',
+        title: 'Acción No Permitida',
+        message: 'No se puede desasociar el presupuesto porque posee cuotas que ya han sido facturadas o pagadas.'
+      });
+      return;
+    }
     setDisassociatingBudgetId(budgetId);
   };
 
@@ -965,15 +976,26 @@ export default function Proyectos({
                               </p>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDisassociateBudgetLocal(budget.id)}
-                              className="text-error hover:bg-red-50 px-2 py-1 rounded text-body-sm transition-all flex items-center gap-1 font-semibold"
-                              title="Desasociar presupuesto"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">link_off</span>
-                              <span>Desasociar</span>
-                            </button>
+                            {(() => {
+                              const hasInvoicedOrPaid = localInstallments.some(
+                                i => i.origin_budget_id === budget.id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+                              );
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDisassociateBudgetLocal(budget.id)}
+                                  className={`px-2 py-1 rounded text-body-sm transition-all flex items-center gap-1 font-semibold ${
+                                    hasInvoicedOrPaid 
+                                      ? 'text-slate-400 cursor-not-allowed opacity-60' 
+                                      : 'text-error hover:bg-red-50'
+                                  }`}
+                                  title={hasInvoicedOrPaid ? "No se puede desasociar: posee cuotas facturadas o pagadas" : "Desasociar presupuesto"}
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">link_off</span>
+                                  <span>Desasociar</span>
+                                </button>
+                              );
+                            })()}
                           </div>
                             {/* Billing Table */}
                            <div className="space-y-sm text-slate-800">

@@ -12,6 +12,10 @@ const mapMainClientFromDb = (dbMainClient) => ({
   name: dbMainClient.name,
   contactName: dbMainClient.contact_name || '',
   contactEmail: dbMainClient.contact_email || '',
+  address: dbMainClient.address || '',
+  comuna: dbMainClient.comuna || '',
+  ciudad: dbMainClient.ciudad || '',
+  phone: dbMainClient.contact_phone || dbMainClient.phone || '',
   initials: dbMainClient.name 
     ? dbMainClient.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() 
     : 'CP'
@@ -20,7 +24,11 @@ const mapMainClientFromDb = (dbMainClient) => ({
 const mapMainClientToDb = (mainClient) => ({
   name: mainClient.name,
   contact_name: mainClient.contactName || null,
-  contact_email: mainClient.contactEmail || null
+  contact_email: mainClient.contactEmail || null,
+  address: mainClient.address || null,
+  comuna: mainClient.comuna || null,
+  ciudad: mainClient.ciudad || null,
+  contact_phone: mainClient.phone || mainClient.contactPhone || null
 });
 
 // Helper: Map client fields between database (snake_case) and frontend (camelCase)
@@ -539,44 +547,42 @@ export const supabaseService = {
 
     // 2.5 Sync Billing Installments (Cuotas) if provided
     if (billingInstallments && savedBudget.id) {
-      const projectId = savedBudget.project_id;
+      const projectId = savedBudget.project_id || null;
       
-      if (projectId) {
-        // Delete existing installments linked to this budget
-        const { error: delError } = await supabase
+      // Delete existing installments linked to this budget
+      const { error: delError } = await supabase
+        .from('billing_installments')
+        .delete()
+        .eq('origin_budget_id', savedBudget.id);
+      
+      if (delError) throw delError;
+
+      // Insert new/updated installments if they are provided
+      if (billingInstallments.length > 0) {
+        const installmentsToInsert = billingInstallments.map(inst => ({
+          project_id: projectId,
+          origin_budget_id: savedBudget.id,
+          installment_number: inst.numQuota,
+          scheduled_date: inst.date,
+          planned_amount_uf: parseFloat(inst.uf) || 0,
+          comment: inst.comment || '',
+          status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
+          date_confirmed: inst.dateConfirmed || false,
+          invoice_number: inst.invoiceNumber || null,
+          invoice_file_url: inst.invoiceFileUrl || null,
+          actual_invoice_date: inst.actualInvoiceDate || null,
+          actual_payment_date: inst.actualPaymentDate || null,
+          payment_backup_url: inst.paymentBackupUrl || null,
+          net_amount_clp: inst.net_clp || null,
+          tax_amount_clp: inst.tax_clp || null,
+          total_amount_clp: inst.total_clp || null
+        }));
+
+        const { error: insError } = await supabase
           .from('billing_installments')
-          .delete()
-          .eq('origin_budget_id', savedBudget.id);
+          .insert(installmentsToInsert);
         
-        if (delError) throw delError;
-
-        // Insert new/updated installments if they are provided
-        if (billingInstallments.length > 0) {
-          const installmentsToInsert = billingInstallments.map(inst => ({
-            project_id: projectId,
-            origin_budget_id: savedBudget.id,
-            installment_number: inst.numQuota,
-            scheduled_date: inst.date,
-            planned_amount_uf: parseFloat(inst.uf) || 0,
-            comment: inst.comment || '',
-            status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
-            date_confirmed: inst.dateConfirmed || false,
-            invoice_number: inst.invoiceNumber || null,
-            invoice_file_url: inst.invoiceFileUrl || null,
-            actual_invoice_date: inst.actualInvoiceDate || null,
-            actual_payment_date: inst.actualPaymentDate || null,
-            payment_backup_url: inst.paymentBackupUrl || null,
-            net_amount_clp: inst.net_clp || null,
-            tax_amount_clp: inst.tax_clp || null,
-            total_amount_clp: inst.total_clp || null
-          }));
-
-          const { error: insError } = await supabase
-            .from('billing_installments')
-            .insert(installmentsToInsert);
-          
-          if (insError) throw insError;
-        }
+        if (insError) throw insError;
       }
     }
 
@@ -704,6 +710,11 @@ export const supabaseService = {
   },
 
   async deleteProject(id) {
+    // Clear project_id from budgets and billing_installments
+    await supabase.from('budgets').update({ project_id: null }).eq('project_id', id);
+    await supabase.from('billing_installments').update({ project_id: null }).eq('project_id', id);
+    await supabase.from('extra_costs').delete().eq('project_id', id);
+
     const { error } = await supabase
       .from('projects')
       .delete()
@@ -1010,6 +1021,12 @@ export const supabaseService = {
 
     // 4. Insert billing installments linked to project and budget
     if (billingInstallments && billingInstallments.length > 0) {
+      // First clean up any old installments for this budget to prevent duplicates
+      await supabase
+        .from('billing_installments')
+        .delete()
+        .eq('origin_budget_id', budgetId);
+
       const installmentsToInsert = billingInstallments.map(inst => ({
         project_id: project.id,
         origin_budget_id: budgetId,
@@ -1064,7 +1081,14 @@ export const supabaseService = {
       }
     }
 
-    // 2. Clear project_id and update title in DB
+    // 2. Clear project_id in billing_installments for this budget
+    const { error: instError } = await supabase
+      .from('billing_installments')
+      .update({ project_id: null })
+      .eq('origin_budget_id', budgetId);
+    if (instError) console.error("Error clearing installments project_id:", instError);
+
+    // 3. Clear project_id and update title in DB
     const { data, error } = await supabase
       .from('budgets')
       .update({ 
@@ -1073,6 +1097,46 @@ export const supabaseService = {
       })
       .eq('id', budgetId)
       .select('*, clients:clients!client_id(*), budget_items(*)');
+    if (error) throw error;
+    return mapBudgetFromDb(data[0]);
+  },
+
+  async unapproveBudget(budgetId, newStatus) {
+    // 1. Delete all billing installments associated with this budget
+    const { error: instError } = await supabase
+      .from('billing_installments')
+      .delete()
+      .eq('origin_budget_id', budgetId);
+
+    if (instError) throw instError;
+
+    // 2. Fetch current budget title
+    const { data: budgetToUpdate } = await supabase
+      .from('budgets')
+      .select('title')
+      .eq('id', budgetId)
+      .single();
+
+    let newTitle = budgetToUpdate?.title;
+    if (newTitle) {
+      const regex = /^\d+[\s\S]*?-[\s\S]*?\s+-\s+[\s\S]+$/;
+      if (regex.test(newTitle)) {
+        const nameParts = newTitle.split('-');
+        newTitle = nameParts.slice(1).join('-').split(' - ')[0]?.trim() || newTitle;
+      }
+    }
+
+    // 3. Clear project_id and update status/title in DB
+    const { data, error } = await supabase
+      .from('budgets')
+      .update({ 
+        project_id: null,
+        status: newStatus,
+        title: newTitle
+      })
+      .eq('id', budgetId)
+      .select('*, clients:clients!client_id(*), budget_items(*)');
+
     if (error) throw error;
     return mapBudgetFromDb(data[0]);
   },

@@ -177,7 +177,18 @@ export default function App() {
   };
 
   // QUOTES (BUDGETS) ACTIONS
+  const hasInvoicedOrPaidInstallments = (budgetId) => {
+    if (!budgetId) return false;
+    return installments.some(
+      i => i.origin_budget_id === budgetId && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+    );
+  };
+
   const addQuote = async (newQuote, items, billingInstallments) => {
+    const existing = quotes.find(q => q.id === newQuote.id);
+    if (existing && existing.status !== newQuote.status && hasInvoicedOrPaidInstallments(newQuote.id)) {
+      throw new Error('No se puede cambiar el estado de un presupuesto que posee cuotas facturadas o pagadas.');
+    }
     try {
       const result = await supabaseService.saveQuote(newQuote, items || newQuote.items || [], billingInstallments);
       const savedQuote = result.budget;
@@ -201,6 +212,9 @@ export default function App() {
   };
 
   const deleteQuote = async (id) => {
+    if (hasInvoicedOrPaidInstallments(id)) {
+      throw new Error('No se puede eliminar un presupuesto que posee cuotas facturadas o pagadas.');
+    }
     try {
       await supabaseService.deleteQuote(id);
       setQuotes(prev => prev.filter(q => q.id !== id));
@@ -243,12 +257,31 @@ export default function App() {
   };
 
   const handleDisassociateBudget = async (budgetId) => {
+    if (hasInvoicedOrPaidInstallments(budgetId)) {
+      throw new Error('No se puede desasociar un presupuesto que posee cuotas facturadas o pagadas.');
+    }
     try {
       const updatedBudget = await supabaseService.disassociateBudget(budgetId);
       setQuotes(prev => prev.map(q => q.id === budgetId ? updatedBudget : q));
+      setInstallments(prev => prev.map(i => i.origin_budget_id === budgetId ? { ...i, project_id: null } : i));
       return updatedBudget;
     } catch (err) {
       console.error("Error al desasociar presupuesto:", err);
+      throw err;
+    }
+  };
+
+  const handleUnapproveBudget = async (budgetId, newStatus) => {
+    if (hasInvoicedOrPaidInstallments(budgetId)) {
+      throw new Error('No se puede desaprobar un presupuesto que posee cuotas facturadas o pagadas.');
+    }
+    try {
+      const updatedBudget = await supabaseService.unapproveBudget(budgetId, newStatus);
+      setQuotes(prev => prev.map(q => q.id === budgetId ? updatedBudget : q));
+      setInstallments(prev => prev.filter(i => i.origin_budget_id !== budgetId));
+      return updatedBudget;
+    } catch (err) {
+      console.error("Error al desaprobar presupuesto:", err);
       throw err;
     }
   };
@@ -552,6 +585,8 @@ export default function App() {
               calcPeriod={presupuestosCalcPeriod}
               setCalcPeriod={setPresupuestosCalcPeriod}
               onSaveProject={handleSaveProject}
+              onDisassociateBudget={handleDisassociateBudget}
+              onUnapproveBudget={handleUnapproveBudget}
             />
           )}
           {currentTab === 'facturacion' && (
