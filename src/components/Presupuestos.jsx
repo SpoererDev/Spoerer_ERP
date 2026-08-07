@@ -253,6 +253,8 @@ export default function Presupuestos({
   const [previewFile, setPreviewFile] = useState(null);
   const [docxHtml, setDocxHtml] = useState('');
   const [showAiSuccessModal, setShowAiSuccessModal] = useState(false);
+  const [showAiErrorModal, setShowAiErrorModal] = useState(false);
+  const [aiErrorMessage, setAiErrorMessage] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   const [subtotal, setSubtotal] = useState(0);
@@ -923,7 +925,8 @@ export default function Presupuestos({
   const extractDataWithAi = async (file) => {
     const key = getApiKey();
     if (!key) {
-      alert('Por favor configure su API Key de Gemini agregando VITE_GEMINI_API_KEY en su archivo .env en la raíz del proyecto.');
+      setAiErrorMessage('No se pudo realizar la lectura del presupuesto porque no se encontró una API Key de Gemini configurada. Por favor configure VITE_GEMINI_API_KEY en las variables de entorno.');
+      setShowAiErrorModal(true);
       return;
     }
 
@@ -990,7 +993,8 @@ export default function Presupuestos({
           ]
         };
       } else {
-        alert('Formato de archivo no soportado. Por favor use PDF o DOCX.');
+        setAiErrorMessage('Formato de archivo no soportado. Por favor suba un archivo PDF o DOCX.');
+        setShowAiErrorModal(true);
         setIsAiExtracting(false);
         return;
       }
@@ -1024,7 +1028,12 @@ export default function Presupuestos({
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`API Error: ${response.status} - ${errText}`);
+        if (response.status === 400 || response.status === 401 || response.status === 403) {
+          throw new Error('Error de autenticación o API Key inválida en la API de Gemini (código ' + response.status + ').');
+        } else if (response.status === 429) {
+          throw new Error('Se excedió el límite de consultas (cuota) en la API de Gemini.');
+        }
+        throw new Error(`Error en el servidor de Gemini (${response.status}): ${errText}`);
       }
 
       const resJson = await response.json();
@@ -1072,7 +1081,12 @@ export default function Presupuestos({
       setShowAiSuccessModal(true);
     } catch (error) {
       console.error('Error al extraer datos con IA:', error);
-      alert(`Error al procesar el archivo con la IA: ${error.message}. Por favor verifique su API Key o la conexión.`);
+      let message = 'No se pudo realizar la lectura del presupuesto con la IA.';
+      if (error.message) {
+        message = `${error.message}`;
+      }
+      setAiErrorMessage(message);
+      setShowAiErrorModal(true);
     } finally {
       setIsAiExtracting(false);
     }
@@ -2316,6 +2330,32 @@ export default function Presupuestos({
               type="button"
               onClick={() => setShowAiSuccessModal(false)}
               className="w-full py-2.5 bg-secondary text-white rounded-lg hover:brightness-105 transition-all font-bold text-label-md active:scale-95 shadow-md shadow-secondary/15"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* AI Error Notification Modal */}
+      {showAiErrorModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl p-lg max-w-sm w-full text-center border border-outline-variant/30 animate-scale-up space-y-md">
+            <div className="mx-auto w-14 h-14 bg-red-100 rounded-full flex items-center justify-center text-red-600 shadow-xs">
+              <span className="material-symbols-outlined text-[32px]">
+                gpp_bad
+              </span>
+            </div>
+            <div className="space-y-xs">
+              <h3 className="font-headline-sm text-headline-sm text-primary font-bold">No se pudo realizar la acción</h3>
+              <p className="text-body-md text-on-surface-variant leading-relaxed">
+                {aiErrorMessage || 'No se pudo realizar la lectura del presupuesto con la IA. Por favor verifique su API Key o la conexión.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAiErrorModal(false)}
+              className="w-full py-2.5 bg-primary text-white rounded-lg hover:bg-primary-container transition-all font-bold text-label-md active:scale-95 shadow-md"
             >
               Entendido
             </button>

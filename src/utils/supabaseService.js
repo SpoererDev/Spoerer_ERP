@@ -710,6 +710,18 @@ export const supabaseService = {
   },
 
   async deleteProject(id) {
+    // Validar si el proyecto tiene cuotas facturadas o pagadas
+    const { data: invoicedInst, error: checkError } = await supabase
+      .from('billing_installments')
+      .select('id, status')
+      .eq('project_id', id)
+      .in('status', ['Factura emitida', 'Pagada']);
+
+    if (checkError) throw checkError;
+    if (invoicedInst && invoicedInst.length > 0) {
+      throw new Error('No se puede eliminar un proyecto que tiene cuotas facturadas o pagadas.');
+    }
+
     // Clear project_id from budgets and billing_installments
     await supabase.from('budgets').update({ project_id: null }).eq('project_id', id);
     await supabase.from('billing_installments').update({ project_id: null }).eq('project_id', id);

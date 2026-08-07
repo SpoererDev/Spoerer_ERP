@@ -476,6 +476,21 @@ export default function Proyectos({
 
   // Delete project
   const handleDeleteProjectLocal = (id, name) => {
+    // Verificar si el proyecto tiene cuotas facturadas o pagadas
+    const projectInstallments = (installments || []).filter(inst => inst.project_id === id);
+    const hasInvoicedInstallments = projectInstallments.some(
+      inst => inst.status === 'Factura emitida' || inst.status === 'Pagada'
+    );
+
+    if (hasInvoicedInstallments) {
+      setNotification({
+        type: 'error',
+        title: 'No se puede eliminar',
+        message: 'No es posible eliminar un proyecto que tiene cuotas facturadas o pagadas.'
+      });
+      return;
+    }
+
     const proj = projects.find(p => p.id === id);
     if (proj) {
       setProjectToDelete(proj);

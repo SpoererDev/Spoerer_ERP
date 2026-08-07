@@ -38,6 +38,8 @@ export default function Facturacion({
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedInstallment, setSelectedInstallment] = useState(null);
+  const [isNoRazonSocialModalOpen, setIsNoRazonSocialModalOpen] = useState(false);
+  const [isDateUnconfirmedModalOpen, setIsDateUnconfirmedModalOpen] = useState(false);
 
   // Installments unified modal state
   const [isInstallmentsModalOpen, setIsInstallmentsModalOpen] = useState(false);
@@ -181,34 +183,42 @@ export default function Facturacion({
     return publicUrl;
   };
 
-  // --- UF AUTO-FETCHING ---
-  const fetchTodayUf = async () => {
+  // --- UF AUTO-FETCHING FOR A GIVEN DATE ---
+  const fetchUfForDate = async (dateStr) => {
+    if (!dateStr) {
+      setUfRate('');
+      return;
+    }
     setIsFetchingUf(true);
     setUfFetchError(false);
     try {
-      const res = await fetch('https://mindicador.cl/api/uf');
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) throw new Error('Formato de fecha no válido');
+      const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; // YYYY-MM-DD to DD-MM-YYYY
+      const res = await fetch(`https://mindicador.cl/api/uf/${formattedDate}`);
       if (!res.ok) throw new Error('Error al conectar con el servidor de UF');
       const data = await res.json();
       if (data.serie && data.serie.length > 0) {
         const rate = data.serie[0].valor;
         setUfRate(rate.toString());
       } else {
-        throw new Error('Formato de datos no esperado');
+        throw new Error('Sin datos para esa fecha');
       }
     } catch (err) {
-      console.error("Error fetching UF:", err);
+      console.error("Error fetching UF for date:", err);
       setUfFetchError(true);
+      setUfRate('');
     } finally {
       setIsFetchingUf(false);
     }
   };
 
-  // Fetch UF rate automatically when Emit Invoice Modal is opened
+  // Fetch UF rate automatically when Emit Invoice Modal is open or selected emission date changes
   useEffect(() => {
-    if (isEmitModalOpen && selectedInstallment) {
-      fetchTodayUf();
+    if (isEmitModalOpen && selectedInstallment && actualInvoiceDate) {
+      fetchUfForDate(actualInvoiceDate);
     }
-  }, [isEmitModalOpen, selectedInstallment]);
+  }, [isEmitModalOpen, selectedInstallment, actualInvoiceDate]);
 
   // --- DYNAMIC CALCULATIONS FOR EMIT MODAL ---
   const plannedUf = selectedInstallment ? parseFloat(selectedInstallment.uf) || 0 : 0;
@@ -649,8 +659,13 @@ export default function Facturacion({
     const razonSocial = getProjectRazonSocial(project, pBudgets);
 
     if (!razonSocial) {
-      alert("No se puede emitir factura sin un cliente con Razón Social asignado. Por favor, asigne una Razón Social primero.");
-      if (project) handleOpenAssignRazonSocialModal(project);
+      if (project) setTargetProjectForRazonSocial(project);
+      setIsNoRazonSocialModalOpen(true);
+      return;
+    }
+
+    if (!installment.dateConfirmed) {
+      setIsDateUnconfirmedModalOpen(true);
       return;
     }
 
@@ -1194,27 +1209,39 @@ export default function Facturacion({
                                       </td>
                                       <td className="px-md py-md text-right">
                                         {inst.status === 'Por facturar' && (
-                                          razonSocial ? (
-                                            <button
-                                              onClick={() => openEmitModal(inst)}
-                                              className="inline-flex items-center gap-xs px-2 py-1 bg-primary text-white rounded hover:bg-primary-container font-semibold transition-all active:scale-95 text-[11px]"
-                                            >
-                                              <span className="material-symbols-outlined text-[14px]">send</span>
-                                              <span>Emitir Factura</span>
-                                            </button>
-                                          ) : (
-                                            <button
-                                              onClick={() => {
-                                                alert("Debe asignar una Razón Social (con RUT) al proyecto antes de facturar cuotas.");
-                                                handleOpenAssignRazonSocialModal(project);
-                                              }}
-                                              title="No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
-                                              className="inline-flex items-center gap-xs px-2 py-1 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded font-semibold transition-all active:scale-95 text-[11px]"
-                                            >
-                                              <span className="material-symbols-outlined text-[14px] text-amber-600 font-bold">warning</span>
-                                              <span>Asignar Razón Social</span>
-                                            </button>
-                                          )
+                                          (() => {
+                                            const isDateConfirmed = Boolean(inst.dateConfirmed);
+                                            const isReady = razonSocial && isDateConfirmed;
+                                            return (
+                                              <button
+                                                onClick={() => {
+                                                  if (!razonSocial) {
+                                                    setTargetProjectForRazonSocial(project);
+                                                    setIsNoRazonSocialModalOpen(true);
+                                                  } else if (!isDateConfirmed) {
+                                                    setIsDateUnconfirmedModalOpen(true);
+                                                  } else {
+                                                    openEmitModal(inst);
+                                                  }
+                                                }}
+                                                title={
+                                                  !razonSocial
+                                                    ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
+                                                    : !isDateConfirmed
+                                                    ? "No se puede facturar sin confirmar la fecha de la cuota."
+                                                    : "Emitir Factura"
+                                                }
+                                                className={`inline-flex items-center gap-xs px-2 py-1 rounded font-semibold transition-all text-[11px] active:scale-95 ${
+                                                  isReady
+                                                    ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
+                                                    : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
+                                                }`}
+                                              >
+                                                <span className="material-symbols-outlined text-[14px]">send</span>
+                                                <span>Emitir Factura</span>
+                                              </button>
+                                            );
+                                          })()
                                         )}
                                         {inst.status === 'Factura emitida' && (
                                           <button
@@ -1351,9 +1378,9 @@ export default function Facturacion({
                     ) : (
                       <button 
                         type="button"
-                        onClick={fetchTodayUf}
+                        onClick={() => fetchUfForDate(actualInvoiceDate)}
                         className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
-                        title="Recargar UF del día"
+                        title="Recargar UF de la fecha seleccionada"
                         disabled={isSaving}
                       >
                         <span className="material-symbols-outlined text-[18px]">sync</span>
@@ -1362,10 +1389,10 @@ export default function Facturacion({
                   </div>
                 </div>
                 {ufFetchError ? (
-                  <p className="text-[10px] text-amber-600 mt-1">No se pudo cargar la UF automáticamente. Ingrésela manualmente.</p>
+                  <p className="text-[10px] text-amber-600 mt-1">No se pudo cargar la UF automáticamente para la fecha seleccionada. Ingrésela manualmente.</p>
                 ) : (
                   !isFetchingUf && ufRate && (
-                    <p className="text-[10px] text-secondary font-semibold mt-1">UF cargada automáticamente para hoy</p>
+                    <p className="text-[10px] text-secondary font-semibold mt-1">UF cargada automáticamente para la fecha de emisión</p>
                   )
                 )}
               </div>
@@ -1742,6 +1769,104 @@ export default function Facturacion({
           projectNumber={activeBudgetForInstallments.project.projectNumber}
           isDeferredSave={false}
         />
+      )}
+
+      {/* Modal Advertencia: Falta Razón Social */}
+      {isNoRazonSocialModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up text-left overflow-hidden">
+            <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+              <h3 className="font-headline-sm text-headline-sm text-primary font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-500">warning</span>
+                Razón Social Requerida
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setIsNoRazonSocialModalOpen(false)} 
+                className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            
+            <div className="p-lg space-y-md text-left">
+              <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto shadow-xs mb-2">
+                <span className="material-symbols-outlined text-[32px]">domain_disabled</span>
+              </div>
+              <p className="text-body-md text-on-surface font-medium text-center">
+                Para poder emitir una factura, primero debe asignar una <strong>Razón Social</strong> con RUT al proyecto.
+              </p>
+              {targetProjectForRazonSocial && (
+                <div className="bg-slate-50 p-sm rounded-lg border border-slate-200 text-xs text-slate-600 font-medium text-center">
+                  Proyecto: <span className="font-bold text-slate-800">{targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-lg py-md bg-slate-50 border-t border-outline-variant/30 flex justify-end gap-md">
+              <button 
+                type="button" 
+                onClick={() => setIsNoRazonSocialModalOpen(false)}
+                className="px-lg py-2 border border-outline-variant rounded-lg font-semibold text-on-surface-variant hover:bg-white transition-all text-xs active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setIsNoRazonSocialModalOpen(false);
+                  if (targetProjectForRazonSocial) {
+                    handleOpenAssignRazonSocialModal(targetProjectForRazonSocial);
+                  }
+                }}
+                className="px-lg py-2 bg-primary text-white rounded-lg font-bold shadow-xs hover:bg-primary-container active:scale-95 transition-all text-xs flex items-center gap-xs"
+              >
+                <span className="material-symbols-outlined text-[16px]">domain_add</span>
+                <span>Asignar Razón Social</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Advertencia: Fecha No Confirmada */}
+      {isDateUnconfirmedModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up text-left overflow-hidden">
+            <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+              <h3 className="font-headline-sm text-headline-sm text-primary font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-500">event_busy</span>
+                Fecha No Confirmada
+              </h3>
+              <button 
+                type="button" 
+                onClick={() => setIsDateUnconfirmedModalOpen(false)} 
+                className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            
+            <div className="p-lg space-y-md text-left">
+              <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto shadow-xs mb-2">
+                <span className="material-symbols-outlined text-[32px]">calendar_month</span>
+              </div>
+              <p className="text-body-md text-on-surface font-medium text-center">
+                Esta cuota no tiene su fecha confirmada. Debe confirmar la fecha de la cuota antes de poder emitir la factura.
+              </p>
+            </div>
+
+            <div className="px-lg py-md bg-slate-50 border-t border-outline-variant/30 flex justify-end">
+              <button 
+                type="button" 
+                onClick={() => setIsDateUnconfirmedModalOpen(false)}
+                className="px-xl py-2 bg-primary text-white rounded-lg font-bold shadow-xs hover:bg-primary-container active:scale-95 transition-all text-xs"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: Asignar Razón Social */}
