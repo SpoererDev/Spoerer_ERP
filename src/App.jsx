@@ -305,7 +305,7 @@ export default function App() {
       });
       setQuotes(prev => prev.map(q => q.id === budgetId ? result.budget : q));
       setInstallments(prev => {
-        const filtered = prev.filter(i => i.project_id !== result.project.id);
+        const filtered = prev.filter(i => i.origin_budget_id !== budgetId && i.project_id !== result.project.id);
         return [...filtered, ...result.installments];
       });
       
@@ -350,7 +350,7 @@ export default function App() {
       const result = await supabaseService.associateBudget(budgetId, projectId);
       setQuotes(prev => prev.map(q => q.id === budgetId ? result.budget : q));
       setInstallments(prev => {
-        const filtered = prev.filter(i => i.project_id !== projectId);
+        const filtered = prev.filter(i => i.origin_budget_id !== budgetId && i.project_id !== projectId);
         return [...filtered, ...result.installments];
       });
       return result;

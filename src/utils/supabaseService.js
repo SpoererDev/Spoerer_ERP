@@ -1059,7 +1059,7 @@ export const supabaseService = {
     // Retrieve fresh budgets and installments to sync states
     const { data: freshBudget } = await supabase
       .from('budgets')
-      .select('*, clients:clients!client_id(*), budget_items(*)')
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
       .eq('id', budgetId)
       .single();
 
@@ -1108,7 +1108,7 @@ export const supabaseService = {
         title: newTitle
       })
       .eq('id', budgetId)
-      .select('*, clients:clients!client_id(*), budget_items(*)');
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
     if (error) throw error;
     return mapBudgetFromDb(data[0]);
   },
@@ -1147,7 +1147,7 @@ export const supabaseService = {
         title: newTitle
       })
       .eq('id', budgetId)
-      .select('*, clients:clients!client_id(*), budget_items(*)');
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
 
     if (error) throw error;
     return mapBudgetFromDb(data[0]);
@@ -1159,7 +1159,7 @@ export const supabaseService = {
       .from('budgets')
       .update({ project_id: projectId })
       .eq('id', budgetId)
-      .select('*, clients:clients!client_id(*), budget_items(*)');
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
 
     if (error) throw error;
 
