@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { sanitizeFileName } from '../utils/supabaseService';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 
@@ -559,7 +560,7 @@ export default function Presupuestos({
     }
 
     const newFiles = files.map(file => ({
-      name: file.name,
+      name: sanitizeFileName(file.name),
       size: file.size,
       type: file.type,
       url: URL.createObjectURL(file),
@@ -1148,7 +1149,7 @@ export default function Presupuestos({
     }
 
     const newFiles = files.map(file => ({
-      name: file.name,
+      name: sanitizeFileName(file.name),
       size: file.size,
       type: file.type,
       url: URL.createObjectURL(file),

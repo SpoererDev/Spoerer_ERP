@@ -175,6 +175,25 @@ const mapExtraCostFromDb = (dbCost) => ({
   comment: dbCost.comment || ''
 });
 
+// Helper: Normalize file names (accents, ñ, invalid chars) preserving spaces
+export const sanitizeFileName = (filename) => {
+  if (!filename) return 'archivo';
+  
+  const lastDotIndex = filename.lastIndexOf('.');
+  const ext = lastDotIndex !== -1 ? filename.slice(lastDotIndex) : '';
+  const baseName = lastDotIndex !== -1 ? filename.slice(0, lastDotIndex) : filename;
+
+  const cleanBase = baseName
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/Ñ/g, 'N')
+    .replace(/[^a-zA-Z0-9 ._()-]/g, '-')
+    .replace(/\s+/g, ' ');
+
+  return `${cleanBase.trim()}${ext.toLowerCase()}`;
+};
+
 // Helper: Map status to storage folder name
 const getStatusFolder = (status) => {
   const s = (status || 'Borrador').toLowerCase().trim();
@@ -193,8 +212,9 @@ const uploadQuoteFiles = async (budgetNumber, status, files) => {
   const uploadedFiles = [];
   
   for (const file of files) {
+    const cleanName = sanitizeFileName(file.name);
     if (file.fileObject) {
-      const path = `presupuestos/${folder}/${budgetNumber}/${file.name}`;
+      const path = `presupuestos/${folder}/${budgetNumber}/${cleanName}`;
       const { data, error } = await supabase.storage.from('budgets').upload(path, file.fileObject, {
         upsert: true
       });
@@ -203,7 +223,7 @@ const uploadQuoteFiles = async (budgetNumber, status, files) => {
       const { data: { publicUrl } } = supabase.storage.from('budgets').getPublicUrl(path);
       
       uploadedFiles.push({
-        name: file.name,
+        name: cleanName,
         size: file.size,
         type: file.type,
         url: publicUrl,
@@ -211,7 +231,7 @@ const uploadQuoteFiles = async (budgetNumber, status, files) => {
       });
     } else {
       uploadedFiles.push({
-        name: file.name,
+        name: cleanName,
         size: file.size,
         type: file.type,
         url: file.url,
@@ -1345,7 +1365,7 @@ export const supabaseService = {
 
   async uploadInstallmentFile(folder, projectNumber, file) {
     if (!file) return '';
-    const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const cleanName = sanitizeFileName(file.name);
     const path = `${folder}/${projectNumber}/${Date.now()}_${cleanName}`;
     const { data, error } = await supabase.storage.from('budgets').upload(path, file);
     if (error) throw error;
