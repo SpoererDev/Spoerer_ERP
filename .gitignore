@@ -36,4 +36,10 @@ documentos/
 .next
 build
 
+# Python, CSV & Agent files
+*.pyc
+*.csv
+.agents/
+
+
 

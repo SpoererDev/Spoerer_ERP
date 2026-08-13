@@ -10,51 +10,72 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
                   user?.role?.toLowerCase() === 'system administrator';
 
   const navItems = [
-    { id: 'crm', label: 'Clientes', icon: 'groups' },
-    { id: 'presupuestos', label: 'Presupuestos', icon: 'request_quote' },
-    { id: 'facturacion', label: 'Facturación', icon: 'receipt_long' },
-    { id: 'proyectos', label: 'Proyectos', icon: 'folder' },
-    ...(isAdmin ? [{ id: 'usuarios', label: 'Control de Accesos', icon: 'manage_accounts' }] : []),
+    { id: 'crm', label: 'Clientes', icon: 'groups', category: 'CRM & Datos' },
+    { id: 'presupuestos', label: 'Presupuestos', icon: 'request_quote', category: 'Ventas & Cotizaciones' },
+    { id: 'facturacion', label: 'Facturación', icon: 'receipt_long', category: 'Cobranza & Finanzas' },
+    { id: 'proyectos', label: 'Proyectos', icon: 'folder', category: 'Operaciones' },
+    ...(isAdmin ? [{ id: 'usuarios', label: 'Control de Accesos', icon: 'manage_accounts', category: 'Administración' }] : []),
   ];
 
+  const currentNav = navItems.find(item => item.id === currentTab) || navItems[0];
+  const userInitials = (user?.name || 'AD').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
   return (
-    <div className="min-h-screen flex text-on-surface">
+    <div className="min-h-screen flex bg-background text-on-surface">
       {/* SideNavBar Shell */}
       <aside
-        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col bg-primary h-screen transition-all duration-300 border-r border-outline-variant ${isCollapsed ? 'w-[72px]' : 'w-[260px]'
-          }`}
+        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col bg-[#091426] h-screen transition-all duration-300 border-r border-slate-800 shadow-xl ${
+          isCollapsed ? 'w-[72px]' : 'w-[260px]'
+        }`}
       >
-        {/* Brand Logo */}
-        <div className={`py-xl flex flex-col gap-xs ${isCollapsed ? 'px-md items-center' : 'px-lg'}`}>
-          <div className="flex items-center gap-sm">
-            <img src={logoSpr} className="w-10 h-10 object-contain rounded-lg flex-shrink-0" alt="Logo" />
+        {/* Brand Logo & Title */}
+        <div className={`py-5 flex flex-col border-b border-slate-800/80 ${isCollapsed ? 'px-3 items-center' : 'px-5'}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700/80 flex items-center justify-center p-1.5 shadow-sm flex-shrink-0">
+              <img src={logoSpr} className="w-full h-full object-contain" alt="Logo SPOERER" />
+            </div>
             {!isCollapsed && (
               <div className="flex flex-col text-left">
-                <h1 className="font-headline-sm text-headline-sm font-bold text-on-primary leading-none">SPOERER</h1>
-                <span className="text-[11px] text-on-primary-container opacity-80 uppercase tracking-widest mt-1">ERP Suite</span>
+                <div className="flex items-center gap-2">
+                  <h1 className="font-bold text-white tracking-tight text-lg leading-tight font-sans">SPOERER</h1>
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono tracking-wider uppercase mt-0.5">ERP SUITE</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 px-md flex flex-col gap-base custom-scrollbar overflow-y-auto mt-4 text-left">
+        <nav className="flex-1 px-3 py-4 flex flex-col gap-1.5 custom-scrollbar overflow-y-auto text-left">
+          {!isCollapsed && (
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-1">
+              Menú Principal
+            </span>
+          )}
           {navItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setCurrentTab(item.id)}
-                className={`flex items-center gap-md px-md py-sm rounded-lg transition-all active:scale-[0.98] w-full text-left ${isActive
-                    ? 'bg-primary-container text-secondary-fixed border-l-4 border-secondary-fixed font-semibold'
-                    : 'text-on-primary-container hover:text-on-primary hover:bg-primary-container/40'
-                  }`}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left active:scale-[0.98] ${
+                  isActive
+                    ? 'bg-slate-800/90 text-white font-semibold shadow-inner border-l-4 border-emerald-400'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/40'
+                }`}
                 title={item.label}
               >
-                <span className="material-symbols-outlined text-[22px]" style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}>
+                <span 
+                  className={`material-symbols-outlined text-[22px] transition-colors ${
+                    isActive ? 'text-emerald-400' : 'text-slate-400'
+                  }`}
+                  style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}
+                >
                   {item.icon}
                 </span>
-                {!isCollapsed && <span className="font-body-md text-body-md whitespace-nowrap">{item.label}</span>}
+                {!isCollapsed && (
+                  <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                )}
               </button>
             );
           })}
@@ -62,78 +83,89 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
           {isAdmin && (
             <button
               onClick={onOpenBackupHistory}
-              className="flex items-center gap-md px-md py-sm rounded-lg transition-all active:scale-[0.98] w-full text-left text-on-primary-container hover:text-on-primary hover:bg-primary-container/40 border-t border-outline-variant/20 pt-3 mt-2"
+              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left text-slate-300 hover:text-white hover:bg-slate-800/40 border-t border-slate-800/80 pt-3 mt-3 active:scale-[0.98]"
               title="Respaldos e Historial"
             >
-              <span className="material-symbols-outlined text-[22px]">cloud_download</span>
-              {!isCollapsed && <span className="font-body-md text-body-md whitespace-nowrap">Respaldos</span>}
+              <span className="material-symbols-outlined text-[22px] text-slate-400">cloud_download</span>
+              {!isCollapsed && <span className="text-sm font-medium whitespace-nowrap">Respaldos e Historial</span>}
             </button>
           )}
         </nav>
 
-        {/* Collapse Button and Footer */}
-        <div className="p-md flex flex-col gap-sm">
+        {/* Collapse Button Footer */}
+        <div className="p-3 border-t border-slate-800/80">
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="w-full py-sm bg-primary-container text-on-primary-container hover:text-on-primary rounded-lg transition-colors flex items-center justify-center gap-sm active:scale-95"
-            title={isCollapsed ? 'Expandir' : 'Colapsar'}
+            className="w-full py-2 bg-slate-800/60 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 text-xs font-medium border border-slate-700/50"
+            title={isCollapsed ? 'Expandir Menú' : 'Colapsar Menú'}
           >
-            <span className="material-symbols-outlined text-[20px]">
+            <span className="material-symbols-outlined text-[18px]">
               {isCollapsed ? 'menu_open' : 'keyboard_double_arrow_left'}
             </span>
-            {!isCollapsed && <span className="font-body-sm text-body-sm">Colapsar Menú</span>}
+            {!isCollapsed && <span>Colapsar Menú</span>}
           </button>
         </div>
       </aside>
 
-      {/* Main Page Area Container */}
+      {/* Main Container */}
       <div
         className="flex flex-col flex-1 min-w-0 transition-all duration-300"
         style={{ paddingLeft: isCollapsed ? '72px' : '260px' }}
       >
-        {/* TopAppBar Shell */}
-        <header className="sticky top-0 z-40 flex justify-end items-center w-full px-lg h-16 bg-surface border-b border-outline-variant">
-          <div className="flex items-center gap-lg">
-            {/* Quick Actions */}
-            <div className="flex items-center gap-md">
-               {isAdmin && (
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-40 flex justify-between items-center w-full px-6 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
+          {/* Left Context Breadcrumb */}
+          <div className="flex items-center gap-2 text-left">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">{currentNav.category}</span>
+            <span className="text-slate-300 text-xs">/</span>
+            <h2 className="text-base font-bold text-slate-900 font-sans tracking-tight">{currentNav.label}</h2>
+          </div>
+
+          {/* Right Profile & Quick Actions */}
+          <div className="flex items-center gap-4">
+            {/* Quick action buttons */}
+            <div className="flex items-center gap-1.5 border-r border-slate-200 pr-3">
+              {isAdmin && (
                 <button
                   onClick={onOpenBackupHistory}
-                  className="p-1.5 hover:bg-surface-container rounded-full text-on-surface-variant hover:text-primary transition-all"
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
                   title="Historial de Respaldos"
                 >
-                  <span className="material-symbols-outlined text-[22px]">cloud_download</span>
+                  <span className="material-symbols-outlined text-[20px]">cloud_download</span>
                 </button>
               )}
               <button
                 onClick={onLogout}
-                className="p-1.5 hover:bg-error-container hover:text-error rounded-full text-on-surface-variant transition-all"
+                className="p-2 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
                 title="Cerrar Sesión"
               >
-                <span className="material-symbols-outlined text-[22px]">logout</span>
+                <span className="material-symbols-outlined text-[20px]">logout</span>
               </button>
             </div>
 
-            {/* Profile Info */}
-            <div className="relative flex items-center gap-sm border-l border-outline-variant pl-lg">
+            {/* Profile Dropdown */}
+            <div className="relative">
               <button
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-sm hover:opacity-90 transition-opacity focus:outline-none"
+                className="flex items-center gap-3 hover:opacity-95 transition-opacity cursor-pointer focus:outline-none"
               >
                 <div className="text-right hidden sm:block">
-                  <p className="font-label-md text-label-md text-primary uppercase font-bold">{user?.name || 'Administrador'}</p>
-                  <p className="text-xs text-on-surface-variant">{user?.role || 'Administrador del Sistema'}</p>
+                  <p className="text-xs font-bold text-slate-900 leading-tight">{user?.name || 'Administrador'}</p>
+                  <p className="text-[11px] text-slate-500 font-medium">{user?.role || 'Sistema'}</p>
                 </div>
-                <div className="w-10 h-10 rounded-full border border-outline-variant overflow-hidden bg-primary flex items-center justify-center text-white font-bold text-sm">
-                  AD
+                <div className="relative">
+                  <div className="w-9 h-9 rounded-full border border-slate-200 bg-[#091426] text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                    {userInitials}
+                  </div>
+                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white"></span>
                 </div>
               </button>
 
               {showUserMenu && (
-                <div className="absolute right-0 top-12 w-52 bg-white border border-outline-variant rounded-lg shadow-lg py-sm z-50 text-left">
-                  <div className="px-md py-sm border-b border-outline-variant/30 sm:hidden">
-                    <p className="font-label-md text-label-md text-primary font-bold">{user?.name}</p>
-                    <p className="text-xs text-on-surface-variant">{user?.role}</p>
+                <div className="absolute right-0 top-12 w-56 bg-white border border-slate-200 rounded-xl shadow-lg py-2 z-50 text-left animate-scale-up">
+                  <div className="px-4 py-2.5 border-b border-slate-100 sm:hidden">
+                    <p className="text-xs font-bold text-slate-900">{user?.name}</p>
+                    <p className="text-[11px] text-slate-500">{user?.role}</p>
                   </div>
                   {isAdmin && (
                     <>
@@ -142,26 +174,26 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
                           setCurrentTab('usuarios');
                           setShowUserMenu(false);
                         }}
-                        className="w-full px-md py-sm hover:bg-surface-container-low text-body-md text-on-surface flex items-center gap-sm"
+                        className="w-full px-4 py-2 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2.5 cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[18px]">manage_accounts</span>
-                        Mi Perfil / Accesos
+                        <span className="material-symbols-outlined text-[18px] text-slate-500">manage_accounts</span>
+                        Control de Accesos
                       </button>
                       <button
                         onClick={() => {
                           onOpenBackupHistory();
                           setShowUserMenu(false);
                         }}
-                        className="w-full px-md py-sm hover:bg-surface-container-low text-body-md text-on-surface flex items-center gap-sm"
+                        className="w-full px-4 py-2 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2.5 cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[18px]">history</span>
-                        Respaldos e Historial
+                        <span className="material-symbols-outlined text-[18px] text-slate-500">history</span>
+                        Historial de Respaldos
                       </button>
                     </>
                   )}
                   <button
                     onClick={onLogout}
-                    className="w-full px-md py-sm hover:bg-error-container hover:text-error text-body-md text-on-surface flex items-center gap-sm border-t border-outline-variant/30"
+                    className="w-full px-4 py-2 hover:bg-red-50 text-xs font-medium text-red-600 flex items-center gap-2.5 border-t border-slate-100 cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-[18px]">logout</span>
                     Cerrar Sesión
@@ -173,10 +205,11 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
         </header>
 
         {/* Dynamic Page Content */}
-        <main className="p-xl bg-background flex-1 overflow-x-hidden">
+        <main className="p-6 bg-slate-50/50 flex-1 overflow-x-hidden">
           {children}
         </main>
       </div>
     </div>
   );
 }
+

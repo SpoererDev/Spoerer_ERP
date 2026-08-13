@@ -1,31 +1,84 @@
-/* Global Custom styles for Modular ERP CRM Suite */
+/* Global Custom styles for SPOERER ERP - UI/UX Pro Max Design System */
 
-body {
-  background-color: #f8f9ff;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(216, 227, 251, 0.4) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(137, 245, 231, 0.1) 0px, transparent 50%),
-    linear-gradient(45deg, transparent 48%, rgba(203, 219, 245, 0.1) 50%, transparent 52%);
-  background-size: 100% 100%, 100% 100%, 40px 40px;
-  min-height: 100vh;
-  margin: 0;
-  font-family: 'Inter', sans-serif;
+:root {
+  --color-primary: #091426;
+  --color-secondary: #006a61;
+  --color-accent: #059669;
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-destructive: #dc2626;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
 }
 
+body {
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(9, 20, 38, 0.03) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(5, 150, 105, 0.03) 0px, transparent 50%);
+  min-height: 100vh;
+  margin: 0;
+  font-family: 'Fira Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Material Symbols Outlined vertical align */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
+  display: inline-block;
+  line-height: 1;
+}
+
+/* Modern Card System */
+.card-modern {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem; /* 16px */
+  box-shadow: var(--shadow-sm);
+  transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-modern:hover {
+  box-shadow: var(--shadow-md);
+  border-color: #cbd5e1;
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(197, 198, 205, 0.4);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: var(--shadow-sm);
 }
 
 .login-card {
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
   border: 1px solid #e2e8f0;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  box-shadow: var(--shadow-xl);
+}
+
+/* Stat KPI Cards */
+.stat-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  transition: all 200ms ease;
+}
+
+.stat-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 /* Custom Scrollbar */
@@ -40,21 +93,84 @@ body {
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 10px;
+  border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
 
-/* Page transitions & interactive effects */
+/* Micro-animations & Interactive Effects */
 .hover-scale {
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
 }
 .hover-scale:hover {
-  transform: scale(1.01);
+  transform: translateY(-1px);
 }
 
 .active-scale:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
+
+/* Primary & Secondary Buttons from MASTER.md */
+.btn-primary {
+  background-color: #091426;
+  color: #ffffff;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: all 200ms ease;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.btn-primary:hover {
+  background-color: #1e293b;
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: #091426;
+  border: 1px solid #cbd5e1;
+  padding: 0.625rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: all 200ms ease;
+  cursor: pointer;
+}
+.btn-secondary:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+/* Animations */
+@keyframes scaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-up {
+  animation: scaleUp 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Ensure focus states are visible for keyboard navigation */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #006a61;
+}
+

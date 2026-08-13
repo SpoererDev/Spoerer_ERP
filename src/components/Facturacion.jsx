@@ -95,7 +95,7 @@ export default function Facturacion({
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [projects, adminUsers]);
-  
+
   // Emit Invoice Form
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [actualInvoiceDate, setActualInvoiceDate] = useState('');
@@ -167,19 +167,19 @@ export default function Facturacion({
     // Clean file name to remove spaces and special characters
     const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const path = `${folder}/${projectNumber}_${Date.now()}_${cleanName}`;
-    
+
     const { data, error } = await supabase.storage
       .from('budgets')
       .upload(path, file, {
         upsert: true
       });
-      
+
     if (error) throw error;
-    
+
     const { data: { publicUrl } } = supabase.storage
       .from('budgets')
       .getPublicUrl(path);
-      
+
     return publicUrl;
   };
 
@@ -254,16 +254,16 @@ export default function Facturacion({
       // 5. Text Search
       if (searchTerm.trim() !== '') {
         const term = searchTerm.toLowerCase();
-        
+
         const projectCode = project?.projectNumber?.toLowerCase() || '';
         const projectName = project?.rawProjectName?.toLowerCase() || '';
         const projectEncargado = project?.encargado?.toLowerCase() || '';
-        
+
         const client = clients.find(c => c.id === clientId);
         const clientCompany = client?.company?.toLowerCase() || '';
         const clientName = client?.name?.toLowerCase() || '';
         const projectClient = project?.cliente?.toLowerCase() || '';
-        
+
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
 
         const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
@@ -280,7 +280,7 @@ export default function Facturacion({
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    
+
     let totalPorFacturarUf = 0;
     let totalFacturadoPendienteClp = 0;
     let totalRecaudadoClp = 0;
@@ -342,8 +342,8 @@ export default function Facturacion({
       Object.keys(budgetGroups).forEach(bId => {
         const budget = budgets.find(b => b.id === bId);
         // Display Quote Number + Title
-        const budgetTitle = budget 
-          ? `${budget.quoteId} - ${budget.title}` 
+        const budgetTitle = budget
+          ? `${budget.quoteId} - ${budget.title}`
           : `Presupuesto Ref: ${bId.substring(0, 8)}`;
         const budgetAmount = budget ? budget.amount : 0;
         const budgetInstallments = budgetGroups[bId];
@@ -708,7 +708,7 @@ export default function Facturacion({
     try {
       const project = projects.find(p => p.id === selectedInstallment.project_id);
       const pNumber = project ? project.projectNumber : 'SIN_PROYECTO';
-      
+
       let fileUrl = selectedInstallment.invoiceFileUrl || '';
       if (invoiceFile) {
         fileUrl = await uploadFile('facturas', pNumber, invoiceFile);
@@ -724,7 +724,7 @@ export default function Facturacion({
         invoiceFileUrl: fileUrl,
         comment: emitComment.trim()
       };
-      
+
       await onUpdateInstallment(selectedInstallment.id, updates);
       setIsEmitModalOpen(false);
     } catch (err) {
@@ -773,31 +773,31 @@ export default function Facturacion({
   };
 
   return (
-    <div className="space-y-xl animate-fade-in text-left">
+    <div className="space-y-6 animate-fade-in text-left">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="font-display-lg text-display-lg text-primary font-bold">Centro de Cobranzas</h2>
-          <p className="text-on-surface-variant font-body-md mt-1">Gestión de cuotas de facturación y conciliación de pagos</p>
+          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Centro de Cobranzas</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Gestión de cuotas de facturación y conciliación de pagos.</p>
         </div>
-        <div className="flex gap-sm">
-          <button 
+        <div className="flex flex-wrap items-center gap-2">
+          <button
             onClick={expandAll}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant bg-white hover:bg-slate-50 text-on-surface font-semibold rounded transition-all active:scale-95 font-label-md"
+            className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-[18px]">unfold_more</span>
+            <span className="material-symbols-outlined text-[16px]">unfold_more</span>
             <span>Expandir Todo</span>
           </button>
-          <button 
+          <button
             onClick={collapseAll}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant bg-white hover:bg-slate-50 text-on-surface font-semibold rounded transition-all active:scale-95 font-label-md"
+            className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
           >
-            <span className="material-symbols-outlined text-[18px]">unfold_less</span>
+            <span className="material-symbols-outlined text-[16px]">unfold_less</span>
             <span>Colapsar Todo</span>
           </button>
-          <button 
+          <button
             onClick={handleExportBilling}
-            className="flex items-center gap-2 px-md py-2 bg-secondary text-white font-bold rounded hover:brightness-105 transition-all font-label-md active:scale-95"
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
           >
             <span className="material-symbols-outlined text-[18px]">file_download</span>
             <span>Exportar Facturación</span>
@@ -806,92 +806,106 @@ export default function Facturacion({
       </div>
 
       {/* SECTION A: Dashboard de KPIs Financieros */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Total por Facturar (UF) */}
-        <div className="bg-slate-50/40 border border-slate-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-slate-800 uppercase font-bold tracking-wider">Por Facturar (Planificado)</span>
-            <div className="font-display-lg text-[34px] text-slate-950 font-extrabold">
-              {formatUF(stats.totalPorFacturarUf, 0)}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar (Planificado)</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">calendar_today</span>
             </div>
           </div>
-          <div className="p-3 bg-slate-100 rounded-full text-slate-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">calendar_today</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {formatUF(stats.totalPorFacturarUf, 0)}
+            </span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">Plan de cobro</span>
           </div>
         </div>
 
         {/* KPI 2: Total Facturado Pendiente (CLP) */}
-        <div className="bg-amber-50/40 border border-amber-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-amber-800 uppercase font-bold tracking-wider font-semibold">Facturado Pendiente</span>
-            <div className="font-display-lg text-[34px] text-amber-950 font-extrabold">
-              {formatCLP(stats.totalFacturadoPendienteClp)}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">pending_actions</span>
             </div>
           </div>
-          <div className="p-3 bg-amber-100 rounded-full text-amber-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">pending_actions</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {formatCLP(stats.totalFacturadoPendienteClp)}
+            </span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">Por cobrar</span>
           </div>
         </div>
 
         {/* KPI 3: Total Recaudado (CLP) */}
-        <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-emerald-800 uppercase font-bold tracking-wider font-semibold">Total Recaudado</span>
-            <div className="font-display-lg text-[34px] text-emerald-950 font-extrabold">
-              {formatCLP(stats.totalRecaudadoClp)}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">payments</span>
             </div>
           </div>
-          <div className="p-3 bg-emerald-100 rounded-full text-emerald-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">payments</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {formatCLP(stats.totalRecaudadoClp)}
+            </span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">Pagos confirmados</span>
           </div>
         </div>
 
         {/* KPI 4: Vencimientos Atrasados (UF) */}
-        <div className="bg-red-50/40 border border-red-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-red-800 uppercase font-bold tracking-wider font-bold">Vencido Atrasado</span>
-            <div className="font-display-lg text-[34px] text-red-950 font-extrabold">
-              {formatUF(stats.totalVencidoUf, 0)}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Vencido Atrasado</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
             </div>
           </div>
-          <div className="p-3 bg-red-100 rounded-full text-red-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {formatUF(stats.totalVencidoUf, 0)}
+            </span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">Cuotas atrasadas</span>
           </div>
         </div>
       </div>
+
       {/* SECTION B: Barra de Filtros y Búsqueda */}
-      <section className="glass-card rounded-xl p-md flex flex-col lg:flex-row items-stretch lg:items-end gap-md justify-between shadow-sm">
+      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
         {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-end gap-md w-full lg:w-auto">
-          <div className="flex flex-col flex-grow max-w-5xl min-w-[240px]">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Búsqueda General</label>
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
             <div className="relative w-full">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
-              <input 
-                className="w-full pl-10 pr-4 py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:border-outline-none h-[38px]" 
-                placeholder="Factura, Proyecto o Cliente..." 
+              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+              <input
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                placeholder="Factura, Proyecto o Cliente..."
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
-          <button
-            onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant rounded bg-white text-on-surface hover:bg-slate-50 transition-all font-label-md active:scale-95 h-[38px]"
-            title="Limpiar Filtros"
-          >
-            <span className="material-symbols-outlined text-[16px]">clear_all</span>
-            <span>Limpiar</span>
-          </button>
+          {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos') && (
+            <button
+              onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+              title="Limpiar Filtros"
+            >
+              <span className="material-symbols-outlined text-[16px]">clear_all</span>
+              <span>Limpiar</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side: Filters */}
-        <div className="flex flex-wrap items-end gap-md justify-end w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
           {/* Temporal Filter */}
-          <div className="flex flex-col">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Período de Vencimiento</label>
-            <div className="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
               {[
                 { value: '1_mes', label: '1 Mes' },
                 { value: '6_meses', label: '6 Meses' },
@@ -902,11 +916,10 @@ export default function Facturacion({
                   key={p.value}
                   type="button"
                   onClick={() => setTemporalFilter(p.value)}
-                  className={`px-sm py-1.5 rounded text-xs font-semibold transition-all ${
-                    temporalFilter === p.value 
-                      ? 'bg-primary text-white shadow-sm' 
-                      : 'text-on-surface-variant hover:bg-surface-container-high'
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
+                    ? 'bg-[#091426] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
                 >
                   {p.label}
                 </button>
@@ -915,9 +928,9 @@ export default function Facturacion({
           </div>
 
           {/* Status Filter */}
-          <div className="flex flex-col">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Estado Cuota</label>
-            <div className="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Estado Cuota:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
               {[
                 { value: 'Todos', label: 'Todos' },
                 { value: 'Por facturar', label: 'Por facturar' },
@@ -929,11 +942,10 @@ export default function Facturacion({
                   key={s.value}
                   type="button"
                   onClick={() => setStatusFilter(s.value)}
-                  className={`px-sm py-1.5 rounded text-xs font-semibold transition-all ${
-                    statusFilter === s.value 
-                      ? 'bg-primary text-white shadow-sm' 
-                      : 'text-on-surface-variant hover:bg-surface-container-high'
-                  }`}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
+                    ? 'bg-[#091426] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
                 >
                   {s.label}
                 </button>
@@ -942,12 +954,12 @@ export default function Facturacion({
           </div>
 
           {/* Client Filter */}
-          <div className="flex flex-col">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Cliente</label>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
             <select
               value={clientFilter}
               onChange={(e) => setClientFilter(e.target.value)}
-              className="px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:border-outline-none h-[38px] max-w-[220px] font-medium text-on-surface"
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[200px] truncate"
             >
               <option value="Todos">Todos los clientes</option>
               {clients.map(c => (
@@ -959,12 +971,12 @@ export default function Facturacion({
           </div>
 
           {/* Encargado Filter */}
-          <div className="flex flex-col">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Encargado</label>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
             <select
               value={encargadoFilter}
               onChange={(e) => setEncargadoFilter(e.target.value)}
-              className="px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:border-outline-none h-[38px] max-w-[220px] font-medium text-on-surface"
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
             >
               <option value="Todos">Todos los encargados</option>
               {availableEncargados.map(enc => (
@@ -975,7 +987,7 @@ export default function Facturacion({
             </select>
           </div>
         </div>
-      </section>
+      </div>
 
       {/* SECTION C: Lista de Facturación Agrupada (Jerárquica) */}
       <div className="space-y-md">
@@ -985,12 +997,12 @@ export default function Facturacion({
             const razonSocial = getProjectRazonSocial(project, projectBudgets);
 
             return (
-              <div 
-                key={pId} 
+              <div
+                key={pId}
                 className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden transition-all hover:shadow text-left"
               >
                 {/* Nivel 1: Tarjeta de Proyecto */}
-                <div 
+                <div
                   onClick={() => toggleProject(pId)}
                   className="p-md sm:p-lg flex flex-col md:flex-row md:items-center justify-between gap-md bg-slate-50/50 cursor-pointer hover:bg-slate-100/50 transition-colors"
                 >
@@ -1144,13 +1156,12 @@ export default function Facturacion({
                                         {formatUF(inst.uf)}
                                       </td>
                                       <td className="px-md py-md text-center">
-                                        <span className={`inline-flex items-center px-sm py-xs rounded-full text-[10px] font-bold uppercase border ${
-                                          inst.status === 'Pagada'
-                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                            : inst.status === 'Factura emitida'
+                                        <span className={`inline-flex items-center px-sm py-xs rounded-full text-[10px] font-bold uppercase border ${inst.status === 'Pagada'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : inst.status === 'Factura emitida'
                                             ? 'bg-amber-50 text-amber-700 border-amber-200'
                                             : 'bg-slate-100 text-slate-700 border-slate-200'
-                                        }`}>
+                                          }`}>
                                           {inst.status}
                                         </span>
                                       </td>
@@ -1181,22 +1192,22 @@ export default function Facturacion({
                                       <td className="px-md py-md text-center">
                                         <div className="flex justify-center items-center gap-xs">
                                           {inst.invoiceFileUrl ? (
-                                            <a 
-                                              href={inst.invoiceFileUrl} 
-                                              target="_blank" 
-                                              rel="noopener noreferrer" 
-                                              className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors" 
+                                            <a
+                                              href={inst.invoiceFileUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors"
                                               title="Descargar Factura (PDF)"
                                             >
                                               <span className="material-symbols-outlined text-[16px]">receipt_long</span>
                                             </a>
                                           ) : null}
                                           {inst.paymentBackupUrl ? (
-                                            <a 
-                                              href={inst.paymentBackupUrl} 
-                                              target="_blank" 
-                                              rel="noopener noreferrer" 
-                                              className="inline-flex items-center text-secondary hover:text-secondary-fixed p-1 bg-surface-container-high rounded transition-colors" 
+                                            <a
+                                              href={inst.paymentBackupUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center text-secondary hover:text-secondary-fixed p-1 bg-surface-container-high rounded transition-colors"
                                               title="Ver Comprobante de Pago"
                                             >
                                               <span className="material-symbols-outlined text-[16px]">receipt</span>
@@ -1228,14 +1239,13 @@ export default function Facturacion({
                                                   !razonSocial
                                                     ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
                                                     : !isDateConfirmed
-                                                    ? "No se puede facturar sin confirmar la fecha de la cuota."
-                                                    : "Emitir Factura"
+                                                      ? "No se puede facturar sin confirmar la fecha de la cuota."
+                                                      : "Emitir Factura"
                                                 }
-                                                className={`inline-flex items-center gap-xs px-2 py-1 rounded font-semibold transition-all text-[11px] active:scale-95 ${
-                                                  isReady
-                                                    ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
-                                                    : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
-                                                }`}
+                                                className={`inline-flex items-center gap-xs px-2 py-1 rounded font-semibold transition-all text-[11px] active:scale-95 ${isReady
+                                                  ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
+                                                  : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
+                                                  }`}
                                               >
                                                 <span className="material-symbols-outlined text-[14px]">send</span>
                                                 <span>Emitir Factura</span>
@@ -1298,16 +1308,16 @@ export default function Facturacion({
                   <span>Registrar folio y emisión de factura para la cuota</span>
                 </p>
               </div>
-              <button 
+              <button
                 type="button"
-                onClick={() => setIsEmitModalOpen(false)} 
+                onClick={() => setIsEmitModalOpen(false)}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all text-on-surface-variant"
                 disabled={isSaving}
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <form onSubmit={handleSaveEmit} className="p-lg space-y-lg text-left">
               <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-xs animate-fade-in text-body-md text-primary">
                 <p className="flex justify-between items-center">
@@ -1323,7 +1333,7 @@ export default function Facturacion({
               {/* Folio Factura */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Número de Factura (Folio)</label>
-                <input 
+                <input
                   type="text"
                   className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
                   value={invoiceNumber}
@@ -1338,14 +1348,14 @@ export default function Facturacion({
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Fecha de Emisión Real</label>
                 <div className="relative flex items-center">
-                  <input 
+                  <input
                     type="text"
                     readOnly
                     value={actualInvoiceDate ? actualInvoiceDate.split('-').reverse().join('/') : ''}
                     className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white text-primary font-semibold pr-10"
                     placeholder="dd/mm/yyyy"
                   />
-                  <input 
+                  <input
                     type="date"
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     value={actualInvoiceDate}
@@ -1363,7 +1373,7 @@ export default function Facturacion({
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Valor de la UF del día ($)</label>
                 <div className="relative">
-                  <input 
+                  <input
                     type="number"
                     className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
                     value={ufRate}
@@ -1376,7 +1386,7 @@ export default function Facturacion({
                     {isFetchingUf ? (
                       <span className="animate-spin text-outline-variant text-[18px] material-symbols-outlined">sync</span>
                     ) : (
-                      <button 
+                      <button
                         type="button"
                         onClick={() => fetchUfForDate(actualInvoiceDate)}
                         className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
@@ -1419,7 +1429,7 @@ export default function Facturacion({
               {/* Local File Upload for Invoice PDF */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Archivo Respaldo Factura (PDF / Imagen)</label>
-                <input 
+                <input
                   type="file"
                   accept=".pdf,image/*"
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:border-secondary focus:ring-1 focus:ring-secondary outline-none text-body-sm file:mr-md file:py-1 file:px-sm file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-secondary file:text-white hover:file:bg-secondary/90 cursor-pointer transition-all"
@@ -1436,7 +1446,7 @@ export default function Facturacion({
               {/* Comentarios */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Comentario</label>
-                <textarea 
+                <textarea
                   rows="2"
                   className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                   value={emitComment}
@@ -1447,16 +1457,16 @@ export default function Facturacion({
               </div>
 
               <div className="flex justify-end gap-md pt-lg border-t border-outline-variant mt-sm">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsEmitModalOpen(false)}
                   className="px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold active:scale-95"
                   disabled={isSaving}
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="px-lg py-2 bg-secondary text-white rounded hover:brightness-110 transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-xs"
                   disabled={isSaving}
                 >
@@ -1490,16 +1500,16 @@ export default function Facturacion({
                   <span>Conciliar pago de cuota facturada</span>
                 </p>
               </div>
-              <button 
+              <button
                 type="button"
-                onClick={() => setIsPaymentModalOpen(false)} 
+                onClick={() => setIsPaymentModalOpen(false)}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all text-on-surface-variant"
                 disabled={isSaving}
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <form onSubmit={handleSavePayment} className="p-lg space-y-lg text-left">
               <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-xs animate-fade-in text-body-md text-primary">
                 <p className="flex justify-between items-center">
@@ -1516,14 +1526,14 @@ export default function Facturacion({
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Fecha de Pago Real</label>
                 <div className="relative flex items-center">
-                  <input 
+                  <input
                     type="text"
                     readOnly
                     value={actualPaymentDate ? actualPaymentDate.split('-').reverse().join('/') : ''}
                     className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white text-primary font-semibold pr-10"
                     placeholder="dd/mm/yyyy"
                   />
-                  <input 
+                  <input
                     type="date"
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     value={actualPaymentDate}
@@ -1540,7 +1550,7 @@ export default function Facturacion({
               {/* Monto Recibido */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Monto Recibido en CLP ($)</label>
-                <input 
+                <input
                   type="text"
                   className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
                   value={totalClpReceived}
@@ -1558,7 +1568,7 @@ export default function Facturacion({
               {/* Local File Upload for Payment Backup */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Comprobante de Pago (PDF / Imagen)</label>
-                <input 
+                <input
                   type="file"
                   accept=".pdf,image/*"
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:border-secondary focus:ring-1 focus:ring-secondary outline-none text-body-sm file:mr-md file:py-1 file:px-sm file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-secondary file:text-white hover:file:bg-secondary/90 cursor-pointer transition-all"
@@ -1575,7 +1585,7 @@ export default function Facturacion({
               {/* Comentarios de Cobranza */}
               <div className="space-y-xs">
                 <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Comentario de Cobranza</label>
-                <textarea 
+                <textarea
                   rows="2"
                   className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                   value={paymentComment}
@@ -1586,16 +1596,16 @@ export default function Facturacion({
               </div>
 
               <div className="flex justify-end gap-md pt-lg border-t border-outline-variant mt-sm">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
                   className="px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold active:scale-95"
                   disabled={isSaving}
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="px-lg py-2 bg-secondary text-white rounded hover:brightness-110 transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-xs"
                   disabled={isSaving}
                 >
@@ -1629,15 +1639,15 @@ export default function Facturacion({
                   <span>Ver información de cobro y pago</span>
                 </p>
               </div>
-              <button 
+              <button
                 type="button"
-                onClick={() => setIsDetailsModalOpen(false)} 
+                onClick={() => setIsDetailsModalOpen(false)}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all text-on-surface-variant"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <div className="p-lg space-y-lg text-left text-body-sm">
               <div className="grid grid-cols-2 gap-md border-b border-slate-200/40 pb-3">
                 <div>
@@ -1700,10 +1710,10 @@ export default function Facturacion({
                 <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block">Documentos de Respaldo</span>
                 <div className="flex flex-wrap gap-sm">
                   {selectedInstallment.invoiceFileUrl ? (
-                    <a 
-                      href={selectedInstallment.invoiceFileUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
+                    <a
+                      href={selectedInstallment.invoiceFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center gap-xs px-md py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-primary font-bold transition-all text-body-sm active:scale-95"
                     >
                       <span className="material-symbols-outlined text-[18px]">receipt_long</span>
@@ -1711,10 +1721,10 @@ export default function Facturacion({
                     </a>
                   ) : null}
                   {selectedInstallment.paymentBackupUrl ? (
-                    <a 
-                      href={selectedInstallment.paymentBackupUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
+                    <a
+                      href={selectedInstallment.paymentBackupUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center gap-xs px-md py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-secondary font-bold transition-all text-body-sm active:scale-95"
                     >
                       <span className="material-symbols-outlined text-[18px]">receipt</span>
@@ -1737,8 +1747,8 @@ export default function Facturacion({
               )}
 
               <div className="flex justify-end pt-lg border-t border-outline-variant mt-sm">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsDetailsModalOpen(false)}
                   className="px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold active:scale-95"
                 >
@@ -1780,15 +1790,15 @@ export default function Facturacion({
                 <span className="material-symbols-outlined text-amber-500">warning</span>
                 Razón Social Requerida
               </h3>
-              <button 
-                type="button" 
-                onClick={() => setIsNoRazonSocialModalOpen(false)} 
+              <button
+                type="button"
+                onClick={() => setIsNoRazonSocialModalOpen(false)}
                 className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <div className="p-lg space-y-md text-left">
               <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto shadow-xs mb-2">
                 <span className="material-symbols-outlined text-[32px]">domain_disabled</span>
@@ -1804,15 +1814,15 @@ export default function Facturacion({
             </div>
 
             <div className="px-lg py-md bg-slate-50 border-t border-outline-variant/30 flex justify-end gap-md">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setIsNoRazonSocialModalOpen(false)}
                 className="px-lg py-2 border border-outline-variant rounded-lg font-semibold text-on-surface-variant hover:bg-white transition-all text-xs active:scale-95"
               >
                 Cancelar
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => {
                   setIsNoRazonSocialModalOpen(false);
                   if (targetProjectForRazonSocial) {
@@ -1838,15 +1848,15 @@ export default function Facturacion({
                 <span className="material-symbols-outlined text-amber-500">event_busy</span>
                 Fecha No Confirmada
               </h3>
-              <button 
-                type="button" 
-                onClick={() => setIsDateUnconfirmedModalOpen(false)} 
+              <button
+                type="button"
+                onClick={() => setIsDateUnconfirmedModalOpen(false)}
                 className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            
+
             <div className="p-lg space-y-md text-left">
               <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center text-amber-600 mx-auto shadow-xs mb-2">
                 <span className="material-symbols-outlined text-[32px]">calendar_month</span>
@@ -1857,8 +1867,8 @@ export default function Facturacion({
             </div>
 
             <div className="px-lg py-md bg-slate-50 border-t border-outline-variant/30 flex justify-end">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => setIsDateUnconfirmedModalOpen(false)}
                 className="px-xl py-2 bg-primary text-white rounded-lg font-bold shadow-xs hover:bg-primary-container active:scale-95 transition-all text-xs"
               >
@@ -1907,11 +1917,10 @@ export default function Facturacion({
                 <button
                   type="button"
                   onClick={() => { setAssignMode('select'); setAssignError(''); }}
-                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${
-                    assignMode === 'select'
-                      ? 'border-primary text-primary font-bold'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${assignMode === 'select'
+                    ? 'border-primary text-primary font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   <span className="material-symbols-outlined text-[16px]">list</span>
                   <span>Seleccionar Existente</span>
@@ -1919,11 +1928,10 @@ export default function Facturacion({
                 <button
                   type="button"
                   onClick={() => { setAssignMode('create'); setAssignError(''); }}
-                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${
-                    assignMode === 'create'
-                      ? 'border-primary text-primary font-bold'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`pb-2.5 px-4 font-semibold text-xs border-b-2 transition-all flex items-center gap-2 ${assignMode === 'create'
+                    ? 'border-primary text-primary font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   <span className="material-symbols-outlined text-[16px]">add_business</span>
                   <span>+ Registrar Nueva Razón Social</span>
@@ -1980,11 +1988,10 @@ export default function Facturacion({
                           <div
                             key={client.id}
                             onClick={() => setSelectedRazonSocialId(client.id)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${
-                              isSelected
-                                ? 'bg-primary/5 border-primary shadow-2xs ring-1 ring-primary/20'
-                                : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                            }`}
+                            className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${isSelected
+                              ? 'bg-primary/5 border-primary shadow-2xs ring-1 ring-primary/20'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                              }`}
                           >
                             <div className="space-y-0.5">
                               <div className="flex items-center gap-2">
@@ -2005,9 +2012,8 @@ export default function Facturacion({
                                 {client.address && <span>Dirección: {client.address} {client.comuna ? `, ${client.comuna}` : ''}</span>}
                               </div>
                             </div>
-                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                              isSelected ? 'border-primary bg-primary text-white' : 'border-slate-300'
-                            }`}>
+                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'border-primary bg-primary text-white' : 'border-slate-300'
+                              }`}>
                               {isSelected && <span className="material-symbols-outlined text-[14px]">check</span>}
                             </div>
                           </div>

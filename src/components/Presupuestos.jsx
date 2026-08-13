@@ -257,6 +257,44 @@ export default function Presupuestos({
   const [aiErrorMessage, setAiErrorMessage] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
+  // Searchable Client dropdown state
+  const [clientSearchTerm, setClientSearchTerm] = useState('');
+  const [isClientSearchOpen, setIsClientSearchOpen] = useState(false);
+  const clientSearchRef = useRef(null);
+
+  const isClientSelected = Boolean(selectedMainClient);
+
+  // Sync clientSearchTerm when selectedMainClient changes
+  useEffect(() => {
+    if (selectedMainClient) {
+      const matched = mainClients.find(mc => mc.id === selectedMainClient);
+      if (matched) {
+        setClientSearchTerm(matched.name);
+      } else {
+        setClientSearchTerm(selectedMainClient);
+      }
+    } else {
+      setClientSearchTerm('');
+    }
+  }, [selectedMainClient, mainClients]);
+
+  // Click outside to close client search dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (clientSearchRef.current && !clientSearchRef.current.contains(event.target)) {
+        setIsClientSearchOpen(false);
+        if (selectedMainClient) {
+          const matched = mainClients.find(mc => mc.id === selectedMainClient);
+          setClientSearchTerm(matched ? matched.name : selectedMainClient);
+        } else {
+          setClientSearchTerm('');
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedMainClient, mainClients]);
+
   const [subtotal, setSubtotal] = useState(0);
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
@@ -778,7 +816,7 @@ export default function Presupuestos({
   const handleEditQuote = (quote) => {
     setQuoteId(quote.quoteId);
     setCurrentBudgetUuid(quote.id);
-    
+
     const matchedMC = mainClients.find(mc =>
       (quote.mainClientId && mc.id === quote.mainClientId) ||
       (quote.mainClientName && mc.name.toLowerCase() === quote.mainClientName.toLowerCase()) ||
@@ -833,52 +871,56 @@ export default function Presupuestos({
     const existing = quotes.find(q => q.quoteId === quoteId || q.quoteId === paddedId);
 
     if (existing) {
-      setIsExistingQuote(true);
-      setCurrentBudgetUuid(existing.id);
+      if (!currentBudgetUuid || currentBudgetUuid === existing.id) {
+        setIsExistingQuote(true);
+        setCurrentBudgetUuid(existing.id);
 
-      const matchedMC = mainClients.find(mc =>
-        (existing.mainClientId && mc.id === existing.mainClientId) ||
-        (existing.mainClientName && mc.name.toLowerCase() === existing.mainClientName.toLowerCase()) ||
-        (existing.clientName && mc.name.toLowerCase() === existing.clientName.toLowerCase())
-      );
-      const targetMainId = matchedMC ? matchedMC.id : (existing.mainClientId || existing.clientName || '');
-      setSelectedMainClient(targetMainId);
+        const matchedMC = mainClients.find(mc =>
+          (existing.mainClientId && mc.id === existing.mainClientId) ||
+          (existing.mainClientName && mc.name.toLowerCase() === existing.mainClientName.toLowerCase()) ||
+          (existing.clientName && mc.name.toLowerCase() === existing.clientName.toLowerCase())
+        );
+        const targetMainId = matchedMC ? matchedMC.id : (existing.mainClientId || existing.clientName || '');
+        setSelectedMainClient(targetMainId);
 
-      const matchedLE = clients.find(c =>
-        (existing.legalEntityId && c.id === existing.legalEntityId) ||
-        (existing.clientId && c.id === existing.clientId)
-      );
-      const targetLegalId = matchedLE ? matchedLE.id : (existing.legalEntityId || existing.clientId || '');
-      setSelectedLegalEntity(targetLegalId);
-      setSelectedClient(targetMainId || targetLegalId);
+        const matchedLE = clients.find(c =>
+          (existing.legalEntityId && c.id === existing.legalEntityId) ||
+          (existing.clientId && c.id === existing.clientId)
+        );
+        const targetLegalId = matchedLE ? matchedLE.id : (existing.legalEntityId || existing.clientId || '');
+        setSelectedLegalEntity(targetLegalId);
+        setSelectedClient(targetMainId || targetLegalId);
 
-      setIssueDate(ensureDDMMYYYY(existing.date) || getTodayDDMMYYYY());
+        setIssueDate(ensureDDMMYYYY(existing.date) || getTodayDDMMYYYY());
 
-      const valDays = existing.validity ? parseInt(existing.validity) || 30 : 30;
-      setValidity(valDays);
-      setQuoteTitle(existing.title || '');
+        const valDays = existing.validity ? parseInt(existing.validity) || 30 : 30;
+        setValidity(valDays);
+        setQuoteTitle(existing.title || '');
 
-      const initialSubtotal = existing.items && existing.items.length > 0
-        ? existing.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
-        : existing.amount;
-      setSubtotal(Math.round(initialSubtotal * 100) / 100);
+        const initialSubtotal = existing.items && existing.items.length > 0
+          ? existing.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
+          : existing.amount;
+        setSubtotal(Math.round(initialSubtotal * 100) / 100);
 
-      setBackupFiles(existing.backupFiles || []);
+        setBackupFiles(existing.backupFiles || []);
 
-      if (existing.status === 'Aprobado' || existing.status === 'Aprovado') {
-        const pTable = findQuoteBillingTable(existing.id);
-        if (pTable) {
-          setEditBillingTable(pTable);
+        if (existing.status === 'Aprobado' || existing.status === 'Aprovado') {
+          const pTable = findQuoteBillingTable(existing.id);
+          if (pTable) {
+            setEditBillingTable(pTable);
+          } else {
+            setEditBillingTable([]);
+          }
         } else {
           setEditBillingTable([]);
         }
-      } else {
-        setEditBillingTable([]);
       }
     } else {
-      setIsExistingQuote(false);
-      setCurrentBudgetUuid(null);
-      setEditBillingTable([]);
+      if (!currentBudgetUuid) {
+        setIsExistingQuote(false);
+        setCurrentBudgetUuid(null);
+        setEditBillingTable([]);
+      }
     }
   }, [quoteId, isModalOpen, quotes, clients, mainClients]);
 
@@ -1197,11 +1239,12 @@ export default function Presupuestos({
       projectIdToLink = null;
     }
 
-    if (!isExistingQuote && quotes.some(q => q.quoteId === formattedId)) {
+    const duplicateQuote = quotes.find(q => (q.quoteId === formattedId || q.quoteId === quoteId) && q.id !== currentBudgetUuid);
+    if (duplicateQuote) {
       setNotification({
         type: 'error',
         title: 'Número de Presupuesto Duplicado',
-        message: `El número de presupuesto #${formattedId} ya existe. Por favor utilice un número diferente.`
+        message: `El número de presupuesto #${formattedId} ya pertenece a otro presupuesto. Por favor utilice un número diferente.`
       });
       return;
     }
@@ -1307,76 +1350,93 @@ export default function Presupuestos({
     .filter(u => !selectedReviewers.some(r => r.id === u.id));
 
   return (
-    <div className="space-y-xl animate-fade-in text-left">
+    <div className="space-y-6 animate-fade-in text-left">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="font-display-lg text-display-lg text-primary font-bold">Gestión de Presupuestos</h2>
-          <p className="text-on-surface-variant font-body-md mt-1">Crea, edita y haz seguimiento de cotizaciones para tus clientes.</p>
+          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Presupuestos</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Crea, edita y haz seguimiento de cotizaciones para tus clientes.</p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={handleOpenNewQuoteModal}
-            className="flex items-center gap-2 px-md py-2 bg-secondary text-white rounded hover:brightness-105 transition-all font-label-md font-bold active:scale-95"
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[16px]">add</span>
+            <span className="material-symbols-outlined text-[18px]">add</span>
             <span>Nuevo Presupuesto</span>
           </button>
         </div>
       </div>
 
-      {/* Tarjetas KPI sin contenedor externo */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-md">
+      {/* Tarjetas KPI Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Tarjeta Aprobados */}
-        <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-emerald-800 uppercase font-bold tracking-wider">Aprobados ({approvedQuotesCount})</span>
-            <div className="font-display-lg text-[34px] text-emerald-950 font-extrabold">
-              {totalApproved.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-body-md font-semibold text-emerald-800">UF</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
             </div>
           </div>
-          <div className="p-3 bg-emerald-100 rounded-full text-emerald-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">check_circle</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {totalApproved.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+            <span className="text-xs font-bold text-emerald-700">UF</span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">
+              {approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+            </span>
           </div>
         </div>
 
         {/* Tarjeta Enviados */}
-        <div className="bg-blue-50/40 border border-blue-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-blue-800 uppercase font-bold tracking-wider">Enviados ({sentQuotesCount})</span>
-            <div className="font-display-lg text-[34px] text-blue-950 font-extrabold">
-              {totalSent.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-body-md font-semibold text-blue-800">UF</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">send</span>
             </div>
           </div>
-          <div className="p-3 bg-blue-100 rounded-full text-blue-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">send</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {totalSent.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+            <span className="text-xs font-bold text-blue-700">UF</span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">
+              {sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+            </span>
           </div>
         </div>
 
         {/* Tarjeta Rechazados */}
-        <div className="bg-red-50/40 border border-red-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-red-800 uppercase font-bold tracking-wider">Rechazados ({rejectedQuotesCount})</span>
-            <div className="font-display-lg text-[34px] text-red-950 font-extrabold">
-              {totalRejected.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-body-md font-semibold text-red-800">UF</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[18px]">cancel</span>
             </div>
           </div>
-          <div className="p-3 bg-red-100 rounded-full text-red-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">cancel</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {totalRejected.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
+            <span className="text-xs font-bold text-rose-700">UF</span>
+            <span className="text-[11px] text-slate-400 font-medium ml-auto">
+              {rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Filter and Summary Bar */}
-      <section className="glass-card rounded-xl p-md flex flex-col lg:flex-row items-stretch lg:items-end gap-md justify-between shadow-sm">
+      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
         {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-end gap-md w-full lg:w-auto">
-          <div className="flex-grow max-w-5xl min-w-[240px]">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold">Buscar Presupuesto</label>
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="flex-grow max-w-lg min-w-[240px]">
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
+              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
               <input
-                className="w-full pl-10 pr-4 py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:outline-none"
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
                 placeholder="Buscar por ID, cliente o descripción..."
                 type="text"
                 value={searchTerm}
@@ -1384,21 +1444,23 @@ export default function Presupuestos({
               />
             </div>
           </div>
-          <button
-            onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); }}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant rounded bg-white text-on-surface hover:bg-slate-50 transition-all font-label-md active:scale-95 h-[38px]"
-          >
-            <span className="material-symbols-outlined text-[16px]">clear_all</span>
-            <span>Limpiar</span>
-          </button>
+          {searchTerm && (
+            <button
+              onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); }}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[16px]">clear_all</span>
+              <span>Limpiar</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side: Period and Status groups */}
-        <div className="flex flex-wrap items-end gap-md justify-end w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
           {/* Period Filter Button Group */}
-          <div className="flex flex-col gap-xs">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Período de cálculo</span>
-            <div className="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Período:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
               {[
                 { value: '1', label: '1M' },
                 { value: '6', label: '6M' },
@@ -1411,9 +1473,9 @@ export default function Presupuestos({
                   key={p.value}
                   type="button"
                   onClick={() => setCalcPeriod(p.value)}
-                  className={`px-3 py-1.5 rounded text-[11px] font-semibold transition-all ${calcPeriod === p.value
-                      ? 'bg-primary text-white shadow-sm'
-                      : 'text-on-surface-variant hover:bg-surface-container-high'
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${calcPeriod === p.value
+                    ? 'bg-[#091426] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                     }`}
                 >
                   {p.label}
@@ -1423,17 +1485,17 @@ export default function Presupuestos({
           </div>
 
           {/* Status Filter Button Group */}
-          <div className="flex flex-col gap-xs">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Estado</span>
-            <div className="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
               {['Todos', 'Borrador', 'En revisión', 'Enviado', 'Aprobado', 'Rechazado'].map((status) => (
                 <button
                   key={status}
                   type="button"
                   onClick={() => setStatusFilter(status)}
-                  className={`px-3 py-1.5 rounded text-[11px] font-semibold transition-all ${statusFilter === status
-                      ? 'bg-primary text-white shadow-sm'
-                      : 'text-on-surface-variant hover:bg-surface-container-high'
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === status
+                    ? 'bg-[#091426] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                     }`}
                 >
                   {status}
@@ -1442,7 +1504,7 @@ export default function Presupuestos({
             </div>
           </div>
         </div>
-      </section>
+      </div>
 
       {/* Data Table Section */}
       {filteredQuotes.length > 0 ? (
@@ -1453,7 +1515,7 @@ export default function Presupuestos({
                 <tr className="bg-surface-container-low border-b border-outline-variant">
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">ID Presupuesto</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título / Proyecto</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título de presupuesto</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Fecha de Emisión</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto Total (UF)</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Validez</th>
@@ -1475,7 +1537,7 @@ export default function Presupuestos({
                       <div className="flex items-center gap-1.5">
                         <span>{quote.title}</span>
                         {(quote.status === 'Aprobado' || quote.status === 'Aprovado') && !quote.projectId && (
-                          <span 
+                          <span
                             className="material-symbols-outlined text-amber-500 text-[18px] cursor-help select-none flex-shrink-0"
                             title="Este presupuesto está aprobado pero no está asociado a ningún proyecto"
                           >
@@ -1519,16 +1581,16 @@ export default function Presupuestos({
                         value={quote.status}
                         onChange={(e) => handleStatusChange(quote.id, e.target.value)}
                         className={`px-2 py-0.5 rounded-full text-label-sm font-bold border outline-none transition-all cursor-pointer ${quote.status === 'Borrador'
-                            ? 'bg-slate-100 text-slate-700 border-slate-300'
-                            : quote.status === 'En revisión'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : quote.status === 'Enviado'
-                                ? 'bg-blue-100 text-blue-800 border-blue-200'
-                                : quote.status === 'Aprobado' || quote.status === 'Aprovado'
-                                  ? 'bg-secondary-container text-on-secondary-container border-secondary/20'
-                                  : quote.status === 'Rechazado'
-                                    ? 'bg-red-100 text-red-800 border-red-200'
-                                    : 'bg-slate-100 text-slate-700 border-slate-300'
+                          ? 'bg-slate-100 text-slate-700 border-slate-300'
+                          : quote.status === 'En revisión'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : quote.status === 'Enviado'
+                              ? 'bg-blue-100 text-blue-800 border-blue-200'
+                              : quote.status === 'Aprobado' || quote.status === 'Aprovado'
+                                ? 'bg-secondary-container text-on-secondary-container border-secondary/20'
+                                : quote.status === 'Rechazado'
+                                  ? 'bg-red-100 text-red-800 border-red-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
                           }`}
                         title="Cambiar estado del presupuesto"
                       >
@@ -1627,7 +1689,7 @@ export default function Presupuestos({
                       <span className="text-on-surface">{viewingQuote.company || '-'}</span>
                     </div>
                     <div className="col-span-2">
-                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Título / Proyecto</span>
+                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Título de presupuesto</span>
                       <span className="text-on-surface">{viewingQuote.title}</span>
                     </div>
                     <div>
@@ -1647,14 +1709,14 @@ export default function Presupuestos({
                     <div>
                       <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Estado</span>
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-label-sm font-bold border ${viewingQuote.status === 'Borrador'
-                          ? 'bg-slate-100 text-slate-700 border-slate-300'
-                          : viewingQuote.status === 'En revisión'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : viewingQuote.status === 'Enviado'
-                              ? 'bg-blue-100 text-blue-800 border-blue-200'
-                              : viewingQuote.status === 'Aprobado' || viewingQuote.status === 'Aprovado'
-                                ? 'bg-secondary-container text-on-secondary-container border-secondary/20'
-                                : 'bg-red-100 text-red-800 border-red-200'
+                        ? 'bg-slate-100 text-slate-700 border-slate-300'
+                        : viewingQuote.status === 'En revisión'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : viewingQuote.status === 'Enviado'
+                            ? 'bg-blue-100 text-blue-800 border-blue-200'
+                            : viewingQuote.status === 'Aprobado' || viewingQuote.status === 'Aprovado'
+                              ? 'bg-secondary-container text-on-secondary-container border-secondary/20'
+                              : 'bg-red-100 text-red-800 border-red-200'
                         }`}>
                         {viewingQuote.status}
                       </span>
@@ -1762,10 +1824,10 @@ export default function Presupuestos({
                                   </td>
                                   <td className="p-md">
                                     <span className={`inline-block px-2.5 py-0.5 rounded-full text-label-sm font-bold border ${cuota.status === 'Pagada'
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : cuota.status === 'Factura emitida'
-                                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                          : 'bg-slate-100 text-slate-700 border-slate-350'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : cuota.status === 'Factura emitida'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-slate-100 text-slate-700 border-slate-350'
                                       }`}>
                                       {cuota.status || 'Por facturar'}
                                     </span>
@@ -1813,9 +1875,9 @@ export default function Presupuestos({
 
       {/* Modal Backdrop: New Quote Form */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm">
-          <div className="relative bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up">
-            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-xs md:p-md bg-primary/40 backdrop-blur-sm">
+          <div className={`relative bg-white w-full ${previewFile ? 'max-w-[1500px]' : 'max-w-4xl'} max-h-[92vh] rounded-xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out border border-outline-variant/30 overflow-hidden animate-scale-up`}>
+            <div className="p-md md:p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
               <div>
                 <h2 className="font-headline-md text-headline-md text-primary font-bold">Detalle del Presupuesto</h2>
                 <p className="text-body-md text-on-surface-variant flex items-center gap-2">
@@ -1832,436 +1894,633 @@ export default function Presupuestos({
                   )}
                 </p>
               </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 hover:bg-slate-100 rounded-full transition-all"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
+              <div className="flex items-center gap-3">
+                {previewFile && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewFile(null);
+                      setDocxHtml('');
+                    }}
+                    className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    title="Cerrar vista previa del documento"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                    <span>Cerrar Vista Previa</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setPreviewFile(null);
+                    setDocxHtml('');
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-all text-slate-500 hover:text-slate-700"
+                  title="Cerrar modal"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
             </div>
-            {/* Modal Content (Form) */}
-            <form onSubmit={handleSubmit} className="p-lg space-y-lg text-left">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-xl">
 
-                {/* Columna Izquierda: Información General, Fechas y Finanzas */}
-                <div className="space-y-lg">
-                  {/* Tarjeta de Información de la Cotización */}
-                  <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md animate-fade-in">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
-                      <span className="material-symbols-outlined text-[20px] text-secondary">info</span>
-                      Información de la Cotización
-                    </h3>
+            {/* Split Screen Body */}
+            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+              {/* Form Side */}
+              <div className={`w-full ${previewFile ? 'lg:w-1/2 xl:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200' : 'w-full'} overflow-y-auto max-h-[calc(92vh-80px)]`}>
+                <form onSubmit={handleSubmit} className="p-lg space-y-lg text-left">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-xl">
 
-                    {/* Fila 1: N° Presupuesto y Cliente */}
-                    <div className="grid grid-cols-2 gap-md">
-                      <div className="flex flex-col gap-xs col-span-1">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">N° Presupuesto</label>
-                        <input
-                          className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                          type="text"
-                          value={quoteId}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                            setQuoteId(val);
-                          }}
-                          onBlur={() => {
-                            if (quoteId) {
-                              setQuoteId(quoteId.padStart(4, '0'));
-                            }
-                          }}
-                          placeholder="Ej: 0685"
-                          required
-                        />
-                      </div>
-                      {/* Cliente Principal */}
-                      <div className="flex flex-col gap-xs col-span-1">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
-                          <span>Cliente *</span>
-                        </label>
-                        <select
-                          className="w-full border-slate-300 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium"
-                          value={selectedMainClient}
-                          onChange={(e) => {
-                            setSelectedMainClient(e.target.value);
-                            setSelectedClient(e.target.value);
-                            setSelectedLegalEntity('');
-                          }}
-                          required
-                        >
-                          <option value="">Seleccionar Cliente Principal...</option>
-                          {mainClients.map(mc => (
-                            <option key={mc.id} value={mc.id}>{mc.name}</option>
-                          ))}
-                          {selectedMainClient && !mainClients.some(mc => mc.id === selectedMainClient) && (
-                            <option value={selectedMainClient}>{selectedMainClient}</option>
-                          )}
-                        </select>
-                      </div>
-                    </div>
+                    {/* Columna Izquierda: Información General, Fechas y Finanzas */}
+                    <div className="space-y-lg">
+                      {/* Tarjeta de Información de la Cotización */}
+                      <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md animate-fade-in">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
+                          <span className="material-symbols-outlined text-[20px] text-secondary">info</span>
+                          Información de la Cotización
+                        </h3>
 
-                    {/* Fila 2: Razón Social (Asociada al cliente principal - Opcional) */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
-                        <span>Razón Social</span>
-                        <span className="text-[11px] text-on-surface-variant font-normal">Opcional</span>
-                      </label>
-                      <select
-                        className="w-full border-slate-300 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium"
-                        value={selectedLegalEntity}
-                        onChange={(e) => setSelectedLegalEntity(e.target.value)}
-                      >
-                        <option value="">-- Sin Razón Social --</option>
-                        {clients
-                          .filter(c => {
-                            if (!selectedMainClient) return true;
-                            const mcObj = mainClients.find(mc => mc.id === selectedMainClient);
-                            const mcName = mcObj ? mcObj.name : selectedMainClient;
-                            return (
-                              c.mainClientId === selectedMainClient ||
-                              (c.realClient && c.realClient.toLowerCase() === mcName.toLowerCase()) ||
-                              (c.mainClientName && c.mainClientName.toLowerCase() === mcName.toLowerCase())
-                            );
-                          })
-                          .map(c => (
-                            <option key={c.id} value={c.id}>{c.company} ({c.rut})</option>
-                          ))
-                        }
-                      </select>
-                    </div>
+                        {!isClientSelected && (
+                          <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm animate-fade-in">
+                            <span className="material-symbols-outlined text-[20px] text-amber-600 flex-shrink-0">lock</span>
+                            <span>Seleccione un <strong>Cliente</strong> para habilitar los demás campos del presupuesto.</span>
+                          </div>
+                        )}
 
-                    {/* Fila 2: Título / Proyecto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Título / Proyecto</label>
-                      <input
-                        className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                        type="text"
-                        value={quoteTitle}
-                        onChange={(e) => setQuoteTitle(e.target.value)}
-                        placeholder="Ej: Licencias e Implementación de Servidores"
-                        required
-                      />
-                    </div>
+                        {/* Fila 1: N° Presupuesto y Cliente */}
+                        <div className="grid grid-cols-2 gap-md">
+                          <div className="flex flex-col gap-xs col-span-1">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">N° Presupuesto</label>
+                            <input
+                              className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                              type="text"
+                              value={quoteId}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                setQuoteId(val);
+                              }}
+                              onBlur={() => {
+                                if (quoteId) {
+                                  setQuoteId(quoteId.padStart(4, '0'));
+                                }
+                              }}
+                              placeholder="Ej: 0685"
+                              required
+                            />
+                          </div>
 
-                    {/* Fila 3: Fecha de Emisión y Validez */}
-                    <div className="grid grid-cols-2 gap-md">
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fecha de Emisión</label>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            readOnly
-                            value={issueDate}
-                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white pr-10"
-                            placeholder="dd/mm/yyyy"
-                          />
-                          <input
-                            type="date"
-                            value={issueDate ? issueDate.split('/').reverse().join('-') : ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              if (val) {
-                                setIssueDate(val.split('-').reverse().join('/'));
-                              } else {
-                                setIssueDate('');
-                              }
-                            }}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                            required
-                          />
-                          <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
-                            calendar_month
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Validez (Días)</label>
-                        <input
-                          className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                          type="number"
-                          value={validity}
-                          onChange={(e) => setValidity(e.target.value)}
-                          min="1"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Separador de Valores Financieros */}
-                    <h4 className="text-body-sm font-bold text-primary flex items-center gap-2 pt-sm border-t border-slate-200/60">
-                      <span className="material-symbols-outlined text-[18px] text-secondary">payments</span>
-                      Valores Financieros (Neto)
-                    </h4>
-
-                    {/* Fila 4: Subtotal Neto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal (Neto)</label>
-                      <div className="relative rounded-lg shadow-sm">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                          <span className="text-slate-500 text-body-md">$</span>
-                        </div>
-                        <input
-                          type="number"
-                          className="w-full pl-7 border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all font-bold bg-white"
-                          value={subtotal}
-                          onChange={(e) => setSubtotal(e.target.value)}
-                          onBlur={(e) => {
-                            const rounded = Math.round((parseFloat(e.target.value) || 0) * 100) / 100;
-                            setSubtotal(rounded);
-                          }}
-                          placeholder="0.00"
-                          min="0"
-                          step="0.01"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Fila 5: Impuestos y Totales */}
-                    <div className="space-y-sm pt-sm border-t border-slate-200/60">
-                      <div className="flex justify-between text-body-sm text-on-surface-variant px-1">
-                        <span>Impuesto (19% IVA)</span>
-                        <span className="font-medium">${tax.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="flex justify-between items-center bg-secondary/5 px-md py-2.5 rounded-lg border border-secondary/10">
-                        <span className="text-body-md font-bold text-secondary">Total (IVA Incluido)</span>
-                        <span className="text-title-lg font-black text-secondary">
-                          ${total.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna Derecha: Documentos de Respaldo */}
-                <div className="space-y-lg">
-                  {/* Tarjeta de Documentos de Respaldo y Extracción IA */}
-                  <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
-                      <span className="material-symbols-outlined text-[20px] text-secondary">cloud_upload</span>
-                      Documentos de Respaldo
-                    </h3>
-
-                    <div className="flex items-center gap-md flex-wrap pt-xs">
-                      <label className="flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant hover:border-secondary rounded-lg bg-white hover:bg-slate-50 text-on-surface hover:text-primary transition-all cursor-pointer text-body-sm font-bold shadow-sm">
-                        <span className="material-symbols-outlined text-[20px] text-on-surface-variant">upload_file</span>
-                        <span>Subir Respaldo</span>
-                        <input
-                          type="file"
-                          multiple
-                          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                          className="hidden"
-                          onChange={handleFileUpload}
-                        />
-                      </label>
-
-                      {backupFiles.some(f => f.fileObject) && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const recentFile = [...backupFiles].reverse().find(f => f.fileObject);
-                            if (recentFile) {
-                              extractDataWithAi(recentFile.fileObject);
-                            }
-                          }}
-                          disabled={isAiExtracting}
-                          className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${isAiExtracting
-                            ? 'bg-slate-400 cursor-not-allowed animate-pulse'
-                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20'
-                            }`}
-                        >
-                          {isAiExtracting ? (
-                            <>
-                              <span className="material-symbols-outlined text-[20px] animate-spin">sync</span>
-                              <span>Procesando...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="material-symbols-outlined text-[20px]">psychology</span>
-                              <span>Extracción IA</span>
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    <span className="text-label-sm text-on-surface-variant italic block">Formatos permitidos: PDF y DOCX</span>
-
-                    {backupFiles.length > 0 ? (
-                      <div className="space-y-sm mt-md max-h-[300px] overflow-y-auto pr-xs custom-scrollbar">
-                        {backupFiles.map((file, idx) => (
-                          <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border border-outline-variant/30 shadow-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="material-symbols-outlined text-secondary flex-shrink-0">
-                                {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
-                              </span>
-                              <div className="flex flex-col min-w-0">
-                                <span className="text-body-sm font-bold truncate max-w-[140px]" title={file.name}>{file.name}</span>
-                                <span className="text-label-sm text-on-surface-variant">{(file.size / 1024).toFixed(1)} KB</span>
+                          {/* Cliente Principal con Búsqueda Filtrable */}
+                          <div className="flex flex-col gap-xs col-span-1 relative" ref={clientSearchRef}>
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
+                              <span>Cliente *</span>
+                            </label>
+                            
+                            <div className="relative">
+                              <input
+                                type="text"
+                                className="w-full border border-slate-300 rounded-lg text-body-md py-2 pl-3 pr-8 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium"
+                                placeholder="Buscar cliente..."
+                                value={clientSearchTerm}
+                                onChange={(e) => {
+                                  setClientSearchTerm(e.target.value);
+                                  setIsClientSearchOpen(true);
+                                  if (!e.target.value) {
+                                    setSelectedMainClient('');
+                                    setSelectedClient('');
+                                    setSelectedLegalEntity('');
+                                  }
+                                }}
+                                onFocus={() => setIsClientSearchOpen(true)}
+                              />
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                {selectedMainClient ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedMainClient('');
+                                      setSelectedClient('');
+                                      setSelectedLegalEntity('');
+                                      setClientSearchTerm('');
+                                      setIsClientSearchOpen(false);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-all cursor-pointer"
+                                    title="Quitar cliente seleccionado"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">close</span>
+                                  </button>
+                                ) : (
+                                  <span className="material-symbols-outlined text-slate-400 pointer-events-none text-[20px]">
+                                    arrow_drop_down
+                                  </span>
+                                )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => setPreviewFile(file)}
-                                className="p-1 hover:bg-slate-200 rounded text-secondary hover:text-primary transition-all"
-                                title="Visualizar respaldo"
-                              >
-                                <span className="material-symbols-outlined text-[18px]">visibility</span>
-                              </button>
-                              {file.url && (
-                                <a
-                                  href={file.url}
-                                  download={file.name}
-                                  className="p-1 hover:bg-slate-200 rounded text-secondary transition-all"
-                                  title="Descargar"
-                                >
-                                  <span className="material-symbols-outlined text-[18px]">download</span>
-                                </a>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveFile(idx)}
-                                className="p-1 hover:bg-slate-200 rounded text-error hover:text-red-600 transition-all"
-                                title="Eliminar"
-                              >
-                                <span className="material-symbols-outlined text-[18px]">delete</span>
-                              </button>
+
+                            {/* Desplegable Filtrado */}
+                            {isClientSearchOpen && (
+                              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-56 overflow-y-auto custom-scrollbar animate-fade-in">
+                                {(() => {
+                                  const filtered = mainClients.filter(mc =>
+                                    mc.name.toLowerCase().includes(clientSearchTerm.toLowerCase())
+                                  );
+
+                                  if (filtered.length === 0) {
+                                    return (
+                                      <div className="p-3 text-center text-slate-400 text-body-sm italic">
+                                        No se encontraron clientes que coincidan.
+                                      </div>
+                                    );
+                                  }
+
+                                  return filtered.map(mc => {
+                                    const isSelected = selectedMainClient === mc.id;
+                                    return (
+                                      <div
+                                        key={mc.id}
+                                        onClick={() => {
+                                          setSelectedMainClient(mc.id);
+                                          setSelectedClient(mc.id);
+                                          setSelectedLegalEntity('');
+                                          setClientSearchTerm(mc.name);
+                                          setIsClientSearchOpen(false);
+                                        }}
+                                        className={`p-2.5 px-3 hover:bg-slate-100/80 cursor-pointer flex items-center justify-between text-body-sm transition-colors ${
+                                          isSelected ? 'bg-secondary/10 font-bold text-secondary' : 'text-slate-700'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 truncate">
+                                          <span className={`material-symbols-outlined text-[18px] ${isSelected ? 'text-secondary' : 'text-slate-400'}`}>
+                                            domain
+                                          </span>
+                                          <span className="truncate">{mc.name}</span>
+                                        </div>
+                                        {isSelected && (
+                                          <span className="material-symbols-outlined text-[18px] text-secondary">
+                                            check
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fila 2: Razón Social */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
+                            <span>Razón Social</span>
+                            <span className="text-[11px] text-on-surface-variant font-normal">Opcional</span>
+                          </label>
+                          <select
+                            className={`w-full border-slate-300 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-medium ${
+                              !isClientSelected 
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
+                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                            }`}
+                            value={selectedLegalEntity}
+                            onChange={(e) => setSelectedLegalEntity(e.target.value)}
+                            disabled={!isClientSelected}
+                          >
+                            <option value="">-- Sin Razón Social --</option>
+                            {clients
+                              .filter(c => {
+                                if (!selectedMainClient) return true;
+                                const mcObj = mainClients.find(mc => mc.id === selectedMainClient);
+                                const mcName = mcObj ? mcObj.name : selectedMainClient;
+                                return (
+                                  c.mainClientId === selectedMainClient ||
+                                  (c.realClient && c.realClient.toLowerCase() === mcName.toLowerCase()) ||
+                                  (c.mainClientName && c.mainClientName.toLowerCase() === mcName.toLowerCase())
+                                );
+                              })
+                              .map(c => (
+                                <option key={c.id} value={c.id}>{c.company} ({c.rut})</option>
+                              ))
+                            }
+                          </select>
+                        </div>
+
+                        {/* Fila 2: Título / Proyecto */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Título de presupuesto</label>
+                          <input
+                            className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${
+                              !isClientSelected 
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
+                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                            }`}
+                            type="text"
+                            value={quoteTitle}
+                            onChange={(e) => setQuoteTitle(e.target.value)}
+                            placeholder="Ej: Licencias e Implementación de Servidores"
+                            disabled={!isClientSelected}
+                            required={isClientSelected}
+                          />
+                        </div>
+
+                        {/* Fila 3: Fecha de Emisión y Validez */}
+                        <div className="grid grid-cols-2 gap-md">
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fecha de Emisión</label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                readOnly
+                                value={issueDate}
+                                className={`w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all pr-10 ${
+                                  !isClientSelected ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-on-surface'
+                                }`}
+                                placeholder="dd/mm/yyyy"
+                              />
+                              <input
+                                type="date"
+                                value={issueDate ? issueDate.split('/').reverse().join('-') : ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val) {
+                                    setIssueDate(val.split('-').reverse().join('/'));
+                                  } else {
+                                    setIssueDate('');
+                                  }
+                                }}
+                                disabled={!isClientSelected}
+                                className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
+                                  !isClientSelected ? 'cursor-not-allowed' : 'cursor-pointer'
+                                }`}
+                                required={isClientSelected}
+                              />
+                              <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
+                                calendar_month
+                              </span>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-body-sm text-on-surface-variant italic pt-sm">No hay archivos de respaldo adjuntos.</p>
-                    )}
-                  </div>
-                </div>
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Validez (Días)</label>
+                            <input
+                              className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${
+                                !isClientSelected 
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
+                                  : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                              }`}
+                              type="number"
+                              value={validity}
+                              onChange={(e) => setValidity(e.target.value)}
+                              min="1"
+                              disabled={!isClientSelected}
+                              required={isClientSelected}
+                            />
+                          </div>
+                        </div>
 
+                        {/* Separador de Valores Financieros */}
+                        <h4 className="text-body-sm font-bold text-primary flex items-center gap-2 pt-sm border-t border-slate-200/60">
+                          <span className="material-symbols-outlined text-[18px] text-secondary">payments</span>
+                          Valores Financieros (Neto)
+                        </h4>
+
+                        {/* Fila 4: Subtotal Neto */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal (Neto)</label>
+                          <div className="relative rounded-lg shadow-sm">
+                            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                              <span className="text-slate-500 text-body-md">$</span>
+                            </div>
+                            <input
+                              type="number"
+                              className={`w-full pl-7 border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-bold ${
+                                !isClientSelected 
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
+                                  : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                              }`}
+                              value={subtotal}
+                              onChange={(e) => setSubtotal(e.target.value)}
+                              onBlur={(e) => {
+                                const rounded = Math.round((parseFloat(e.target.value) || 0) * 100) / 100;
+                                setSubtotal(rounded);
+                              }}
+                              placeholder="0.00"
+                              min="0"
+                              step="0.01"
+                              disabled={!isClientSelected}
+                              required={isClientSelected}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Fila 5: Impuestos y Totales */}
+                        <div className="space-y-sm pt-sm border-t border-slate-200/60">
+                          <div className="flex justify-between text-body-sm text-on-surface-variant px-1">
+                            <span>Impuesto (19% IVA)</span>
+                            <span className="font-medium">${tax.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between items-center bg-secondary/5 px-md py-2.5 rounded-lg border border-secondary/10">
+                            <span className="text-body-md font-bold text-secondary">Total (IVA Incluido)</span>
+                            <span className="text-title-lg font-black text-secondary">
+                              ${total.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Columna Derecha: Documentos de Respaldo */}
+                    <div className="space-y-lg">
+                      {/* Tarjeta de Documentos de Respaldo y Extracción IA */}
+                      <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
+                          <span className="material-symbols-outlined text-[20px] text-secondary">cloud_upload</span>
+                          Documentos de Respaldo
+                        </h3>
+
+                        <div className="flex items-center gap-md flex-wrap pt-xs">
+                          <label className={`flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant rounded-lg transition-all text-body-sm font-bold shadow-sm ${
+                            !isClientSelected 
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
+                              : 'bg-white hover:bg-slate-50 text-on-surface hover:text-primary hover:border-secondary cursor-pointer'
+                          }`}>
+                            <span className="material-symbols-outlined text-[20px] text-on-surface-variant">upload_file</span>
+                            <span>Subir Respaldo</span>
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                              className="hidden"
+                              disabled={!isClientSelected}
+                              onChange={handleFileUpload}
+                            />
+                          </label>
+
+                          {backupFiles.some(f => f.fileObject) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const recentFile = [...backupFiles].reverse().find(f => f.fileObject);
+                                if (recentFile) {
+                                  extractDataWithAi(recentFile.fileObject);
+                                }
+                              }}
+                              disabled={!isClientSelected || isAiExtracting}
+                              className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${
+                                !isClientSelected || isAiExtracting
+                                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
+                                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20'
+                              }`}
+                            >
+                              {isAiExtracting ? (
+                                <>
+                                  <span className="material-symbols-outlined text-[20px] animate-spin">sync</span>
+                                  <span>Procesando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="material-symbols-outlined text-[20px]">psychology</span>
+                                  <span>Extracción IA</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-label-sm text-on-surface-variant italic block">Formatos permitidos: PDF y DOCX</span>
+
+                        {backupFiles.length > 0 ? (
+                          <div className="space-y-sm mt-md max-h-[300px] overflow-y-auto pr-xs custom-scrollbar">
+                            {backupFiles.map((file, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 bg-white rounded-lg border border-outline-variant/30 shadow-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="material-symbols-outlined text-secondary flex-shrink-0">
+                                    {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                                  </span>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-body-sm font-bold truncate max-w-[140px]" title={file.name}>{file.name}</span>
+                                    <span className="text-label-sm text-on-surface-variant">{(file.size / 1024).toFixed(1)} KB</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewFile(file)}
+                                    className="p-1 hover:bg-slate-200 rounded text-secondary hover:text-primary transition-all"
+                                    title="Visualizar respaldo"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">visibility</span>
+                                  </button>
+                                  {file.url && (
+                                    <a
+                                      href={file.url}
+                                      download={file.name}
+                                      className="p-1 hover:bg-slate-200 rounded text-secondary transition-all"
+                                      title="Descargar"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">download</span>
+                                    </a>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFile(idx)}
+                                    className="p-1 hover:bg-slate-200 rounded text-error hover:text-red-600 transition-all"
+                                    title="Eliminar"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-body-sm text-on-surface-variant italic pt-sm">No hay archivos de respaldo adjuntos.</p>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Sección de Edición de Cuotas (solo si el presupuesto está Aprobado) */}
+                  {isExistingQuote && (existingQuoteObj?.status === 'Aprobado' || existingQuoteObj?.status === 'Aprovado') && (
+                    <div className="space-y-md pt-lg border-t border-outline-variant">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2">
+                          <span className="material-symbols-outlined text-secondary">payments</span>
+                          <span>Plan de Cuotas y Facturación</span>
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setIsInstallmentsModalOpen(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded text-body-sm hover:bg-primary-container transition-all font-semibold active:scale-95 shadow-sm"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
+                          <span>Editar Cuotas</span>
+                        </button>
+                      </div>
+
+                      {/* Advertencia si la suma no coincide con el total */}
+                      {(() => {
+                        const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
+                        const roundedSum = Math.round(currentSum * 100) / 100;
+                        const expectedTotal = Math.round((parseFloat(subtotal) || 0) * 100) / 100;
+                        const diff = expectedTotal - roundedSum;
+
+                        if (Math.abs(diff) >= 0.02) {
+                          return (
+                            <div className="p-md bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm">
+                              <span className="material-symbols-outlined text-[20px]">warning</span>
+                              <span>
+                                La suma de las cuotas ({roundedSum.toFixed(2)} UF) no coincide con el subtotal del presupuesto (antes de impuestos) ({expectedTotal.toFixed(2)} UF). Diferencia: {diff.toFixed(2)} UF.
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {editBillingTable.length > 0 ? (
+                        <div className="border rounded-xl overflow-hidden shadow-sm max-h-[300px] overflow-y-auto custom-scrollbar bg-white">
+                          <table className="w-full text-left border-collapse">
+                            <thead className="bg-slate-50 border-b sticky top-0 z-10 font-semibold text-on-surface-variant">
+                              <tr>
+                                <th className="p-2 border-b border-slate-200 text-center w-24">N° Cuota</th>
+                                <th className="p-2 border-b border-slate-200 w-40">Fecha de Cobro</th>
+                                <th className="p-2 border-b border-slate-200 w-40">Estado</th>
+                                <th className="p-2 border-b border-slate-200 text-right w-32 font-semibold text-on-surface-variant">Monto (UF)</th>
+                                <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Comentario / Descripción</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-body-sm text-slate-700">
+                              {editBillingTable.map((row, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/50 text-slate-700">
+                                  <td className="p-2 text-center font-bold text-primary bg-slate-50/50">
+                                    Cuota {row.numQuota}
+                                  </td>
+                                  <td className="p-2 text-on-surface">
+                                    <div className="flex items-center gap-1">
+                                      <span>{row.date ? row.date.split('-').reverse().join('/') : '-'}</span>
+                                      {row.dateConfirmed && (
+                                        <span className="material-symbols-outlined text-[16px] text-emerald-600 font-bold" title="Fecha Confirmada">
+                                          verified
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="p-2 text-center">
+                                    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${(row.status || 'Por facturar') === 'Pagada'
+                                      ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
+                                      : (row.status || 'Por facturar') === 'Factura emitida'
+                                        ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
+                                        : 'bg-amber-50 text-amber-800 ring-amber-600/20'
+                                      }`}>
+                                      {row.status || 'Por facturar'}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-right font-semibold text-primary">
+                                    {row.uf.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
+                                  </td>
+                                  <td className="p-2 text-on-surface-variant italic">
+                                    {row.comment || 'Facturación ordinaria'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-md text-center text-on-surface-variant italic bg-slate-50 border border-dashed rounded-lg">
+                          No hay cuotas definidas. Haz clic en "Editar Cuotas" para registrar cobros.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Footer Actions */}
+                  <div className="flex justify-end gap-md pt-lg border-t border-outline-variant">
+                    <button
+                      className={`px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => setIsModalOpen(false)}
+                      disabled={isSaving}
+                      type="button"
+                    >
+                      Descartar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!isClientSelected || isSaving}
+                      className={`px-lg py-2 bg-secondary text-white rounded transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${
+                        !isClientSelected || isSaving ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'hover:brightness-110'
+                      }`}
+                      title={!isClientSelected ? 'Seleccione un cliente para guardar el presupuesto' : ''}
+                    >
+                      {isSaving ? (
+                        <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-[18px]">save</span>
+                      )}
+                      <span>{isSaving ? 'Guardando...' : 'Guardar Presupuesto'}</span>
+                    </button>
+                  </div>
+                </form>
               </div>
 
-              {/* Sección de Edición de Cuotas (solo si el presupuesto está Aprobado) */}
-              {isExistingQuote && (existingQuoteObj?.status === 'Aprobado' || existingQuoteObj?.status === 'Aprovado') && (
-                <div className="space-y-md pt-lg border-t border-outline-variant">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2">
-                      <span className="material-symbols-outlined text-secondary">payments</span>
-                      <span>Plan de Cuotas y Facturación</span>
-                    </h3>
+              {/* Document Preview Side Panel inside Budget Modal */}
+              {previewFile && (
+                <div className="w-full lg:w-1/2 xl:w-5/12 bg-slate-50 flex flex-col max-h-[calc(92vh-80px)] animate-fade-in border-t lg:border-t-0">
+                  <div className="p-3 md:p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-xs sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="material-symbols-outlined text-secondary flex-shrink-0">
+                        {previewFile.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                      </span>
+                      <span className="font-bold text-body-sm text-primary truncate" title={previewFile.name}>
+                        {previewFile.name}
+                      </span>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setIsInstallmentsModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded text-body-sm hover:bg-primary-container transition-all font-semibold active:scale-95 shadow-sm"
+                      onClick={() => {
+                        setPreviewFile(null);
+                        setDocxHtml('');
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-md text-label-sm font-semibold transition-all cursor-pointer flex-shrink-0"
+                      title="Cerrar vista previa del documento"
                     >
-                      <span className="material-symbols-outlined text-[16px]">edit_calendar</span>
-                      <span>Editar Cuotas</span>
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      <span>Cerrar Vista Previa</span>
                     </button>
                   </div>
 
-                  {/* Advertencia si la suma no coincide con el total */}
-                  {(() => {
-                    const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
-                    const roundedSum = Math.round(currentSum * 100) / 100;
-                    const expectedTotal = Math.round((parseFloat(subtotal) || 0) * 100) / 100;
-                    const diff = expectedTotal - roundedSum;
-
-                    if (Math.abs(diff) >= 0.02) {
-                      return (
-                        <div className="p-md bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm">
-                          <span className="material-symbols-outlined text-[20px]">warning</span>
-                          <span>
-                            La suma de las cuotas ({roundedSum.toFixed(2)} UF) no coincide con el subtotal del presupuesto (antes de impuestos) ({expectedTotal.toFixed(2)} UF). Diferencia: {diff.toFixed(2)} UF.
-                          </span>
+                  <div className="flex-grow overflow-auto p-md flex flex-col bg-slate-100/50">
+                    {previewFile.name.toLowerCase().endsWith('.pdf') ? (
+                      <iframe
+                        src={previewFile.url || (previewFile.fileObject ? URL.createObjectURL(previewFile.fileObject) : '')}
+                        className="w-full h-full min-h-[500px] rounded-lg border border-slate-200 bg-white shadow-xs"
+                        title="Vista previa PDF"
+                      />
+                    ) : previewFile.name.toLowerCase().endsWith('.docx') ? (
+                      docxHtml ? (
+                        <div className="w-full bg-white p-lg rounded-lg shadow-xs border border-slate-200 overflow-y-auto max-h-full">
+                          <div className="prose prose-slate max-w-none text-body-md" dangerouslySetInnerHTML={{ __html: docxHtml }} />
                         </div>
-                      );
-                    }
-                    return null;
-                  })()}
-
-                  {editBillingTable.length > 0 ? (
-                    <div className="border rounded-xl overflow-hidden shadow-sm max-h-[300px] overflow-y-auto custom-scrollbar bg-white">
-                      <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50 border-b sticky top-0 z-10 font-semibold text-on-surface-variant">
-                          <tr>
-                            <th className="p-2 border-b border-slate-200 text-center w-24">N° Cuota</th>
-                            <th className="p-2 border-b border-slate-200 w-40">Fecha de Cobro</th>
-                            <th className="p-2 border-b border-slate-200 w-40">Estado</th>
-                            <th className="p-2 border-b border-slate-200 text-right w-32 font-semibold text-on-surface-variant">Monto (UF)</th>
-                            <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Comentario / Descripción</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 text-body-sm text-slate-700">
-                          {editBillingTable.map((row, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/50 text-slate-700">
-                              <td className="p-2 text-center font-bold text-primary bg-slate-50/50">
-                                Cuota {row.numQuota}
-                              </td>
-                              <td className="p-2 text-on-surface">
-                                <div className="flex items-center gap-1">
-                                  <span>{row.date ? row.date.split('-').reverse().join('/') : '-'}</span>
-                                  {row.dateConfirmed && (
-                                    <span className="material-symbols-outlined text-[16px] text-emerald-600 font-bold" title="Fecha Confirmada">
-                                      verified
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="p-2 text-center">
-                                <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${(row.status || 'Por facturar') === 'Pagada'
-                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
-                                    : (row.status || 'Por facturar') === 'Factura emitida'
-                                      ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
-                                      : 'bg-amber-50 text-amber-800 ring-amber-600/20'
-                                  }`}>
-                                  {row.status || 'Por facturar'}
-                                </span>
-                              </td>
-                              <td className="p-2 text-right font-semibold text-primary">
-                                {row.uf.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
-                              </td>
-                              <td className="p-2 text-on-surface-variant italic">
-                                {row.comment || 'Facturación ordinaria'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-md text-center text-on-surface-variant italic bg-slate-50 border border-dashed rounded-lg">
-                      No hay cuotas definidas. Haz clic en "Editar Cuotas" para registrar cobros.
-                    </div>
-                  )}
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant w-full h-full">
+                          <span className="material-symbols-outlined text-[40px] animate-spin text-secondary">sync</span>
+                          <span className="text-body-sm font-medium mt-3">Generando vista previa de Word...</span>
+                        </div>
+                      )
+                    ) : (
+                      <div className="text-center py-20 text-on-surface-variant italic text-body-sm">
+                        Vista previa no disponible para este formato.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Footer Actions */}
-              <div className="flex justify-end gap-md pt-lg border-t border-outline-variant">
-                <button
-                  className={`px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSaving}
-                  type="button"
-                >
-                  Descartar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className={`px-lg py-2 bg-secondary text-white rounded hover:brightness-110 transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
-                >
-                  {isSaving ? (
-                    <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
-                  ) : (
-                    <span className="material-symbols-outlined text-[18px]">save</span>
-                  )}
-                  <span>{isSaving ? 'Guardando...' : 'Guardar Presupuesto'}</span>
-                </button>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Document Preview Modal Overlay */}
-      {previewFile && (
+      {/* Document Preview Modal Overlay (When Budget Modal is not open) */}
+      {!isModalOpen && previewFile && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-lg bg-primary/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-scale-up text-left border border-outline-variant/30">
             {/* Header */}
@@ -2939,8 +3198,8 @@ export default function Presupuestos({
                           const totalCuotas = billingTable.reduce((acc, r) => acc + (parseInt(r.cuotas) || 1), 0);
                           return (
                             <div className={`mt-3 p-3 rounded-lg flex flex-col gap-2 font-bold text-body-sm border ${isMatch
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
                               }`}>
                               <div className="flex flex-wrap justify-between items-center gap-2">
                                 <div className="flex flex-wrap gap-x-md gap-y-1">
@@ -3124,8 +3383,8 @@ export default function Presupuestos({
                 onClick={handleConfirmReview}
                 disabled={selectedReviewers.length === 0}
                 className={`px-lg py-2 bg-secondary text-white rounded font-bold shadow-lg shadow-secondary/20 transition-all flex items-center gap-2 ${selectedReviewers.length === 0
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'hover:brightness-110 active:scale-95'
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:brightness-110 active:scale-95'
                   }`}
               >
                 <span className="material-symbols-outlined text-[18px]">send</span>

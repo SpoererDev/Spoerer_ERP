@@ -576,91 +576,98 @@ export default function Proyectos({
   };
 
   return (
-    <div className="space-y-xl animate-fade-in text-left">
+    <div className="space-y-6 animate-fade-in text-left">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="font-display-lg text-display-lg text-primary font-bold">Gestión de Proyectos</h2>
-          <p className="text-on-surface-variant font-body-md mt-1">
+          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Proyectos</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
             Supervisa el estado físico, rentabilidad y cronograma de facturación de los proyectos activos.
           </p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={handleExportBudgets}
-            className="flex items-center gap-2 px-md py-2 bg-secondary text-white rounded hover:brightness-105 transition-all font-label-md font-bold active:scale-95"
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[16px]">file_download</span>
+            <span className="material-symbols-outlined text-[18px]">file_download</span>
             <span>Exportar Presupuestos</span>
           </button>
         </div>
       </div>
 
       {/* KPI Dashboard */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-md">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Proyectos Activos */}
-        <div className="bg-blue-50/40 border border-blue-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-blue-800 uppercase font-bold tracking-wider">Proyectos Activos</span>
-            <div className="font-display-lg text-[34px] text-blue-950 font-extrabold">
-              {totalProjects}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Proyectos Activos</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">folder</span>
             </div>
           </div>
-          <div className="p-3 bg-blue-100 rounded-full text-blue-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">folder</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{totalProjects}</span>
+            <span className="text-[11px] text-slate-400 font-medium">Proyectos</span>
           </div>
         </div>
 
         {/* KPI 2: Monto Total Presupuestos */}
-        <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-emerald-800 uppercase font-bold tracking-wider">Monto Total Presupuestos</span>
-            <div className="font-display-lg text-[34px] text-emerald-950 font-extrabold">
-              {totalUF.toLocaleString('es-CL', { maximumFractionDigits: 1 })} <span className="text-body-md font-semibold text-emerald-800">UF</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">payments</span>
             </div>
           </div>
-          <div className="p-3 bg-emerald-100 rounded-full text-emerald-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">payments</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {totalUF.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
+            </span>
+            <span className="text-xs font-bold text-emerald-700">UF</span>
           </div>
         </div>
 
         {/* KPI 3: Rentabilidad Promedio */}
-        <div className="bg-indigo-50/40 border border-indigo-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-indigo-800 uppercase font-bold tracking-wider">Rentabilidad Promedio</span>
-            <div className="font-display-lg text-[34px] text-indigo-950 font-extrabold">
-              {avgProfitability}<span className="text-body-md font-semibold text-indigo-800">%</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Rentabilidad Prom.</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">monitoring</span>
             </div>
           </div>
-          <div className="p-3 bg-indigo-100 rounded-full text-indigo-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">monitoring</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{avgProfitability}%</span>
+            <span className="text-[11px] text-slate-400 font-medium">Margen global</span>
           </div>
         </div>
 
         {/* KPI 4: Superficie Total */}
-        <div className="bg-teal-50/40 border border-teal-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-teal-800 uppercase font-bold tracking-wider">Superficie Total</span>
-            <div className="font-display-lg text-[34px] text-teal-950 font-extrabold">
-              {totalSurface.toLocaleString('es-CL')} <span className="text-body-md font-semibold text-teal-800">m²</span>
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">Superficie Total</span>
+            <div className="w-8 h-8 rounded-lg bg-teal-100/60 text-teal-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">architecture</span>
             </div>
           </div>
-          <div className="p-3 bg-teal-100 rounded-full text-teal-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">architecture</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">
+              {totalSurface.toLocaleString('es-CL')}
+            </span>
+            <span className="text-xs font-bold text-teal-700">m²</span>
           </div>
         </div>
-      </section>
+      </div>
 
       {/* Search and Filters */}
-      <section className="glass-card rounded-xl p-md flex flex-col lg:flex-row items-stretch lg:items-end gap-md justify-between shadow-sm">
+      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
         {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-end gap-md w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold text-left">Buscar Proyecto</label>
             <div className="relative w-full">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
+              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
               <input
-                className="w-full pl-10 pr-4 py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:outline-none h-[38px]"
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
                 placeholder="Buscar por código, nombre o cliente..."
                 type="text"
                 value={searchTerm}
@@ -668,24 +675,26 @@ export default function Proyectos({
               />
             </div>
           </div>
-          <button
-            onClick={handleClearFilters}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant rounded bg-white text-on-surface hover:bg-slate-50 transition-all font-label-md active:scale-95 h-[38px]"
-          >
-            <span className="material-symbols-outlined text-[16px]">clear_all</span>
-            <span>Limpiar</span>
-          </button>
+          {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos') && (
+            <button
+              onClick={handleClearFilters}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[16px]">clear_all</span>
+              <span>Limpiar</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side: Filters */}
-        <div className="flex flex-wrap items-end gap-md justify-end w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
           {/* Tipo de Proyecto Multiselect */}
-          <div className="flex flex-col relative w-full sm:w-[220px]" ref={multiselectRef}>
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold text-left">Tipo de Proyecto</label>
+          <div className="flex items-center gap-2 relative" ref={multiselectRef}>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center justify-between w-full px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md text-primary font-medium hover:bg-slate-50 transition-all h-[38px] text-left outline-none"
+              className="flex items-center justify-between min-w-[170px] max-w-[220px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-left outline-none cursor-pointer"
             >
               <span className="truncate">
                 {tipoFilter === null || tipoFilter.length === uniqueProjectTypes.length
@@ -694,24 +703,24 @@ export default function Proyectos({
                   ? "Ninguno seleccionado"
                   : `${tipoFilter.length} seleccionado(s)`}
               </span>
-              <span className="material-symbols-outlined text-[18px] text-on-surface-variant ml-2 select-none">
+              <span className="material-symbols-outlined text-[18px] text-slate-400 ml-2 select-none">
                 {isDropdownOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
               </span>
             </button>
 
             {isDropdownOpen && (
-              <div className="absolute right-0 top-[105%] bg-white border border-outline-variant rounded-lg shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 border-outline-variant/30 animate-fade-in text-left">
+              <div className="absolute right-0 top-[105%] bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 animate-fade-in text-left">
                 <button
                   type="button"
                   onClick={handleSelectAllTipos}
-                  className="px-4 py-1.5 text-left text-body-sm text-secondary hover:bg-slate-50 font-bold transition-all border-b border-slate-100 last:border-b-0 flex items-center justify-between"
+                  className="px-4 py-1.5 text-left text-xs text-emerald-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
                 >
                   <span>[ Seleccionar Todos ]</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleDeselectAllTipos}
-                  className="px-4 py-1.5 text-left text-body-sm text-red-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 last:border-b-0 flex items-center justify-between"
+                  className="px-4 py-1.5 text-left text-xs text-rose-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
                 >
                   <span>[ Limpiar Selección ]</span>
                 </button>
@@ -720,13 +729,13 @@ export default function Proyectos({
                   return (
                     <label
                       key={tipoOpt}
-                      className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-body-md font-medium text-primary select-none transition-colors"
+                      className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-xs font-medium text-slate-700 select-none transition-colors"
                     >
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => handleToggleTipoOption(tipoOpt)}
-                        className="rounded border-slate-300 text-secondary focus:ring-secondary focus:ring-offset-0 focus:ring-1"
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-1 cursor-pointer"
                       />
                       <span className="truncate">{tipoOpt}</span>
                     </label>
@@ -737,12 +746,12 @@ export default function Proyectos({
           </div>
 
           {/* Encargado Filter */}
-          <div className="flex flex-col w-full sm:w-[220px]">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold text-left">Encargado</label>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
             <select
               value={encargadoFilter}
               onChange={(e) => setEncargadoFilter(e.target.value)}
-              className="w-full px-md py-2 bg-white border border-outline-variant rounded-lg text-body-md text-primary font-medium hover:bg-slate-50 transition-all h-[38px] text-left outline-none"
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
             >
               <option value="Todos">Todos los encargados</option>
               {availableEncargados.map(enc => (
@@ -751,7 +760,7 @@ export default function Proyectos({
             </select>
           </div>
         </div>
-      </section>
+      </div>
 
       {/* Projects List */}
       <div className="space-y-md">

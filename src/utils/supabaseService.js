@@ -222,37 +222,93 @@ const uploadQuoteFiles = async (budgetNumber, status, files) => {
   return uploadedFiles;
 };
 
-// Helper: Move files in Supabase Storage when status changes
-const moveQuoteFiles = async (budgetNumber, oldStatus, newStatus, existingFiles) => {
-  const oldFolder = getStatusFolder(oldStatus);
-  const newFolder = getStatusFolder(newStatus);
+// Helper: Move files in Supabase Storage when status or budget number changes, and repair out-of-sync URLs
+const moveQuoteFiles = async (oldBudgetNumber, newBudgetNumber, oldStatus, newStatus, existingFiles) => {
+  let oldNum = oldBudgetNumber;
+  let newNum = newBudgetNumber;
+  let oldSt = oldStatus;
+  let newSt = newStatus;
+  let files = existingFiles;
+
+  // Support legacy 4-argument call signature: moveQuoteFiles(budgetNumber, oldStatus, newStatus, existingFiles)
+  if (Array.isArray(newStatus)) {
+    oldNum = oldBudgetNumber;
+    newNum = oldBudgetNumber;
+    oldSt = newBudgetNumber;
+    newSt = oldStatus;
+    files = newStatus;
+  }
+
+  const oldFolder = getStatusFolder(oldSt);
+  const newFolder = getStatusFolder(newSt);
+  const targetNum = newNum || oldNum;
   
-  if (oldFolder === newFolder || !existingFiles || existingFiles.length === 0) {
-    return existingFiles || [];
+  if (!files || files.length === 0) {
+    return [];
   }
   
   const movedFiles = [];
-  
-  for (const file of existingFiles) {
-    if (file.path) {
-      const oldPath = file.path;
-      const newPath = `presupuestos/${newFolder}/${budgetNumber}/${file.name}`;
-      
-      const { error } = await supabase.storage.from('budgets').move(oldPath, newPath);
-      if (error) {
-        console.error(`Error moving file from ${oldPath} to ${newPath}:`, error);
-        movedFiles.push(file);
+  const possibleFolders = ['borradores', 'enviados', 'aprobados', 'rechazados'];
+
+  for (const file of files) {
+    if (!file) continue;
+
+    if (file.fileObject) {
+      movedFiles.push(file);
+      continue;
+    }
+
+    const expectedPath = `presupuestos/${newFolder}/${targetNum}/${file.name}`;
+    
+    // Determine source path: file.path or extract from file.url
+    let currentPath = file.path;
+    if (!currentPath && file.url && file.url.includes('/public/budgets/')) {
+      const parts = file.url.split('/public/budgets/');
+      if (parts[1]) {
+        currentPath = decodeURIComponent(parts[1].split('?')[0]);
+      }
+    }
+    if (!currentPath) {
+      currentPath = `presupuestos/${oldFolder}/${oldNum}/${file.name}`;
+    }
+
+    // Try moving if currentPath is different from expectedPath
+    let moveSuccessful = false;
+    if (currentPath !== expectedPath) {
+      const { error: moveErr } = await supabase.storage.from('budgets').move(currentPath, expectedPath);
+      if (!moveErr) {
+        moveSuccessful = true;
       } else {
-        const { data: { publicUrl } } = supabase.storage.from('budgets').getPublicUrl(newPath);
-        movedFiles.push({
-          ...file,
-          url: publicUrl,
-          path: newPath
-        });
+        // Search across all candidate folders and numbers if primary move failed
+        const oldNumFromPath = file.path ? file.path.split('/')[2] : null;
+        const possibleNums = Array.from(new Set([oldNum, targetNum, oldNumFromPath].filter(Boolean)));
+        for (const folder of possibleFolders) {
+          if (moveSuccessful) break;
+          for (const num of possibleNums) {
+            const candidatePath = `presupuestos/${folder}/${num}/${file.name}`;
+            if (candidatePath === expectedPath) continue;
+
+            const { error: candErr } = await supabase.storage.from('budgets').move(candidatePath, expectedPath);
+            if (!candErr) {
+              moveSuccessful = true;
+              break;
+            }
+          }
+        }
       }
     } else {
-      movedFiles.push(file);
+      moveSuccessful = true;
     }
+
+    // Generate fresh public URL for expectedPath
+    const finalPath = moveSuccessful ? expectedPath : currentPath;
+    const { data: { publicUrl } } = supabase.storage.from('budgets').getPublicUrl(finalPath);
+
+    movedFiles.push({
+      ...file,
+      path: finalPath,
+      url: publicUrl
+    });
   }
   
   return movedFiles;
@@ -411,15 +467,53 @@ export const supabaseService = {
         .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
         .order('created_at', { ascending: false });
       
+      let budgetsList = data;
       if (error) {
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('budgets')
           .select('*, clients:clients!client_id(*), budget_items(*)')
           .order('created_at', { ascending: false });
         if (fallbackError) throw fallbackError;
-        return fallbackData.map(mapBudgetFromDb).filter(Boolean);
+        budgetsList = fallbackData;
       }
-      return data.map(mapBudgetFromDb).filter(Boolean);
+
+      // Auto-heal file paths/URLs for existing budgets if out-of-sync
+      if (budgetsList && budgetsList.length > 0) {
+        for (const dbBudget of budgetsList) {
+          if (dbBudget.backup_files && dbBudget.backup_files.length > 0) {
+            const expectedFolder = getStatusFolder(dbBudget.status);
+            const needsSync = dbBudget.backup_files.some(f => {
+              const expectedPath = `presupuestos/${expectedFolder}/${dbBudget.budget_number}/${f.name}`;
+              let currentPath = f.path;
+              if (!currentPath && f.url && f.url.includes('/public/budgets/')) {
+                const parts = f.url.split('/public/budgets/');
+                if (parts[1]) {
+                  currentPath = decodeURIComponent(parts[1].split('?')[0]);
+                }
+              }
+              return currentPath !== expectedPath || !f.url || !f.path;
+            });
+
+            if (needsSync) {
+              try {
+                const repairedFiles = await moveQuoteFiles(
+                  dbBudget.budget_number,
+                  dbBudget.budget_number,
+                  dbBudget.status,
+                  dbBudget.status,
+                  dbBudget.backup_files
+                );
+                dbBudget.backup_files = repairedFiles;
+                await supabase.from('budgets').update({ backup_files: repairedFiles }).eq('id', dbBudget.id);
+              } catch (e) {
+                console.error("Auto-heal budget files error:", e);
+              }
+            }
+          }
+        }
+      }
+
+      return budgetsList.map(mapBudgetFromDb).filter(Boolean);
     } catch (err) {
       console.error("Error in getBudgets:", err);
       throw err;
@@ -448,15 +542,16 @@ export const supabaseService = {
       // 1. Retrieve the existing budget to see if status changed or files deleted
       const { data: oldBudget } = await supabase
         .from('budgets')
-        .select('status, backup_files, project_id')
+        .select('status, backup_files, project_id, budget_number')
         .eq('id', quote.id)
         .single();
 
       if (oldBudget) {
-        // Move files if status changed
-        if (oldBudget.status !== quote.status) {
+        const oldBudgetNumber = oldBudget.budget_number || budgetNumber;
+        // Move files if status or budget_number changed
+        if (oldBudget.status !== quote.status || oldBudgetNumber !== budgetNumber) {
           const existingUploadedFiles = oldBudget.backup_files || [];
-          finalFiles = await moveQuoteFiles(budgetNumber, oldBudget.status, quote.status, existingUploadedFiles);
+          finalFiles = await moveQuoteFiles(oldBudgetNumber, budgetNumber, oldBudget.status, quote.status, existingUploadedFiles);
         }
         // Remove deleted files from storage
         const oldFiles = oldBudget.backup_files || [];
@@ -472,6 +567,7 @@ export const supabaseService = {
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
       const budgetData = {
+        budget_number: budgetNumber,
         client_id: quote.clientId || quote.legalEntityId || null,
         main_client_id: quote.mainClientId || null,
         legal_entity_id: quote.legalEntityId || quote.clientId || null,

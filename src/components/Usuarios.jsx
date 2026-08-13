@@ -134,132 +134,118 @@ export default function Usuarios({ users, currentUser, onAddUser, onToggleUserSt
   });
 
   return (
-    <div className="space-y-xl animate-fade-in text-left">
+    <div className="space-y-6 animate-fade-in text-left">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="font-display-lg text-display-lg text-primary font-bold">Control de Usuarios y Accesos</h2>
-          <p className="text-on-surface-variant font-body-md mt-1">Administra el personal, sus roles y permisos de seguridad granulares.</p>
+          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Control de Usuarios y Accesos</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Administra el personal, sus roles y permisos de seguridad granulares.</p>
         </div>
         <div>
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-sm px-md py-sm bg-secondary text-white font-semibold rounded-lg hover:opacity-95 transition-all shadow-sm active:scale-95"
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[20px]">person_add</span>
+            <span className="material-symbols-outlined text-[18px]">person_add</span>
             <span>Agregar Usuario</span>
           </button>
         </div>
       </div>
 
-      {/* Bento Stats Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-md">
+      {/* KPI Stats Summary */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {/* KPI 1: Usuarios Totales */}
-        <div className="bg-blue-50/40 border border-blue-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-blue-800 uppercase font-bold tracking-wider">Usuarios Totales</span>
-            <div className="font-display-lg text-[34px] text-blue-950 font-extrabold">
-              {totalUsers}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Usuarios Totales</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">person</span>
             </div>
           </div>
-          <div className="p-3 bg-blue-100 rounded-full text-blue-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">person</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{totalUsers}</span>
+            <span className="text-[11px] text-slate-400 font-medium">Registrados</span>
           </div>
         </div>
 
         {/* KPI 2: Activos Ahora */}
-        <div className="bg-emerald-50/40 border border-emerald-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-emerald-800 uppercase font-bold tracking-wider">Activos Ahora</span>
-            <div className="font-display-lg text-[34px] text-emerald-950 font-extrabold">
-              {activeUsers}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Activos Ahora</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">verified_user</span>
             </div>
           </div>
-          <div className="p-3 bg-emerald-100 rounded-full text-emerald-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">verified_user</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{activeUsers}</span>
+            <span className="text-[11px] text-slate-400 font-medium">Cuentas habilitadas</span>
           </div>
         </div>
 
         {/* KPI 3: Administradores */}
-        <div className="bg-indigo-50/40 border border-indigo-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-indigo-800 uppercase font-bold tracking-wider">Administradores</span>
-            <div className="font-display-lg text-[34px] text-indigo-950 font-extrabold">
-              {adminRoles}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Administradores</span>
+            <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">security</span>
             </div>
           </div>
-          <div className="p-3 bg-indigo-100 rounded-full text-indigo-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">security</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{adminRoles}</span>
+            <span className="text-[11px] text-slate-400 font-medium">Acceso total</span>
           </div>
         </div>
 
         {/* KPI 4: Cuentas Inactivas */}
-        <div className="bg-red-50/40 border border-red-200/60 rounded-xl p-md flex items-center justify-between hover-scale shadow-sm transition-all">
-          <div className="space-y-1">
-            <span className="text-label-md text-red-800 uppercase font-bold tracking-wider">Cuentas Inactivas</span>
-            <div className="font-display-lg text-[34px] text-red-950 font-extrabold">
-              {lockedAccounts}
+        <div className="stat-card">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Cuentas Inactivas</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+              <span className="material-symbols-outlined text-[20px]">block</span>
             </div>
           </div>
-          <div className="p-3 bg-red-100 rounded-full text-red-600 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[32px]">report_problem</span>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900 font-mono">{lockedAccounts}</span>
+            <span className="text-[11px] text-slate-400 font-medium">Bloqueadas</span>
           </div>
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <section className="glass-card rounded-xl p-md flex flex-wrap items-end justify-between gap-md shadow-sm">
-        <div className="flex flex-wrap items-end gap-md flex-grow">
-          <div className="flex-grow max-w-lg min-w-[240px]">
-            <label className="block font-label-md text-label-md text-on-surface-variant mb-1 uppercase font-bold text-[11px]">Buscar Usuario</label>
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant text-[18px]">search</span>
-              <input 
-                className="w-full pl-10 pr-4 py-2 bg-white border border-outline-variant rounded-lg text-body-md focus:ring-1 focus:ring-secondary focus:outline-none" 
-                placeholder="Buscar usuarios, roles..." 
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+      {/* Filter and Search Bar */}
+      <div className="card-modern p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex-grow max-w-lg min-w-[240px]">
+          <div className="relative w-full">
+            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+            <input 
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400" 
+              placeholder="Buscar por nombre, correo o rol..." 
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          <button 
-            onClick={() => {
-              setSearchTerm('');
-              setStatusFilter('Todos');
-            }}
-            className="flex items-center gap-2 px-md py-2 border border-outline-variant rounded bg-white text-on-surface hover:bg-slate-50 transition-all font-label-md active:scale-95 h-[38px]"
-            title="Limpiar Filtros"
-          >
-            <span className="material-symbols-outlined text-[16px]">clear_all</span>
-            <span>Limpiar</span>
-          </button>
         </div>
 
-        {/* Status Filter Button Group at the far right */}
-        <div className="flex flex-col gap-xs text-left">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Estado</span>
-          <div className="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant h-[38px] items-center">
-            {[
-              { value: 'Todos', label: 'Todos' },
-              { value: 'Active', label: 'Activos' },
-              { value: 'Inactive', label: 'Inactivos' }
-            ].map((status) => (
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+            {['Todos', 'Active', 'Inactive'].map((st) => (
               <button
-                key={status.value}
+                key={st}
                 type="button"
-                onClick={() => setStatusFilter(status.value)}
-                className={`px-3 py-1 rounded text-[11px] font-semibold transition-all h-full ${statusFilter === status.value
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'text-on-surface-variant hover:bg-surface-container-high'
-                  }`}
+                onClick={() => setStatusFilter(st)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                  statusFilter === st 
+                    ? 'bg-[#091426] text-white shadow-xs' 
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
               >
-                {status.label}
+                {st === 'Active' ? 'Activos' : st === 'Inactive' ? 'Inactivos' : 'Todos'}
               </button>
             ))}
           </div>
         </div>
-      </section>
+      </div>
 
       {/* Main Data Table Container */}
       {filteredUsers.length > 0 ? (
