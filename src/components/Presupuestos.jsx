@@ -70,6 +70,30 @@ const ensureDDMMYYYY = (dateStr) => {
   return dateStr;
 };
 
+// Helper to parse subtotal numbers/strings into a valid float
+const parseSubtotal = (val) => {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const str = String(val).trim();
+  if (str.includes('.') && str.includes(',')) {
+    return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+  }
+  if (str.includes(',')) {
+    return parseFloat(str.replace(',', '.')) || 0;
+  }
+  return parseFloat(str) || 0;
+};
+
+// Helper to format float to Chilean number string with comma as decimal separator
+const formatToChileanNumber = (val, decimals = 2) => {
+  const num = typeof val === 'number' ? val : parseSubtotal(val);
+  if (isNaN(num)) return '0,00';
+  return num.toLocaleString('es-CL', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+};
+
 // Helper to check if a quote falls within the selected period of months
 const isQuoteInPeriod = (quote, period) => {
   if (period === 'all') return true;
@@ -296,19 +320,54 @@ export default function Presupuestos({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectedMainClient, mainClients]);
 
-  const [subtotal, setSubtotal] = useState(0);
+  const [subtotal, setSubtotal] = useState('1.200,00');
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
 
   // Calculate totals
   useEffect(() => {
-    const roundedSub = Math.round((parseFloat(subtotal) || 0) * 100) / 100;
+    const roundedSub = Math.round((parseSubtotal(subtotal)) * 100) / 100;
     const tx = Math.round((roundedSub * 0.19) * 100) / 100; // 19% tax (IVA)
     const roundedTotal = Math.round((roundedSub + tx) * 100) / 100;
 
     setTax(tx);
     setTotal(roundedTotal);
   }, [subtotal]);
+
+  const handleSubtotalChange = (e) => {
+    let val = e.target.value;
+    if (val.includes('.') && val.includes(',')) {
+      val = val.replace(/\./g, '');
+    } else {
+      val = val.replace(/\./g, ',');
+    }
+    const parts = val.split(',');
+    if (parts.length > 2) {
+      val = parts[0] + ',' + parts.slice(1).join('');
+    }
+    val = val.replace(/[^0-9,]/g, '');
+    setSubtotal(val);
+  };
+
+  const handleSubtotalBlur = (e) => {
+    const val = e.target.value;
+    if (!val || val.trim() === '') {
+      setSubtotal('0,00');
+      return;
+    }
+    const num = parseSubtotal(val);
+    setSubtotal(formatToChileanNumber(num, 2));
+  };
+
+  const handleSubtotalFocus = (e) => {
+    if (subtotal) {
+      const unformatted = String(subtotal).replace(/\./g, '');
+      setSubtotal(unformatted);
+    }
+    setTimeout(() => {
+      e.target.select();
+    }, 0);
+  };
 
   // Handle DOCX preview loading and conversion
   useEffect(() => {
@@ -405,25 +464,60 @@ export default function Presupuestos({
     return regex.test(name);
   };
 
-  const checkAndPrefillExistingProject = (name) => {
-    if (!projects) return;
-    const existing = projects.find(p => p.projectName.toLowerCase() === name.toLowerCase());
+  const findMatchingProject = (inputName) => {
+    if (!projects || !inputName) return null;
+    const cleanInput = typeof inputName === 'string' ? inputName.trim() : '';
+    if (!cleanInput) return null;
+
+    // 1. Direct case-insensitive match with full projectName
+    let match = projects.find(p => p.projectName && p.projectName.trim().toLowerCase() === cleanInput.toLowerCase());
+    if (match) return match;
+
+    // 2. Normalized match (ignoring whitespace variations around '-' and multiple spaces)
+    const normalize = (str) => (str || '').toLowerCase().replace(/\s*-\s*/g, '-').replace(/\s+/g, ' ').trim();
+    const normalizedInput = normalize(cleanInput);
+    match = projects.find(p => p.projectName && normalize(p.projectName) === normalizedInput);
+    if (match) return match;
+
+    // 3. Match by project number extracted from input (e.g. "0280" from "0280-Edificio - Cliente" or "0280")
+    const nameParts = cleanInput.split('-');
+    const extractedNum = nameParts[0]?.trim();
+    if (extractedNum && extractedNum.length >= 2) {
+      match = projects.find(p => p.projectNumber && (
+        p.projectNumber.toLowerCase() === extractedNum.toLowerCase() ||
+        p.projectNumber.padStart(4, '0') === extractedNum.padStart(4, '0')
+      ));
+      if (match) return match;
+    }
+
+    return null;
+  };
+
+  const checkAndPrefillExistingProject = (nameOrProject, forceUpdateName = false) => {
+    if (!projects) return null;
+    const existing = typeof nameOrProject === 'object' && nameOrProject !== null && nameOrProject.id
+      ? nameOrProject
+      : findMatchingProject(nameOrProject);
+
     if (existing) {
       setMatchedProjectId(existing.id);
-      if (existing.id !== prefilledFromProjectId) {
-        setSuperficie(existing.superficie || '');
-        setRentabilidad(existing.rentabilidad || '');
-        setAnio(existing.anio || new Date().getFullYear());
-        setCliente(existing.cliente || '');
-        setPrefilledFromProjectId(existing.id);
-        const existingTipo = existing.tipo || '';
-        setTipo(existingTipo);
-        setIsCustomTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
-        setEncargado(existing.encargado || '');
+      if (forceUpdateName) {
+        setProjectName(existing.projectName);
       }
+      setSuperficie(existing.superficie !== undefined && existing.superficie !== null ? existing.superficie : '');
+      setRentabilidad(existing.rentabilidad !== undefined && existing.rentabilidad !== null ? existing.rentabilidad : '');
+      setAnio(existing.anio || new Date().getFullYear());
+      setCliente(existing.cliente || '');
+      setPrefilledFromProjectId(existing.id);
+      const existingTipo = existing.tipo || '';
+      setTipo(existingTipo);
+      setIsCustomTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
+      setEncargado(existing.encargado || '');
+      return existing;
     } else {
       setMatchedProjectId(null);
       setPrefilledFromProjectId(null);
+      return null;
     }
   };
 
@@ -435,7 +529,7 @@ export default function Presupuestos({
         const folderName = dirHandle.name;
         if (validateProjectNameFormat(folderName)) {
           setProjectName(folderName);
-          checkAndPrefillExistingProject(folderName);
+          checkAndPrefillExistingProject(folderName, true);
         } else {
           setValidationError(`La carpeta seleccionada "${folderName}" no cumple con el formato requerido: Nº Proyecto-Nombre - Cliente (Ej: 0280-Edificio Ciudad - TechNova Solutions).`);
         }
@@ -451,7 +545,7 @@ export default function Presupuestos({
             const folderName = path.split('/')[0];
             if (validateProjectNameFormat(folderName)) {
               setProjectName(folderName);
-              checkAndPrefillExistingProject(folderName);
+              checkAndPrefillExistingProject(folderName, true);
             } else {
               setValidationError(`La carpeta seleccionada "${folderName}" no cumple con el formato requerido: Nº Proyecto-Nombre - Cliente (Ej: 0280-Edificio Ciudad - TechNova Solutions).`);
             }
@@ -630,18 +724,27 @@ export default function Presupuestos({
     const projectNumber = nameParts[0]?.trim() || '';
     const rawProjectName = nameParts.slice(1).join('-').split(' - ')[0]?.trim() || projectName;
 
+    // Safety check: ensure matchedProjectId is resolved if user typed or pasted name directly
+    const existing = matchedProjectId
+      ? projects.find(p => p.id === matchedProjectId)
+      : findMatchingProject(projectName);
+
+    const targetProjectId = existing ? existing.id : matchedProjectId;
+    const finalProjectNumber = existing ? existing.projectNumber : projectNumber;
+    const finalRawProjectName = existing ? existing.rawProjectName : rawProjectName;
+
     const projectForm = {
-      id: matchedProjectId,
-      projectNumber: projectNumber,
-      rawProjectName: rawProjectName,
-      clientId: approvingQuote.clientId || approvingQuote.legalEntityId || null,
-      mainClientId: approvingQuote.mainClientId || null,
-      legalEntityId: approvingQuote.legalEntityId || approvingQuote.clientId || null,
-      superficie: parseFloat(superficie) || 0,
-      rentabilidad: parseFloat(rentabilidad) || 0,
-      anio: parseInt(anio) || new Date().getFullYear(),
-      tipo: tipo || null,
-      encargado: encargado || null
+      id: targetProjectId,
+      projectNumber: finalProjectNumber,
+      rawProjectName: finalRawProjectName,
+      clientId: existing?.clientId || approvingQuote.clientId || approvingQuote.legalEntityId || null,
+      mainClientId: existing?.mainClientId || approvingQuote.mainClientId || null,
+      legalEntityId: existing?.legalEntityId || approvingQuote.legalEntityId || approvingQuote.clientId || null,
+      superficie: parseFloat(superficie) || existing?.superficie || 0,
+      rentabilidad: parseFloat(rentabilidad) || existing?.rentabilidad || 0,
+      anio: parseInt(anio) || existing?.anio || new Date().getFullYear(),
+      tipo: tipo || existing?.tipo || null,
+      encargado: encargado || existing?.encargado || null
     };
 
     const budgetForm = {
@@ -656,7 +759,9 @@ export default function Presupuestos({
       setNotification({
         type: 'success',
         title: 'Presupuesto Aprobado',
-        message: 'El presupuesto ha sido aprobado y el proyecto se ha creado con éxito.'
+        message: targetProjectId
+          ? 'El presupuesto ha sido aprobado y asociado al proyecto existente como presupuesto adicional.'
+          : 'El presupuesto ha sido aprobado y el proyecto se ha creado con éxito.'
       });
       // Reset approval modal states
       setIsApproveModalOpen(false);
@@ -740,13 +845,8 @@ export default function Presupuestos({
       if (newStatus === 'Aprobado') {
         setApprovingQuote(quote);
         setApprovingQuoteBackupFiles(quote.backupFiles || []);
-        setProjectName('');
-        setSuperficie('');
-        setRentabilidad('');
         setDescripcion(quote.title || '');
         setValidationError('');
-        setMatchedProjectId(null);
-        setPrefilledFromProjectId(null);
         setShowSuggestions(false);
 
         const d = new Date();
@@ -756,14 +856,28 @@ export default function Presupuestos({
 
         const currentYear = new Date().getFullYear();
         setAnio(currentYear);
-        setTipo('');
-        setIsCustomTipo(false);
-        setEncargado('');
-
         setValorProyecto(quote.amount || 0);
 
         const clientNameVal = quote.company || quote.clientName || '';
         setCliente(clientNameVal);
+
+        const existingMatched = quote.projectId
+          ? projects.find(p => p.id === quote.projectId)
+          : findMatchingProject(quote.title);
+
+        if (existingMatched) {
+          setProjectName(existingMatched.projectName);
+          checkAndPrefillExistingProject(existingMatched, true);
+        } else {
+          setProjectName(quote.title && validateProjectNameFormat(quote.title) ? quote.title : '');
+          setSuperficie('');
+          setRentabilidad('');
+          setMatchedProjectId(null);
+          setPrefilledFromProjectId(null);
+          setTipo('');
+          setIsCustomTipo(false);
+          setEncargado('');
+        }
 
         // Regenerate billing table with default 2 rows: 1 cuota with 25%, 10 cuotas with 75%
         const budgetAmount = quote.amount || 0;
@@ -806,7 +920,7 @@ export default function Presupuestos({
     setIssueDate(getTodayDDMMYYYY());
     setValidity(30);
     setQuoteTitle('Servicios ERP');
-    setSubtotal(1200.00); // default value
+    setSubtotal(formatToChileanNumber(1200.00, 2)); // default value
     setBackupFiles([]);
     setEditBillingTable([]);
     setIsExistingQuote(false);
@@ -844,7 +958,7 @@ export default function Presupuestos({
     const initialSubtotal = quote.items && quote.items.length > 0
       ? quote.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
       : quote.amount;
-    setSubtotal(Math.round(initialSubtotal * 100) / 100);
+    setSubtotal(formatToChileanNumber(initialSubtotal || 0, 2));
 
     setBackupFiles(quote.backupFiles || []);
 
@@ -901,7 +1015,7 @@ export default function Presupuestos({
         const initialSubtotal = existing.items && existing.items.length > 0
           ? existing.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
           : existing.amount;
-        setSubtotal(Math.round(initialSubtotal * 100) / 100);
+        setSubtotal(formatToChileanNumber(initialSubtotal || 0, 2));
 
         setBackupFiles(existing.backupFiles || []);
 
@@ -1118,7 +1232,7 @@ export default function Presupuestos({
 
       // 5. Subtotal
       if (typeof data.subtotal === 'number' || data.subtotal) {
-        setSubtotal(parseFloat(data.subtotal) || 0);
+        setSubtotal(formatToChileanNumber(data.subtotal, 2));
       }
 
       setShowAiSuccessModal(true);
@@ -1199,12 +1313,12 @@ export default function Presupuestos({
     if (finalStatus === 'Aprobado' || finalStatus === 'Aprovado') {
       const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
       const roundedSum = Math.round(currentSum * 100) / 100;
-      const expectedTotal = Math.round((parseFloat(subtotal) || 0) * 100) / 100;
+      const expectedTotal = Math.round(parseSubtotal(subtotal) * 100) / 100;
       if (Math.abs(roundedSum - expectedTotal) >= 0.02) {
         setNotification({
           type: 'error',
           title: 'Error de Cuotas',
-          message: `La suma de las cuotas (${roundedSum.toFixed(2)} UF) no coincide con el subtotal del presupuesto (${expectedTotal.toFixed(2)} UF).`
+          message: `La suma de las cuotas (${roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF) no coincide con el subtotal del presupuesto (${expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF).`
         });
         return;
       }
@@ -1261,11 +1375,11 @@ export default function Presupuestos({
       company: companyName,
       title: quoteTitle,
       date: ensureDDMMYYYY(issueDate),
-      amount: parseFloat(subtotal) || 0,
+      amount: parseSubtotal(subtotal),
       validity: `${validity} días`,
       status: finalStatus,
       items: [
-        { id: 1, description: quoteTitle || 'Servicios ERP', qty: 1, price: parseFloat(subtotal) || 0 }
+        { id: 1, description: quoteTitle || 'Servicios ERP', qty: 1, price: parseSubtotal(subtotal) }
       ],
       backupFiles: backupFiles,
       projectId: projectIdToLink
@@ -1285,7 +1399,7 @@ export default function Presupuestos({
       setSelectedClient('');
       setValidity(30);
       setQuoteTitle('Servicios ERP');
-      setSubtotal(0);
+      setSubtotal(formatToChileanNumber(0, 2));
       setBackupFiles([]);
       setEditBillingTable([]);
       setQuoteId('');
@@ -1975,7 +2089,7 @@ export default function Presupuestos({
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
                               <span>Cliente *</span>
                             </label>
-                            
+
                             <div className="relative">
                               <input
                                 type="text"
@@ -2045,9 +2159,8 @@ export default function Presupuestos({
                                           setClientSearchTerm(mc.name);
                                           setIsClientSearchOpen(false);
                                         }}
-                                        className={`p-2.5 px-3 hover:bg-slate-100/80 cursor-pointer flex items-center justify-between text-body-sm transition-colors ${
-                                          isSelected ? 'bg-secondary/10 font-bold text-secondary' : 'text-slate-700'
-                                        }`}
+                                        className={`p-2.5 px-3 hover:bg-slate-100/80 cursor-pointer flex items-center justify-between text-body-sm transition-colors ${isSelected ? 'bg-secondary/10 font-bold text-secondary' : 'text-slate-700'
+                                          }`}
                                       >
                                         <div className="flex items-center gap-2 truncate">
                                           <span className={`material-symbols-outlined text-[18px] ${isSelected ? 'text-secondary' : 'text-slate-400'}`}>
@@ -2076,11 +2189,10 @@ export default function Presupuestos({
                             <span className="text-[11px] text-on-surface-variant font-normal">Opcional</span>
                           </label>
                           <select
-                            className={`w-full border-slate-300 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-medium ${
-                              !isClientSelected 
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
-                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
-                            }`}
+                            className={`w-full border-slate-300 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-medium ${!isClientSelected
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                              : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                              }`}
                             value={selectedLegalEntity}
                             onChange={(e) => setSelectedLegalEntity(e.target.value)}
                             disabled={!isClientSelected}
@@ -2108,11 +2220,10 @@ export default function Presupuestos({
                         <div className="flex flex-col gap-xs">
                           <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Título de presupuesto</label>
                           <input
-                            className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${
-                              !isClientSelected 
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
-                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
-                            }`}
+                            className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${!isClientSelected
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                              : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                              }`}
                             type="text"
                             value={quoteTitle}
                             onChange={(e) => setQuoteTitle(e.target.value)}
@@ -2125,15 +2236,14 @@ export default function Presupuestos({
                         {/* Fila 3: Fecha de Emisión y Validez */}
                         <div className="grid grid-cols-2 gap-md">
                           <div className="flex flex-col gap-xs">
-                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fecha de Emisión</label>
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fecha de Emisión presupuesto</label>
                             <div className="relative">
                               <input
                                 type="text"
                                 readOnly
                                 value={issueDate}
-                                className={`w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all pr-10 ${
-                                  !isClientSelected ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-on-surface'
-                                }`}
+                                className={`w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all pr-10 ${!isClientSelected ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-on-surface'
+                                  }`}
                                 placeholder="dd/mm/yyyy"
                               />
                               <input
@@ -2148,9 +2258,8 @@ export default function Presupuestos({
                                   }
                                 }}
                                 disabled={!isClientSelected}
-                                className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
-                                  !isClientSelected ? 'cursor-not-allowed' : 'cursor-pointer'
-                                }`}
+                                className={`absolute inset-0 w-full h-full opacity-0 z-10 ${!isClientSelected ? 'cursor-not-allowed' : 'cursor-pointer'
+                                  }`}
                                 required={isClientSelected}
                               />
                               <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
@@ -2161,11 +2270,10 @@ export default function Presupuestos({
                           <div className="flex flex-col gap-xs">
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Validez (Días)</label>
                             <input
-                              className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${
-                                !isClientSelected 
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
-                                  : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
-                              }`}
+                              className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${!isClientSelected
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                                }`}
                               type="number"
                               value={validity}
                               onChange={(e) => setValidity(e.target.value)}
@@ -2179,32 +2287,28 @@ export default function Presupuestos({
                         {/* Separador de Valores Financieros */}
                         <h4 className="text-body-sm font-bold text-primary flex items-center gap-2 pt-sm border-t border-slate-200/60">
                           <span className="material-symbols-outlined text-[18px] text-secondary">payments</span>
-                          Valores Financieros (Neto)
+                          Valores Financieros
                         </h4>
 
                         {/* Fila 4: Subtotal Neto */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal (Neto)</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal (UF)</label>
                           <div className="relative rounded-lg shadow-sm">
                             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                               <span className="text-slate-500 text-body-md">$</span>
                             </div>
                             <input
-                              type="number"
-                              className={`w-full pl-7 border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-bold ${
-                                !isClientSelected 
-                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
-                                  : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
-                              }`}
+                              type="text"
+                              inputMode="decimal"
+                              className={`w-full pl-7 border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-bold ${!isClientSelected
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                                : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
+                                }`}
                               value={subtotal}
-                              onChange={(e) => setSubtotal(e.target.value)}
-                              onBlur={(e) => {
-                                const rounded = Math.round((parseFloat(e.target.value) || 0) * 100) / 100;
-                                setSubtotal(rounded);
-                              }}
-                              placeholder="0.00"
-                              min="0"
-                              step="0.01"
+                              onChange={handleSubtotalChange}
+                              onFocus={handleSubtotalFocus}
+                              onBlur={handleSubtotalBlur}
+                              placeholder="0,00"
                               disabled={!isClientSelected}
                               required={isClientSelected}
                             />
@@ -2237,11 +2341,10 @@ export default function Presupuestos({
                         </h3>
 
                         <div className="flex items-center gap-md flex-wrap pt-xs">
-                          <label className={`flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant rounded-lg transition-all text-body-sm font-bold shadow-sm ${
-                            !isClientSelected 
-                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' 
-                              : 'bg-white hover:bg-slate-50 text-on-surface hover:text-primary hover:border-secondary cursor-pointer'
-                          }`}>
+                          <label className={`flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant rounded-lg transition-all text-body-sm font-bold shadow-sm ${!isClientSelected
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
+                            : 'bg-white hover:bg-slate-50 text-on-surface hover:text-primary hover:border-secondary cursor-pointer'
+                            }`}>
                             <span className="material-symbols-outlined text-[20px] text-on-surface-variant">upload_file</span>
                             <span>Subir Respaldo</span>
                             <input
@@ -2264,11 +2367,10 @@ export default function Presupuestos({
                                 }
                               }}
                               disabled={!isClientSelected || isAiExtracting}
-                              className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${
-                                !isClientSelected || isAiExtracting
-                                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
-                                  : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20'
-                              }`}
+                              className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${!isClientSelected || isAiExtracting
+                                ? 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
+                                : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20'
+                                }`}
                             >
                               {isAiExtracting ? (
                                 <>
@@ -2360,7 +2462,7 @@ export default function Presupuestos({
                       {(() => {
                         const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
                         const roundedSum = Math.round(currentSum * 100) / 100;
-                        const expectedTotal = Math.round((parseFloat(subtotal) || 0) * 100) / 100;
+                        const expectedTotal = Math.round(parseSubtotal(subtotal) * 100) / 100;
                         const diff = expectedTotal - roundedSum;
 
                         if (Math.abs(diff) >= 0.02) {
@@ -2368,7 +2470,7 @@ export default function Presupuestos({
                             <div className="p-md bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm">
                               <span className="material-symbols-outlined text-[20px]">warning</span>
                               <span>
-                                La suma de las cuotas ({roundedSum.toFixed(2)} UF) no coincide con el subtotal del presupuesto (antes de impuestos) ({expectedTotal.toFixed(2)} UF). Diferencia: {diff.toFixed(2)} UF.
+                                La suma de las cuotas ({roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF) no coincide con el subtotal del presupuesto (antes de impuestos) ({expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF). Diferencia: {diff.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF.
                               </span>
                             </div>
                           );
@@ -2446,9 +2548,8 @@ export default function Presupuestos({
                     <button
                       type="submit"
                       disabled={!isClientSelected || isSaving}
-                      className={`px-lg py-2 bg-secondary text-white rounded transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${
-                        !isClientSelected || isSaving ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'hover:brightness-110'
-                      }`}
+                      className={`px-lg py-2 bg-secondary text-white rounded transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${!isClientSelected || isSaving ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'hover:brightness-110'
+                        }`}
                       title={!isClientSelected ? 'Seleccione un cliente para guardar el presupuesto' : ''}
                     >
                       {isSaving ? (
@@ -2785,10 +2886,16 @@ export default function Presupuestos({
                             onChange={(e) => {
                               const val = e.target.value;
                               setProjectName(val);
-                              checkAndPrefillExistingProject(val);
+                              checkAndPrefillExistingProject(val, false);
                               setShowSuggestions(true);
                             }}
                             onFocus={() => setShowSuggestions(true)}
+                            onBlur={() => {
+                              setTimeout(() => {
+                                setShowSuggestions(false);
+                                checkAndPrefillExistingProject(projectName, true);
+                              }, 200);
+                            }}
                             placeholder="Ej: 0280-NombreProyecto - Cliente"
                             required
                           />
@@ -2797,9 +2904,15 @@ export default function Presupuestos({
                               {filteredProjects.map((proj) => (
                                 <div
                                   key={proj.id}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setProjectName(proj.projectName);
+                                    checkAndPrefillExistingProject(proj, true);
+                                    setShowSuggestions(false);
+                                  }}
                                   onClick={() => {
                                     setProjectName(proj.projectName);
-                                    checkAndPrefillExistingProject(proj.projectName);
+                                    checkAndPrefillExistingProject(proj, true);
                                     setShowSuggestions(false);
                                   }}
                                   className="px-4 py-2.5 text-body-md text-on-surface hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100 last:border-b-0 font-medium"
@@ -2819,9 +2932,16 @@ export default function Presupuestos({
                           <span className="material-symbols-outlined text-[20px]">search</span>
                         </button>
                       </div>
-                      <span className="text-[11px] text-on-surface-variant/80">
-                        Formato requerido: <strong>Nº Proyecto-Nombre - Cliente</strong>
-                      </span>
+                      {matchedProjectId ? (
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 animate-fade-in mt-1">
+                          <span className="material-symbols-outlined text-[16px] text-emerald-600">link</span>
+                          <span>Proyecto existente.</span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-on-surface-variant/80">
+                          Formato requerido: <strong>Nº Proyecto-Nombre - Cliente</strong>
+                        </span>
+                      )}
                     </div>
 
                     {/* Fila: Superficie y Rentabilidad */}
@@ -3435,7 +3555,7 @@ export default function Presupuestos({
             return assoc ? `${assoc.projectNumber} - ${assoc.rawProjectName}` : quoteTitle;
           })() : quoteTitle}
           budgetNumber={quoteId}
-          budgetAmount={parseFloat(subtotal) || 0}
+          budgetAmount={parseSubtotal(subtotal)}
           budgetBackupFiles={backupFiles}
           initialInstallments={editBillingTable}
           onSave={async (updated) => {
