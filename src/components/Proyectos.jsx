@@ -20,6 +20,7 @@ export default function Proyectos({
   projects,
   setProjects,
   clients,
+  mainClients = [],
   budgets,
   installments,
   extraCosts,
@@ -288,13 +289,20 @@ export default function Proyectos({
       return;
     }
 
-    // Parse project number and name from semantic string
-    const nameParts = editName.split('-');
-    const projectNumber = nameParts[0]?.trim() || '';
-    const rawProjectName = nameParts.slice(1).join('-').split(' - ')[0]?.trim() || editName;
+    // Parse project number and name from semantic string (Codigo - Nombre - Cliente)
+    const firstDash = editName.indexOf('-');
+    const projectNumber = firstDash !== -1 ? editName.slice(0, firstDash).trim() : '';
+    const remainder = firstDash !== -1 ? editName.slice(firstDash + 1).trim() : editName;
+    const lastSep = remainder.lastIndexOf(' - ');
+    const rawProjectName = lastSep !== -1 ? remainder.slice(0, lastSep).trim() : (remainder.includes('-') ? remainder.split('-')[0].trim() : remainder);
+    const enteredClientPart = lastSep !== -1 ? remainder.slice(lastSep + 3).trim() : '';
 
-    // Resolve client
-    const selectedCli = clients.find(c => c.company === editCliente);
+    // Resolve client from mainClients or clients
+    const selectedMC = (mainClients || []).find(mc => mc.name === editCliente || (enteredClientPart && mc.name.toLowerCase() === enteredClientPart.toLowerCase()));
+    const selectedCli = clients.find(c => c.company === editCliente || c.realClient === editCliente);
+
+    const mainClientId = selectedMC ? selectedMC.id : (selectedCli ? selectedCli.mainClientId : editingProject.mainClientId);
+    const clientId = selectedCli ? selectedCli.id : editingProject.clientId;
 
     try {
       await onSaveProject({
@@ -304,9 +312,9 @@ export default function Proyectos({
         superficie: parseFloat(editSuperficie) || 0,
         rentabilidad: parseFloat(editRentabilidad) || 0,
         anio: parseInt(editAnio) || new Date().getFullYear(),
-        clientId: selectedCli ? selectedCli.id : editingProject.clientId,
-        mainClientId: selectedCli ? selectedCli.mainClientId : editingProject.mainClientId,
-        legalEntityId: selectedCli ? selectedCli.id : editingProject.legalEntityId,
+        mainClientId: mainClientId || null,
+        clientId: clientId || null,
+        legalEntityId: editingProject.legalEntityId || clientId || null,
         status: editingProject.status,
         tipo: editTipo || null,
         encargado: editEncargado || null
@@ -996,9 +1004,22 @@ export default function Proyectos({
                                   {budget.amount} UF
                                 </span>
                               </div>
-                              <p className="text-body-sm text-on-surface-variant leading-relaxed">
-                                <strong>Monto total:</strong> {budget.amount} UF ({budget.validity})
-                              </p>
+                              <div className="text-body-sm text-on-surface-variant leading-relaxed flex flex-wrap items-center gap-x-base gap-y-1">
+                                <span><strong>Monto total:</strong> {budget.amount} UF ({budget.validity})</span>
+                                {(() => {
+                                  const targetId = budget.legalEntityId || budget.clientId;
+                                  const found = clients.find(c => c.id === targetId && c.company) || (budget.company ? { company: budget.company } : null);
+                                  if (!found || !found.company) return null;
+                                  return (
+                                    <>
+                                      <span className="text-outline-variant">•</span>
+                                      <span>
+                                        <strong>Razón Social:</strong> <span className="font-semibold text-slate-700">{found.company}</span>{found.rut ? ` (${found.rut})` : ''}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
+                              </div>
                             </div>
 
                             {(() => {
@@ -1197,9 +1218,18 @@ export default function Proyectos({
                       className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                     >
                       <option value="">Seleccione un cliente</option>
-                      {clients.map(c => (
-                        <option key={c.id} value={c.company}>{c.company}</option>
-                      ))}
+                      {mainClients && mainClients.length > 0 ? (
+                        mainClients.map(mc => (
+                          <option key={mc.id} value={mc.name}>{mc.name}</option>
+                        ))
+                      ) : (
+                        clients.map(c => (
+                          <option key={c.id} value={c.company}>{c.company}</option>
+                        ))
+                      )}
+                      {editCliente && !((mainClients && mainClients.some(mc => mc.name === editCliente)) || clients.some(c => c.company === editCliente)) && (
+                        <option value={editCliente}>{editCliente}</option>
+                      )}
                     </select>
                   </div>
                 </div>

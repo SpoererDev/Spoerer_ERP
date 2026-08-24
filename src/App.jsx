@@ -360,6 +360,17 @@ export default function App() {
     }
   };
 
+  const handleUpdateBudgetLegalEntity = async (budgetId, legalEntityId) => {
+    try {
+      const updatedBudget = await supabaseService.updateBudgetLegalEntity(budgetId, legalEntityId);
+      setQuotes(prev => prev.map(q => q.id === budgetId ? updatedBudget : q));
+      return updatedBudget;
+    } catch (err) {
+      console.error("Error al actualizar razón social del presupuesto:", err);
+      throw err;
+    }
+  };
+
   // INSTALLMENTS (CUOTAS) ACTIONS
   const handleUpdateInstallment = async (id, updates) => {
     try {
@@ -669,6 +680,7 @@ export default function App() {
               onSaveInstallments={handleSaveInstallments}
               onSaveProject={handleSaveProject}
               onAddClient={addClient}
+              onUpdateBudgetLegalEntity={handleUpdateBudgetLegalEntity}
               temporalFilter={facturacionTemporalFilter}
               setTemporalFilter={setFacturacionTemporalFilter}
               statusFilter={facturacionStatusFilter}
@@ -698,6 +710,7 @@ export default function App() {
               projects={projects}
               setProjects={setProjects}
               clients={clients}
+              mainClients={mainClients}
               budgets={quotes}
               installments={installments}
               extraCosts={extraCosts}

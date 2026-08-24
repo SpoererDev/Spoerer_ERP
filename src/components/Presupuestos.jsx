@@ -720,9 +720,13 @@ export default function Presupuestos({
     });
 
     // Parse project number and name from semantic string
-    const nameParts = projectName.split('-');
-    const projectNumber = nameParts[0]?.trim() || '';
-    const rawProjectName = nameParts.slice(1).join('-').split(' - ')[0]?.trim() || projectName;
+    // Format: Codigo - Nombre - Cliente (e.g. 0280-Edificio Ciudad - TechNova Solutions or 0280 - Edificio Ciudad - TechNova Solutions)
+    const firstDash = projectName.indexOf('-');
+    const projectNumber = firstDash !== -1 ? projectName.slice(0, firstDash).trim() : '';
+    const remainder = firstDash !== -1 ? projectName.slice(firstDash + 1).trim() : projectName;
+    const lastSep = remainder.lastIndexOf(' - ');
+    const rawProjectName = lastSep !== -1 ? remainder.slice(0, lastSep).trim() : (remainder.includes('-') ? remainder.split('-')[0].trim() : remainder);
+    const enteredClientPart = lastSep !== -1 ? remainder.slice(lastSep + 3).trim() : '';
 
     // Safety check: ensure matchedProjectId is resolved if user typed or pasted name directly
     const existing = matchedProjectId
@@ -733,12 +737,19 @@ export default function Presupuestos({
     const finalProjectNumber = existing ? existing.projectNumber : projectNumber;
     const finalRawProjectName = existing ? existing.rawProjectName : rawProjectName;
 
+    // Resolve main client ID from existing project, approving quote, or entered client name matching mainClients
+    let resolvedMainClientId = existing?.mainClientId || approvingQuote.mainClientId || null;
+    if (!resolvedMainClientId && enteredClientPart && mainClients) {
+      const matchedMC = mainClients.find(mc => mc.name.toLowerCase() === enteredClientPart.toLowerCase());
+      if (matchedMC) resolvedMainClientId = matchedMC.id;
+    }
+
     const projectForm = {
       id: targetProjectId,
       projectNumber: finalProjectNumber,
       rawProjectName: finalRawProjectName,
+      mainClientId: resolvedMainClientId,
       clientId: existing?.clientId || approvingQuote.clientId || approvingQuote.legalEntityId || null,
-      mainClientId: existing?.mainClientId || approvingQuote.mainClientId || null,
       legalEntityId: existing?.legalEntityId || approvingQuote.legalEntityId || approvingQuote.clientId || null,
       superficie: parseFloat(superficie) || existing?.superficie || 0,
       rentabilidad: parseFloat(rentabilidad) || existing?.rentabilidad || 0,
@@ -858,7 +869,7 @@ export default function Presupuestos({
         setAnio(currentYear);
         setValorProyecto(quote.amount || 0);
 
-        const clientNameVal = quote.company || quote.clientName || '';
+        const clientNameVal = quote.mainClientName || quote.clientName || quote.company || '';
         setCliente(clientNameVal);
 
         const existingMatched = quote.projectId
@@ -3076,11 +3087,16 @@ export default function Presupuestos({
                       <div className="flex flex-col gap-xs">
                         <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Cliente</label>
                         <input
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none"
+                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none font-semibold text-primary"
                           type="text"
                           value={cliente}
                           readOnly
                         />
+                        {approvingQuote.company && approvingQuote.company !== cliente && (
+                          <span className="text-[11px] text-on-surface-variant/80 italic mt-0.5 truncate" title={approvingQuote.company}>
+                            Razón Social Facturación: <strong className="font-semibold text-slate-700">{approvingQuote.company}</strong>
+                          </span>
+                        )}
                       </div>
                     </div>
 

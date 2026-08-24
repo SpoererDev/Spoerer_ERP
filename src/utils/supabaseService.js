@@ -109,11 +109,11 @@ const mapProjectFromDb = (dbProject) => {
   const mainClientName = dbProject.main_clients 
     ? dbProject.main_clients.name 
     : (dbProject.clients 
-        ? (dbProject.clients.main_clients ? dbProject.clients.main_clients.name : (dbProject.clients.real_client || dbProject.clients.company_name))
+        ? (dbProject.clients.main_clients ? dbProject.clients.main_clients.name : (dbProject.clients.real_client || ''))
         : '');
 
   const legalEntityCompany = dbProject.clients ? dbProject.clients.company_name : '';
-  const displayClient = legalEntityCompany || mainClientName || 'Cliente';
+  const displayClient = mainClientName || legalEntityCompany || 'Cliente';
 
   return {
     id: dbProject.id,
@@ -125,7 +125,7 @@ const mapProjectFromDb = (dbProject) => {
     anio: dbProject.year,
     cliente: displayClient,
     clientId: dbProject.client_id,
-    mainClientId: dbProject.main_client_id || null,
+    mainClientId: dbProject.main_client_id || (dbProject.clients ? dbProject.clients.main_client_id : null) || null,
     legalEntityId: dbProject.legal_entity_id || dbProject.client_id || null,
     status: dbProject.status,
     tipo: dbProject.tipo,
@@ -768,6 +768,20 @@ export const supabaseService = {
       .eq('id', id);
     if (error) throw error;
     return id;
+  },
+
+  async updateBudgetLegalEntity(budgetId, legalEntityId) {
+    const { data, error } = await supabase
+      .from('budgets')
+      .update({
+        client_id: legalEntityId || null,
+        legal_entity_id: legalEntityId || null
+      })
+      .eq('id', budgetId)
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
+    
+    if (error) throw error;
+    return mapBudgetFromDb(data[0]);
   },
 
   // PROJECTS CRUD

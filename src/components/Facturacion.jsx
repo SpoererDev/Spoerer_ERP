@@ -15,6 +15,7 @@ export default function Facturacion({
   onSaveInstallments,
   onSaveProject,
   onAddClient,
+  onUpdateBudgetLegalEntity,
   temporalFilter,
   setTemporalFilter,
   statusFilter,
@@ -48,6 +49,7 @@ export default function Facturacion({
   // Assign Razón Social Modal State
   const [isAssignRazonSocialModalOpen, setIsAssignRazonSocialModalOpen] = useState(false);
   const [targetProjectForRazonSocial, setTargetProjectForRazonSocial] = useState(null);
+  const [targetBudgetForRazonSocial, setTargetBudgetForRazonSocial] = useState(null);
   const [assignMode, setAssignMode] = useState('select'); // 'select' | 'create'
   const [selectedRazonSocialId, setSelectedRazonSocialId] = useState('');
   const [razonSocialSearch, setRazonSocialSearch] = useState('');
@@ -414,8 +416,11 @@ export default function Facturacion({
       const project = projects.find(p => p.id === installment.project_id);
       // Find associated budget
       const budget = installment.origin_budget_id ? budgets.find(b => b.id === installment.origin_budget_id) : null;
-      // Find associated client
-      const client = project ? clients.find(c => c.id === project.clientId) : null;
+      // Find associated Razón Social for the budget (legal entity)
+      const targetLegalId = budget?.legalEntityId || budget?.clientId;
+      const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) ||
+        (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null) ||
+        (project ? clients.find(c => c.id === (project.legalEntityId || project.clientId)) : null);
 
       // Calculate total installments for this budget
       const budgetInstallments = budget ? installments.filter(i => i.origin_budget_id === budget.id) : [];
@@ -431,19 +436,21 @@ export default function Facturacion({
       const isInvoiced = installment.status === 'Factura emitida' || installment.status === 'Pagada';
       const isPaid = installment.status === 'Pagada';
 
+      const clientName = project?.cliente || budget?.clientName || budget?.mainClientName || '';
+
       rows.push({
         "Presupuesto #": budget ? budget.quoteId || '' : '',
         "Factura #": installment.invoiceNumber || '',
         "Fecha": formatDateExcel(installment.date),
         "Año": yearVal,
         "Año Proy": project ? project.anio || '' : '',
-        "RUT": client ? client.rut || '' : '',
-        "Razón Social": client ? client.company || '' : '',
-        "Giro": client ? client.giro || '' : '',
-        "Dirección": client ? client.address || '' : '',
-        "Comuna": client ? client.comuna || '' : '',
-        "Ciudad": client ? client.ciudad || '' : '',
-        "Contacto": client ? client.name || '' : '',
+        "RUT": razonSocial ? razonSocial.rut || '' : '',
+        "Razón Social": razonSocial ? razonSocial.company || '' : '',
+        "Giro": razonSocial ? razonSocial.giro || '' : '',
+        "Dirección": razonSocial ? razonSocial.address || '' : '',
+        "Comuna": razonSocial ? razonSocial.comuna || '' : '',
+        "Ciudad": razonSocial ? razonSocial.ciudad || '' : '',
+        "Contacto": razonSocial ? razonSocial.name || '' : '',
         "Obra": project ? project.rawProjectName || '' : '',
         "Comentario": installment.comment || '',
         "Cuota": installment.numQuota || '',
@@ -453,7 +460,7 @@ export default function Facturacion({
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
         "Estado F#": installment.status || '',
         "Tipo": '',
-        "Cliente": client ? (client.company || client.name || '') : (project ? project.cliente : ''),
+        "Cliente": clientName,
         "N° Proyecto": project ? project.projectNumber || '' : '',
         "Revisor": '',
         "Firma": '',
@@ -538,30 +545,30 @@ export default function Facturacion({
   };
 
   // --- RAZÓN SOCIAL HELPERS & HANDLERS ---
-  const getProjectRazonSocial = (project, projectBudgets = []) => {
-    if (!project) return null;
+  const getBudgetRazonSocial = (budget) => {
+    if (!budget) return null;
 
-    const targetId = project.clientId || project.legalEntityId ||
-      (projectBudgets.length > 0 ? (projectBudgets[0]?.budget?.clientId || projectBudgets[0]?.budget?.legalEntityId) : null);
-
+    const targetId = budget.legalEntityId || budget.clientId;
     if (targetId) {
       const found = clients.find(c => c.id === targetId && c.company);
       if (found) return found;
     }
 
-    if (project.cliente && project.cliente !== 'Cliente no definido') {
-      const foundByName = clients.find(c => c.company && c.company.trim().toLowerCase() === project.cliente.trim().toLowerCase());
+    if (budget.company) {
+      const foundByName = clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase());
       if (foundByName) return foundByName;
     }
 
     return null;
   };
 
-  const handleOpenAssignRazonSocialModal = (project) => {
-    const pBudgets = (groupedData.find(g => g.project?.id === project.id)?.budgets) || [];
-    const currentRazonSocial = getProjectRazonSocial(project, pBudgets);
+  const handleOpenAssignRazonSocialModal = (budget, project = null) => {
+    const targetBudget = budget || null;
+    const targetProj = project || (budget?.projectId ? projects.find(p => p.id === budget.projectId) : null);
+    const currentRazonSocial = getBudgetRazonSocial(targetBudget);
 
-    setTargetProjectForRazonSocial(project);
+    setTargetBudgetForRazonSocial(targetBudget);
+    setTargetProjectForRazonSocial(targetProj);
     setSelectedRazonSocialId(currentRazonSocial ? currentRazonSocial.id : '');
     setAssignMode('select');
     setRazonSocialSearch('');
@@ -581,13 +588,12 @@ export default function Facturacion({
   };
 
   const handleSaveAssignRazonSocial = async () => {
-    if (!targetProjectForRazonSocial) return;
+    if (!targetBudgetForRazonSocial && !targetProjectForRazonSocial) return;
     setAssignError('');
     setIsSavingRazonSocial(true);
 
     try {
       let clientToAssignId = selectedRazonSocialId;
-      let clientCompanyToAssign = '';
 
       if (assignMode === 'create') {
         if (!newRazonSocialCompany.trim()) {
@@ -601,6 +607,9 @@ export default function Facturacion({
           return;
         }
 
+        const mainClientId = targetBudgetForRazonSocial?.mainClientId || targetProjectForRazonSocial?.mainClientId || null;
+        const realClientName = targetBudgetForRazonSocial?.clientName || targetProjectForRazonSocial?.cliente || '';
+
         const newClientData = {
           company: newRazonSocialCompany.trim(),
           rut: formatRut(newRazonSocialRut),
@@ -611,14 +620,13 @@ export default function Facturacion({
           name: newRazonSocialContactName.trim(),
           email: newRazonSocialContactEmail.trim(),
           phone: newRazonSocialContactPhone.trim(),
-          mainClientId: targetProjectForRazonSocial.mainClientId || null,
-          realClient: targetProjectForRazonSocial.cliente || ''
+          mainClientId: mainClientId,
+          realClient: realClientName
         };
 
         if (onAddClient) {
           const savedClient = await onAddClient(newClientData);
           clientToAssignId = savedClient.id;
-          clientCompanyToAssign = savedClient.company;
         }
       } else {
         if (!clientToAssignId) {
@@ -626,22 +634,20 @@ export default function Facturacion({
           setIsSavingRazonSocial(false);
           return;
         }
-        const chosenClient = clients.find(c => c.id === clientToAssignId);
-        clientCompanyToAssign = chosenClient ? chosenClient.company : '';
       }
 
-      const updatedProject = {
-        ...targetProjectForRazonSocial,
-        clientId: clientToAssignId,
-        legalEntityId: clientToAssignId,
-        cliente: clientCompanyToAssign || targetProjectForRazonSocial.cliente
-      };
-
-      if (onSaveProject) {
-        await onSaveProject(updatedProject);
+      // Update the budget's legal entity (Razon Social)
+      if (targetBudgetForRazonSocial && onUpdateBudgetLegalEntity) {
+        await onUpdateBudgetLegalEntity(targetBudgetForRazonSocial.id, clientToAssignId);
+      } else if (targetProjectForRazonSocial && onUpdateBudgetLegalEntity) {
+        const pBudgets = budgets.filter(b => b.projectId === targetProjectForRazonSocial.id);
+        for (const b of pBudgets) {
+          await onUpdateBudgetLegalEntity(b.id, clientToAssignId);
+        }
       }
 
       setIsAssignRazonSocialModalOpen(false);
+      setTargetBudgetForRazonSocial(null);
       setTargetProjectForRazonSocial(null);
     } catch (err) {
       console.error('Error al asignar Razón Social:', err);
@@ -655,10 +661,10 @@ export default function Facturacion({
   const openEmitModal = (installment) => {
     const project = projects.find(p => p.id === installment.project_id);
     const budget = budgets.find(b => b.id === installment.origin_budget_id);
-    const pBudgets = (groupedData.find(g => g.project?.id === project?.id)?.budgets) || (budget ? [{ budget }] : []);
-    const razonSocial = getProjectRazonSocial(project, pBudgets);
+    const razonSocial = getBudgetRazonSocial(budget);
 
     if (!razonSocial) {
+      setTargetBudgetForRazonSocial(budget || null);
       if (project) setTargetProjectForRazonSocial(project);
       setIsNoRazonSocialModalOpen(true);
       return;
@@ -994,7 +1000,6 @@ export default function Facturacion({
         {groupedData.length > 0 ? (
           groupedData.map(({ id: pId, project, plannedTotalUf, budgets: projectBudgets }) => {
             const isExpanded = expandedProjects[pId];
-            const razonSocial = getProjectRazonSocial(project, projectBudgets);
 
             return (
               <div
@@ -1035,33 +1040,6 @@ export default function Facturacion({
                           </>
                         )}
                       </div>
-
-                      {/* Razón Social Status / Warning Button */}
-                      <div className="mt-1 flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                        {razonSocial ? (
-                          <div className="inline-flex items-center gap-1.5 text-body-sm text-on-surface-variant font-medium">
-                            <span>Razón Social: <strong className="font-semibold text-slate-700">{razonSocial.company}</strong> {razonSocial.rut ? `(${razonSocial.rut})` : ''}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenAssignRazonSocialModal(project)}
-                              className="text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-0.5 rounded transition-all"
-                              title="Cambiar Razón Social"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">edit</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAssignRazonSocialModal(project)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded text-xs font-bold transition-all active:scale-95 shadow-2xs"
-                            title="Este proyecto no tiene una Razón Social asignada para facturación"
-                          >
-                            <span className="material-symbols-outlined text-[15px] text-amber-600 font-bold">warning</span>
-                            <span>Asignar razón social</span>
-                          </button>
-                        )}
-                      </div>
                     </div>
                   </div>
 
@@ -1083,14 +1061,41 @@ export default function Facturacion({
                 {isExpanded && (
                   <div className="border-t border-outline-variant/20 p-lg bg-surface-container-lowest divide-y divide-outline-variant/20 space-y-lg">
                     {projectBudgets.map(({ id: bId, budget, title, amount, installments: budgetInstallments }) => {
+                      const budgetRazonSocial = getBudgetRazonSocial(budget);
+
                       return (
                         <div key={bId} className="pt-md first:pt-0 space-y-sm">
                           {/* Presupuesto Header */}
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-xs border-b border-outline-variant/10 pb-2 text-slate-800">
-                            <span className="text-body-md text-primary font-bold flex items-center gap-xs">
-                              <span className="material-symbols-outlined text-[18px] text-outline">description</span>
-                              {title}
-                            </span>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
+                              <span className="text-body-md text-primary font-bold flex items-center gap-xs">
+                                <span className="material-symbols-outlined text-[18px] text-outline">description</span>
+                                {title}
+                              </span>
+                              {budgetRazonSocial ? (
+                                <div className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant font-medium bg-slate-100/80 px-2 py-0.5 rounded-md border border-slate-200/70">
+                                  <span>R. Social: <strong className="font-semibold text-slate-700">{budgetRazonSocial.company}</strong>{budgetRazonSocial.rut ? ` (${budgetRazonSocial.rut})` : ''}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenAssignRazonSocialModal(budget, project)}
+                                    className="text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 p-0.5 rounded transition-all"
+                                    title="Cambiar Razón Social del Presupuesto"
+                                  >
+                                    <span className="material-symbols-outlined text-[13px]">edit</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAssignRazonSocialModal(budget, project)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded text-[11px] font-bold transition-all active:scale-95 shadow-2xs"
+                                  title="Este presupuesto no tiene una Razón Social asignada para facturación"
+                                >
+                                  <span className="material-symbols-outlined text-[14px] text-amber-600 font-bold">warning</span>
+                                  <span>Asignar razón social</span>
+                                </button>
+                              )}
+                            </div>
                             <div className="flex items-center gap-sm flex-wrap">
                               <span className="text-body-sm text-on-surface-variant font-medium">
                                 Monto Presupuestado: <strong className="font-semibold text-slate-700">{formatCLP(amount)}</strong>
@@ -1222,11 +1227,12 @@ export default function Facturacion({
                                         {inst.status === 'Por facturar' && (
                                           (() => {
                                             const isDateConfirmed = Boolean(inst.dateConfirmed);
-                                            const isReady = razonSocial && isDateConfirmed;
+                                            const isReady = budgetRazonSocial && isDateConfirmed;
                                             return (
                                               <button
                                                 onClick={() => {
-                                                  if (!razonSocial) {
+                                                  if (!budgetRazonSocial) {
+                                                    setTargetBudgetForRazonSocial(budget);
                                                     setTargetProjectForRazonSocial(project);
                                                     setIsNoRazonSocialModalOpen(true);
                                                   } else if (!isDateConfirmed) {
@@ -1236,8 +1242,8 @@ export default function Facturacion({
                                                   }
                                                 }}
                                                 title={
-                                                  !razonSocial
-                                                    ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
+                                                  !budgetRazonSocial
+                                                    ? "No se puede facturar sin Razón Social asignada al presupuesto. Haga clic para asignar una."
                                                     : !isDateConfirmed
                                                       ? "No se puede facturar sin confirmar la fecha de la cuota."
                                                       : "Emitir Factura"
@@ -1804,11 +1810,16 @@ export default function Facturacion({
                 <span className="material-symbols-outlined text-[32px]">domain_disabled</span>
               </div>
               <p className="text-body-md text-on-surface font-medium text-center">
-                Para poder emitir una factura, primero debe asignar una <strong>Razón Social</strong> con RUT al proyecto.
+                Para poder emitir una factura, primero debe asignar una <strong>Razón Social</strong> con RUT al presupuesto correspondiente.
               </p>
-              {targetProjectForRazonSocial && (
-                <div className="bg-slate-50 p-sm rounded-lg border border-slate-200 text-xs text-slate-600 font-medium text-center">
-                  Proyecto: <span className="font-bold text-slate-800">{targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</span>
+              {(targetBudgetForRazonSocial || targetProjectForRazonSocial) && (
+                <div className="bg-slate-50 p-sm rounded-lg border border-slate-200 text-xs text-slate-600 font-medium text-center space-y-0.5">
+                  {targetProjectForRazonSocial && (
+                    <div>Proyecto: <span className="font-bold text-slate-800">{targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</span></div>
+                  )}
+                  {targetBudgetForRazonSocial && (
+                    <div>Presupuesto: <span className="font-bold text-slate-800">#{targetBudgetForRazonSocial.quoteId} - {targetBudgetForRazonSocial.title}</span></div>
+                  )}
                 </div>
               )}
             </div>
@@ -1825,9 +1836,7 @@ export default function Facturacion({
                 type="button"
                 onClick={() => {
                   setIsNoRazonSocialModalOpen(false);
-                  if (targetProjectForRazonSocial) {
-                    handleOpenAssignRazonSocialModal(targetProjectForRazonSocial);
-                  }
+                  handleOpenAssignRazonSocialModal(targetBudgetForRazonSocial, targetProjectForRazonSocial);
                 }}
                 className="px-lg py-2 bg-primary text-white rounded-lg font-bold shadow-xs hover:bg-primary-container active:scale-95 transition-all text-xs flex items-center gap-xs"
               >
@@ -1880,7 +1889,7 @@ export default function Facturacion({
       )}
 
       {/* Modal: Asignar Razón Social */}
-      {isAssignRazonSocialModalOpen && targetProjectForRazonSocial && (
+      {isAssignRazonSocialModalOpen && (targetBudgetForRazonSocial || targetProjectForRazonSocial) && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8">
             {/* Header */}
@@ -1891,7 +1900,11 @@ export default function Facturacion({
                 </div>
                 <div>
                   <h3 className="font-title-md text-title-md font-bold text-white">Asignar Razón Social para Facturación</h3>
-                  <p className="text-xs text-slate-300">Proyecto: {targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</p>
+                  <p className="text-xs text-slate-300">
+                    {targetBudgetForRazonSocial 
+                      ? `Presupuesto #${targetBudgetForRazonSocial.quoteId} - ${targetBudgetForRazonSocial.title}` 
+                      : `Proyecto: ${targetProjectForRazonSocial?.projectNumber} - ${targetProjectForRazonSocial?.rawProjectName}`}
+                  </p>
                 </div>
               </div>
               <button
@@ -1982,7 +1995,8 @@ export default function Facturacion({
 
                       return filtered.map(client => {
                         const isSelected = selectedRazonSocialId === client.id;
-                        const isSameMainClient = targetProjectForRazonSocial.mainClientId && client.mainClientId === targetProjectForRazonSocial.mainClientId;
+                        const currentMainClientId = targetBudgetForRazonSocial?.mainClientId || targetProjectForRazonSocial?.mainClientId;
+                        const isSameMainClient = currentMainClientId && client.mainClientId === currentMainClientId;
 
                         return (
                           <div
