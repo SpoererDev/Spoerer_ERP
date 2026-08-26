@@ -99,10 +99,11 @@ export default function App() {
 
   const handleExecuteBackup = async (backupType = 'daily') => {
     try {
-      await generateConsolidatedBackup({
+      const res = await generateConsolidatedBackup({
         userName: user?.name || 'Administrador',
         backupType
       });
+      if (res?.cancelled) return;
       setIsBackupModalOpen(false);
       setIsBackupBannerVisible(false);
     } catch (err) {

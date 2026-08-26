@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabaseService } from './supabaseService';
+import { exportExcelFile } from './exportHelper';
 
 // Helper to format date in DD/MM/YYYY
 const formatDateExcel = (dateStr) => {
@@ -37,10 +38,39 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     // --- SHEET 1: Reporte_Facturacion (PowerBI Compatible) ---
     const facturacionRows = [];
     installments.forEach(inst => {
-      const proj = projectMap.get(inst.project_id);
       const budg = inst.origin_budget_id ? budgetMap.get(inst.origin_budget_id) : null;
-      const client = proj ? clientMap.get(proj.client_id || proj.legal_entity_id) : null;
-      const mainClient = proj && proj.main_client_id ? mainClientMap.get(proj.main_client_id) : null;
+      const proj = inst.project_id ? projectMap.get(inst.project_id) : (budg?.project_id ? projectMap.get(budg.project_id) : null);
+      
+      // Razón Social asociada específicamente a cada presupuesto
+      const budgetLegalEntityId = budg ? (budg.legal_entity_id || budg.client_id) : null;
+      const budgetRazonSocial = budgetLegalEntityId ? clientMap.get(budgetLegalEntityId) : null;
+
+      // Nombre del cliente real (priorizando entidad unificada / Cliente Real)
+      let realClientName = '';
+      if (budg && budg.main_client_id && mainClientMap.has(budg.main_client_id)) {
+        realClientName = mainClientMap.get(budg.main_client_id).name;
+      } else if (budgetRazonSocial) {
+        if (budgetRazonSocial.main_client_id && mainClientMap.has(budgetRazonSocial.main_client_id)) {
+          realClientName = mainClientMap.get(budgetRazonSocial.main_client_id).name;
+        } else if (budgetRazonSocial.real_client) {
+          realClientName = budgetRazonSocial.real_client;
+        }
+      }
+
+      if (!realClientName && proj) {
+        if (proj.main_client_id && mainClientMap.has(proj.main_client_id)) {
+          realClientName = mainClientMap.get(proj.main_client_id).name;
+        } else {
+          const projClient = clientMap.get(proj.client_id || proj.legal_entity_id);
+          if (projClient) {
+            if (projClient.main_client_id && mainClientMap.has(projClient.main_client_id)) {
+              realClientName = mainClientMap.get(projClient.main_client_id).name;
+            } else if (projClient.real_client) {
+              realClientName = projClient.real_client;
+            }
+          }
+        }
+      }
 
       const totCuotas = budg ? installments.filter(i => i.origin_budget_id === budg.id).length : 0;
       const yearVal = inst.scheduled_date ? inst.scheduled_date.split('-')[0] : '';
@@ -55,13 +85,13 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Fecha": formatDateExcel(inst.scheduled_date),
         "Año": yearVal,
         "Año Proy": proj ? proj.year || '' : '',
-        "RUT": client ? client.rut || '' : '',
-        "Razón Social": client ? client.company_name || '' : '',
-        "Giro": client ? client.giro || '' : '',
-        "Dirección": client ? client.address || '' : '',
-        "Comuna": client ? client.comuna || '' : '',
-        "Ciudad": client ? client.ciudad || '' : '',
-        "Contacto": client ? client.contact_name || '' : '',
+        "RUT": budgetRazonSocial ? budgetRazonSocial.rut || '' : '',
+        "Razón Social": budgetRazonSocial ? budgetRazonSocial.company_name || '' : '',
+        "Giro": budgetRazonSocial ? budgetRazonSocial.giro || '' : '',
+        "Dirección": budgetRazonSocial ? budgetRazonSocial.address || '' : '',
+        "Comuna": budgetRazonSocial ? budgetRazonSocial.comuna || '' : '',
+        "Ciudad": budgetRazonSocial ? budgetRazonSocial.ciudad || '' : '',
+        "Contacto": budgetRazonSocial ? budgetRazonSocial.contact_name || '' : '',
         "Obra": proj ? proj.project_name || '' : '',
         "Comentario": inst.comment || '',
         "Cuota": inst.installment_number || '',
@@ -71,7 +101,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "F-Pago": isPaid ? formatDateExcel(inst.actual_payment_date) : '',
         "Estado F#": statusUI,
         "Tipo": '',
-        "Cliente": client ? (client.company_name || client.contact_name || '') : (mainClient ? mainClient.name : ''),
+        "Cliente": realClientName,
         "N° Proyecto": proj ? proj.project_number || '' : '',
         "Revisor": '',
         "Firma": '',
@@ -116,7 +146,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       const projExtraCosts = extraCosts.filter(c => c.project_id === proj.id);
       const client = clientMap.get(proj.client_id || proj.legal_entity_id);
       const mainClient = mainClientMap.get(proj.main_client_id);
-      const clientName = client ? client.company_name : (mainClient ? mainClient.name : '');
+      const clientName = mainClient ? mainClient.name : (client ? (client.main_client_id ? mainClientMap.get(client.main_client_id)?.name || client.real_client : client.real_client || client.company_name) : '');
       const fullProjTitle = `${proj.project_number || ''}-${proj.project_name || ''}${clientName ? ` - ${clientName}` : ''}`;
 
       projBudgets.forEach(budg => {
@@ -204,13 +234,18 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       ws['!cols'] = cols;
     });
 
-    // File name with today's date YYYY-MM-DD
+    // Suggested file name: YYMMDD – Respaldo ERP Spoerer.xlsx
     const d = new Date();
-    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const fileName = `Respaldo_SPOERER_${today}.xlsx`;
+    const yy = String(d.getFullYear()).slice(-2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const fileName = `${yy}${mm}${dd} – Respaldo ERP Spoerer.xlsx`;
 
-    // Download file
-    XLSX.writeFile(workbook, fileName);
+    // Download / Save file using exportExcelFile (picker with suggestedName)
+    const exported = await exportExcelFile(workbook, fileName, 'spoerer_backup_general');
+    if (exported === false) {
+      return { success: false, cancelled: true };
+    }
 
     // Save log to Supabase
     await supabaseService.createBackupLog({

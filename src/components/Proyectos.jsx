@@ -584,188 +584,191 @@ export default function Proyectos({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in text-left">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Proyectos</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Supervisa el estado físico, rentabilidad y cronograma de facturación de los proyectos activos.
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleExportBudgets}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px]">file_download</span>
-            <span>Exportar Presupuestos</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Dashboard */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Proyectos Activos */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Proyectos Activos</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">folder</span>
-            </div>
+    <div className="space-y-6 text-left">
+      {/* Sticky Header Section: Title, KPIs, and Filters */}
+      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Proyectos</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Supervisa el estado físico, rentabilidad y cronograma de facturación de los proyectos activos.
+            </p>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{totalProjects}</span>
-            <span className="text-[11px] text-slate-400 font-medium">Proyectos</span>
-          </div>
-        </div>
-
-        {/* KPI 2: Monto Total Presupuestos */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">payments</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {totalUF.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
-            </span>
-            <span className="text-xs font-bold text-emerald-700">UF</span>
-          </div>
-        </div>
-
-        {/* KPI 3: Rentabilidad Promedio */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Rentabilidad Prom.</span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">monitoring</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{avgProfitability}%</span>
-            <span className="text-[11px] text-slate-400 font-medium">Margen global</span>
-          </div>
-        </div>
-
-        {/* KPI 4: Superficie Total */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">Superficie Total</span>
-            <div className="w-8 h-8 rounded-lg bg-teal-100/60 text-teal-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">architecture</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {totalSurface.toLocaleString('es-CL')}
-            </span>
-            <span className="text-xs font-bold text-teal-700">m²</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
-        {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-            <div className="relative w-full">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-              <input
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                placeholder="Buscar por código, nombre o cliente..."
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos') && (
+          <div className="flex gap-3">
             <button
-              onClick={handleClearFilters}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+              onClick={handleExportBudgets}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
             >
-              <span className="material-symbols-outlined text-[16px]">clear_all</span>
-              <span>Limpiar</span>
+              <span className="material-symbols-outlined text-[18px]">file_download</span>
+              <span>Exportar Presupuestos</span>
             </button>
-          )}
+          </div>
         </div>
 
-        {/* Right Side: Filters */}
-        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-          {/* Tipo de Proyecto Multiselect */}
-          <div className="flex items-center gap-2 relative" ref={multiselectRef}>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
-            <button
-              type="button"
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center justify-between min-w-[170px] max-w-[220px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-left outline-none cursor-pointer"
-            >
-              <span className="truncate">
-                {tipoFilter === null || tipoFilter.length === uniqueProjectTypes.length
-                  ? "Todos los tipos"
-                  : tipoFilter.length === 0
-                  ? "Ninguno seleccionado"
-                  : `${tipoFilter.length} seleccionado(s)`}
-              </span>
-              <span className="material-symbols-outlined text-[18px] text-slate-400 ml-2 select-none">
-                {isDropdownOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-              </span>
-            </button>
-
-            {isDropdownOpen && (
-              <div className="absolute right-0 top-[105%] bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 animate-fade-in text-left">
-                <button
-                  type="button"
-                  onClick={handleSelectAllTipos}
-                  className="px-4 py-1.5 text-left text-xs text-emerald-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
-                >
-                  <span>[ Seleccionar Todos ]</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeselectAllTipos}
-                  className="px-4 py-1.5 text-left text-xs text-rose-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
-                >
-                  <span>[ Limpiar Selección ]</span>
-                </button>
-                {uniqueProjectTypes.map((tipoOpt) => {
-                  const isChecked = tipoFilter === null || tipoFilter.includes(tipoOpt);
-                  return (
-                    <label
-                      key={tipoOpt}
-                      className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-xs font-medium text-slate-700 select-none transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => handleToggleTipoOption(tipoOpt)}
-                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-1 cursor-pointer"
-                      />
-                      <span className="truncate">{tipoOpt}</span>
-                    </label>
-                  );
-                })}
+        {/* KPI Dashboard */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* KPI 1: Proyectos Activos */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Proyectos Activos</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">folder</span>
               </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{totalProjects}</span>
+              <span className="text-[11px] text-slate-400 font-medium">Proyectos</span>
+            </div>
+          </div>
+
+          {/* KPI 2: Monto Total Presupuestos */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">payments</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {totalUF.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
+              </span>
+              <span className="text-xs font-bold text-emerald-700">UF</span>
+            </div>
+          </div>
+
+          {/* KPI 3: Rentabilidad Promedio */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Rentabilidad Prom.</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">monitoring</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{avgProfitability}%</span>
+              <span className="text-[11px] text-slate-400 font-medium">Margen global</span>
+            </div>
+          </div>
+
+          {/* KPI 4: Superficie Total */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">Superficie Total</span>
+              <div className="w-8 h-8 rounded-lg bg-teal-100/60 text-teal-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">architecture</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {totalSurface.toLocaleString('es-CL')}
+              </span>
+              <span className="text-xs font-bold text-teal-700">m²</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Filters */}
+        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+          {/* Left Side: Buscar and Limpiar */}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
+              <div className="relative w-full">
+                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                  placeholder="Buscar por código, nombre o cliente..."
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos') && (
+              <button
+                onClick={handleClearFilters}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                <span>Limpiar</span>
+              </button>
             )}
           </div>
 
-          {/* Encargado Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
-            <select
-              value={encargadoFilter}
-              onChange={(e) => setEncargadoFilter(e.target.value)}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
-            >
-              <option value="Todos">Todos los encargados</option>
-              {availableEncargados.map(enc => (
-                <option key={enc} value={enc}>{enc}</option>
-              ))}
-            </select>
+          {/* Right Side: Filters */}
+          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
+            {/* Tipo de Proyecto Multiselect */}
+            <div className="flex items-center gap-2 relative" ref={multiselectRef}>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center justify-between min-w-[170px] max-w-[220px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-left outline-none cursor-pointer"
+              >
+                <span className="truncate">
+                  {tipoFilter === null || tipoFilter.length === uniqueProjectTypes.length
+                    ? "Todos los tipos"
+                    : tipoFilter.length === 0
+                    ? "Ninguno seleccionado"
+                    : `${tipoFilter.length} seleccionado(s)`}
+                </span>
+                <span className="material-symbols-outlined text-[18px] text-slate-400 ml-2 select-none">
+                  {isDropdownOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                </span>
+              </button>
+
+              {isDropdownOpen && (
+                <div className="absolute right-0 top-[105%] bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 animate-fade-in text-left">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllTipos}
+                    className="px-4 py-1.5 text-left text-xs text-emerald-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
+                  >
+                    <span>[ Seleccionar Todos ]</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllTipos}
+                    className="px-4 py-1.5 text-left text-xs text-rose-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
+                  >
+                    <span>[ Limpiar Selección ]</span>
+                  </button>
+                  {uniqueProjectTypes.map((tipoOpt) => {
+                    const isChecked = tipoFilter === null || tipoFilter.includes(tipoOpt);
+                    return (
+                      <label
+                        key={tipoOpt}
+                        className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-xs font-medium text-slate-700 select-none transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleTipoOption(tipoOpt)}
+                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-1 cursor-pointer"
+                        />
+                        <span className="truncate">{tipoOpt}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Encargado Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
+              <select
+                value={encargadoFilter}
+                onChange={(e) => setEncargadoFilter(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
+              >
+                <option value="Todos">Todos los encargados</option>
+                {availableEncargados.map(enc => (
+                  <option key={enc} value={enc}>{enc}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </div>

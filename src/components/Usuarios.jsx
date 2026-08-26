@@ -134,115 +134,118 @@ export default function Usuarios({ users, currentUser, onAddUser, onToggleUserSt
   });
 
   return (
-    <div className="space-y-6 animate-fade-in text-left">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Control de Usuarios y Accesos</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Administra el personal, sus roles y permisos de seguridad granulares.</p>
+    <div className="space-y-6 text-left">
+      {/* Sticky Header Section: Title, KPIs, and Filters */}
+      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Control de Usuarios y Accesos</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Administra el personal, sus roles y permisos de seguridad granulares.</p>
+          </div>
+          <div>
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">person_add</span>
+              <span>Agregar Usuario</span>
+            </button>
+          </div>
         </div>
-        <div>
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px]">person_add</span>
-            <span>Agregar Usuario</span>
-          </button>
-        </div>
-      </div>
 
-      {/* KPI Stats Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        {/* KPI 1: Usuarios Totales */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Usuarios Totales</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">person</span>
+        {/* KPI Stats Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          {/* KPI 1: Usuarios Totales */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Usuarios Totales</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">person</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{totalUsers}</span>
+              <span className="text-[11px] text-slate-400 font-medium">Registrados</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{totalUsers}</span>
-            <span className="text-[11px] text-slate-400 font-medium">Registrados</span>
-          </div>
-        </div>
 
-        {/* KPI 2: Activos Ahora */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Activos Ahora</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">verified_user</span>
+          {/* KPI 2: Activos Ahora */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Activos Ahora</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">verified_user</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{activeUsers}</span>
+              <span className="text-[11px] text-slate-400 font-medium">Cuentas habilitadas</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{activeUsers}</span>
-            <span className="text-[11px] text-slate-400 font-medium">Cuentas habilitadas</span>
-          </div>
-        </div>
 
-        {/* KPI 3: Administradores */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Administradores</span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">security</span>
+          {/* KPI 3: Administradores */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Administradores</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">security</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{adminRoles}</span>
+              <span className="text-[11px] text-slate-400 font-medium">Acceso total</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{adminRoles}</span>
-            <span className="text-[11px] text-slate-400 font-medium">Acceso total</span>
-          </div>
-        </div>
 
-        {/* KPI 4: Cuentas Inactivas */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Cuentas Inactivas</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[20px]">block</span>
+          {/* KPI 4: Cuentas Inactivas */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Cuentas Inactivas</span>
+              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">block</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">{lockedAccounts}</span>
+              <span className="text-[11px] text-slate-400 font-medium">Bloqueadas</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">{lockedAccounts}</span>
-            <span className="text-[11px] text-slate-400 font-medium">Bloqueadas</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="card-modern p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex-grow max-w-lg min-w-[240px]">
-          <div className="relative w-full">
-            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-            <input 
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400" 
-              placeholder="Buscar por nombre, correo o rol..." 
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
-          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-            {['Todos', 'Active', 'Inactive'].map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                  statusFilter === st 
-                    ? 'bg-[#091426] text-white shadow-xs' 
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                {st === 'Active' ? 'Activos' : st === 'Inactive' ? 'Inactivos' : 'Todos'}
-              </button>
-            ))}
+        {/* Filter and Search Bar */}
+        <div className="card-modern p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex-grow max-w-lg min-w-[240px]">
+            <div className="relative w-full">
+              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+              <input 
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400" 
+                placeholder="Buscar por nombre, correo o rol..." 
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+              {['Todos', 'Active', 'Inactive'].map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    statusFilter === st 
+                      ? 'bg-[#091426] text-white shadow-xs' 
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+                >
+                  {st === 'Active' ? 'Activos' : st === 'Inactive' ? 'Inactivos' : 'Todos'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

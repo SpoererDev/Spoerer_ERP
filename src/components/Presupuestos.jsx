@@ -1577,157 +1577,160 @@ export default function Presupuestos({
     .filter(u => !selectedReviewers.some(r => r.id === u.id));
 
   return (
-    <div className="space-y-6 animate-fade-in text-left">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Presupuestos</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Crea, edita y haz seguimiento de cotizaciones para tus clientes.</p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={handleOpenNewQuoteModal}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px]">add</span>
-            <span>Nuevo Presupuesto</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tarjetas KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Tarjeta Aprobados */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">check_circle</span>
-            </div>
+    <div className="space-y-6 text-left">
+      {/* Sticky Header Section: Title, KPIs, and Filters */}
+      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Presupuestos</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Crea, edita y haz seguimiento de cotizaciones para tus clientes.</p>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {totalApproved.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </span>
-            <span className="text-xs font-bold text-emerald-700">UF</span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">
-              {approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-            </span>
-          </div>
-        </div>
-
-        {/* Tarjeta Enviados */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">send</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {totalSent.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </span>
-            <span className="text-xs font-bold text-blue-700">UF</span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">
-              {sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-            </span>
-          </div>
-        </div>
-
-        {/* Tarjeta Rechazados */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">cancel</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {totalRejected.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </span>
-            <span className="text-xs font-bold text-rose-700">UF</span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">
-              {rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Summary Bar */}
-      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
-        {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="flex-grow max-w-lg min-w-[240px]">
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-              <input
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                placeholder="Buscar por ID, cliente o descripción..."
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          {searchTerm && (
+          <div className="flex gap-3">
             <button
-              onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); }}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+              onClick={handleOpenNewQuoteModal}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
             >
-              <span className="material-symbols-outlined text-[16px]">clear_all</span>
-              <span>Limpiar</span>
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              <span>Nuevo Presupuesto</span>
             </button>
-          )}
+          </div>
         </div>
 
-        {/* Right Side: Period and Status groups */}
-        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-          {/* Period Filter Button Group */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Período:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              {[
-                { value: '1', label: '1M' },
-                { value: '6', label: '6M' },
-                { value: '12', label: '12M' },
-                { value: '24', label: '24M' },
-                { value: '36', label: '36M' },
-                { value: 'all', label: 'Todos' }
-              ].map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setCalcPeriod(p.value)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${calcPeriod === p.value
-                    ? 'bg-[#091426] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                >
-                  {p.label}
-                </button>
-              ))}
+        {/* Tarjetas KPI Stat Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Tarjeta Aprobados */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {totalApproved.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-xs font-bold text-emerald-700">UF</span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">
+                {approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+              </span>
             </div>
           </div>
 
-          {/* Status Filter Button Group */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              {['Todos', 'Borrador', 'En revisión', 'Enviado', 'Aprobado', 'Rechazado'].map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => setStatusFilter(status)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === status
-                    ? 'bg-[#091426] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                >
-                  {status}
-                </button>
-              ))}
+          {/* Tarjeta Enviados */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">send</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {totalSent.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-xs font-bold text-blue-700">UF</span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">
+                {sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+              </span>
+            </div>
+          </div>
+
+          {/* Tarjeta Rechazados */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
+              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">cancel</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {totalRejected.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-xs font-bold text-rose-700">UF</span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">
+                {rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter and Summary Bar */}
+        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+          {/* Left Side: Buscar and Limpiar */}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="flex-grow max-w-lg min-w-[240px]">
+              <div className="relative">
+                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                  placeholder="Buscar por ID, cliente o descripción..."
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            {searchTerm && (
+              <button
+                onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); }}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                <span>Limpiar</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right Side: Period and Status groups */}
+          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
+            {/* Period Filter Button Group */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Período:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                {[
+                  { value: '1', label: '1M' },
+                  { value: '6', label: '6M' },
+                  { value: '12', label: '12M' },
+                  { value: '24', label: '24M' },
+                  { value: '36', label: '36M' },
+                  { value: 'all', label: 'Todos' }
+                ].map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setCalcPeriod(p.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${calcPeriod === p.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status Filter Button Group */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                {['Todos', 'Borrador', 'En revisión', 'Enviado', 'Aprobado', 'Rechazado'].map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setStatusFilter(status)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === status
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

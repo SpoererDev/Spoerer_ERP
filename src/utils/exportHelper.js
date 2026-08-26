@@ -26,11 +26,11 @@ export async function exportExcelFile(workbook, fileName, pickerId) {
       const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       await writable.write(buffer);
       await writable.close();
-      return;
+      return true;
     } catch (err) {
       if (err.name === 'AbortError') {
         // User cancelled the file save dialog
-        return;
+        return false;
       }
       console.warn('showSaveFilePicker error, falling back to XLSX.writeFile:', err);
     }
@@ -38,4 +38,5 @@ export async function exportExcelFile(workbook, fileName, pickerId) {
 
   // Fallback for environments without File System Access API
   XLSX.writeFile(workbook, fileName);
+  return true;
 }

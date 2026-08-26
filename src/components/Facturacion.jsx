@@ -416,11 +416,56 @@ export default function Facturacion({
       const project = projects.find(p => p.id === installment.project_id);
       // Find associated budget
       const budget = installment.origin_budget_id ? budgets.find(b => b.id === installment.origin_budget_id) : null;
-      // Find associated Razón Social for the budget (legal entity)
+      // Find associated Razón Social for the budget (legal entity) ONLY from the budget
       const targetLegalId = budget?.legalEntityId || budget?.clientId;
       const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) ||
-        (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null) ||
-        (project ? clients.find(c => c.id === (project.legalEntityId || project.clientId)) : null);
+        (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null);
+
+      // Find the Real Client Name (Cliente Real)
+      let realClientName = '';
+      if (budget) {
+        if (budget.mainClientId) {
+          const matchedMC = mainClients.find(mc => mc.id === budget.mainClientId);
+          if (matchedMC) realClientName = matchedMC.name;
+        }
+        if (!realClientName && budget.mainClientName) {
+          realClientName = budget.mainClientName;
+        }
+      }
+
+      if (!realClientName && razonSocial) {
+        if (razonSocial.mainClientId) {
+          const matchedMC = mainClients.find(mc => mc.id === razonSocial.mainClientId);
+          if (matchedMC) realClientName = matchedMC.name;
+        }
+        if (!realClientName && (razonSocial.mainClientName || razonSocial.realClient)) {
+          realClientName = razonSocial.mainClientName || razonSocial.realClient;
+        }
+      }
+
+      if (!realClientName && project) {
+        if (project.mainClientId) {
+          const matchedMC = mainClients.find(mc => mc.id === project.mainClientId);
+          if (matchedMC) realClientName = matchedMC.name;
+        } else if (project.clientId) {
+          const projClient = clients.find(c => c.id === project.clientId);
+          if (projClient) {
+            if (projClient.mainClientId) {
+              const matchedMC = mainClients.find(mc => mc.id === projClient.mainClientId);
+              if (matchedMC) realClientName = matchedMC.name;
+            } else if (projClient.mainClientName || projClient.realClient) {
+              realClientName = projClient.mainClientName || projClient.realClient;
+            }
+          }
+        }
+        if (!realClientName && project.cliente) {
+          realClientName = project.cliente;
+        }
+      }
+
+      if (!realClientName && budget?.clientName) {
+        realClientName = budget.clientName;
+      }
 
       // Calculate total installments for this budget
       const budgetInstallments = budget ? installments.filter(i => i.origin_budget_id === budget.id) : [];
@@ -435,8 +480,6 @@ export default function Facturacion({
       // Check if invoiced (Facturada): status is 'Factura emitida' or 'Pagada'
       const isInvoiced = installment.status === 'Factura emitida' || installment.status === 'Pagada';
       const isPaid = installment.status === 'Pagada';
-
-      const clientName = project?.cliente || budget?.clientName || budget?.mainClientName || '';
 
       rows.push({
         "Presupuesto #": budget ? budget.quoteId || '' : '',
@@ -460,7 +503,7 @@ export default function Facturacion({
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
         "Estado F#": installment.status || '',
         "Tipo": '',
-        "Cliente": clientName,
+        "Cliente": realClientName,
         "N° Proyecto": project ? project.projectNumber || '' : '',
         "Revisor": '',
         "Firma": '',
@@ -779,218 +822,221 @@ export default function Facturacion({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in text-left">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Centro de Cobranzas</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Gestión de cuotas de facturación y conciliación de pagos.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={expandAll}
-            className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[16px]">unfold_more</span>
-            <span>Expandir Todo</span>
-          </button>
-          <button
-            onClick={collapseAll}
-            className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[16px]">unfold_less</span>
-            <span>Colapsar Todo</span>
-          </button>
-          <button
-            onClick={handleExportBilling}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px]">file_download</span>
-            <span>Exportar Facturación</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION A: Dashboard de KPIs Financieros */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Total por Facturar (UF) */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar (Planificado)</span>
-            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">calendar_today</span>
-            </div>
+    <div className="space-y-6 text-left">
+      {/* Sticky Header Section: Title, KPIs, and Filters */}
+      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Centro de Cobranzas</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Gestión de cuotas de facturación y conciliación de pagos.</p>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {formatUF(stats.totalPorFacturarUf, 0)}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">Plan de cobro</span>
-          </div>
-        </div>
-
-        {/* KPI 2: Total Facturado Pendiente (CLP) */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">pending_actions</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {formatCLP(stats.totalFacturadoPendienteClp)}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">Por cobrar</span>
-          </div>
-        </div>
-
-        {/* KPI 3: Total Recaudado (CLP) */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]">payments</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {formatCLP(stats.totalRecaudadoClp)}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">Pagos confirmados</span>
-          </div>
-        </div>
-
-        {/* KPI 4: Vencimientos Atrasados (UF) */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Vencido Atrasado</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
-            </div>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900 font-mono">
-              {formatUF(stats.totalVencidoUf, 0)}
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium ml-auto">Cuotas atrasadas</span>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION B: Barra de Filtros y Búsqueda */}
-      <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
-        {/* Left Side: Buscar and Limpiar */}
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-            <div className="relative w-full">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-              <input
-                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                placeholder="Factura, Proyecto o Cliente..."
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
-          {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos') && (
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
-              title="Limpiar Filtros"
+              onClick={expandAll}
+              className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
             >
-              <span className="material-symbols-outlined text-[16px]">clear_all</span>
-              <span>Limpiar</span>
+              <span className="material-symbols-outlined text-[16px]">unfold_more</span>
+              <span>Expandir Todo</span>
             </button>
-          )}
+            <button
+              onClick={collapseAll}
+              className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">unfold_less</span>
+              <span>Colapsar Todo</span>
+            </button>
+            <button
+              onClick={handleExportBilling}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">file_download</span>
+              <span>Exportar Facturación</span>
+            </button>
+          </div>
         </div>
 
-        {/* Right Side: Filters */}
-        <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-          {/* Temporal Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              {[
-                { value: '1_mes', label: '1 Mes' },
-                { value: '6_meses', label: '6 Meses' },
-                { value: '12_meses', label: '12 Meses' },
-                { value: 'Todos', label: 'Histórico' }
-              ].map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => setTemporalFilter(p.value)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
-                    ? 'bg-[#091426] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                >
-                  {p.label}
-                </button>
-              ))}
+        {/* SECTION A: Dashboard de KPIs Financieros */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* KPI 1: Total por Facturar (UF) */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar (Planificado)</span>
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">calendar_today</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {formatUF(stats.totalPorFacturarUf, 0)}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">Plan de cobro</span>
             </div>
           </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Estado Cuota:</span>
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-              {[
-                { value: 'Todos', label: 'Todos' },
-                { value: 'Por facturar', label: 'Por facturar' },
-                { value: 'Vencida', label: 'Vencidas' },
-                { value: 'Factura emitida', label: 'Factura emitida' },
-                { value: 'Pagada', label: 'Pagada' }
-              ].map((s) => (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => setStatusFilter(s.value)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
-                    ? 'bg-[#091426] text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                >
-                  {s.label}
-                </button>
-              ))}
+          {/* KPI 2: Total Facturado Pendiente (CLP) */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente</span>
+              <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">pending_actions</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {formatCLP(stats.totalFacturadoPendienteClp)}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">Por cobrar</span>
             </div>
           </div>
 
-          {/* Client Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
-            <select
-              value={clientFilter}
-              onChange={(e) => setClientFilter(e.target.value)}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[200px] truncate"
-            >
-              <option value="Todos">Todos los clientes</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.company || c.name}
-                </option>
-              ))}
-            </select>
+          {/* KPI 3: Total Recaudado (CLP) */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]">payments</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {formatCLP(stats.totalRecaudadoClp)}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">Pagos confirmados</span>
+            </div>
           </div>
 
-          {/* Encargado Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
-            <select
-              value={encargadoFilter}
-              onChange={(e) => setEncargadoFilter(e.target.value)}
-              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
-            >
-              <option value="Todos">Todos los encargados</option>
-              {availableEncargados.map(enc => (
-                <option key={enc} value={enc}>
-                  {enc}
-                </option>
-              ))}
-            </select>
+          {/* KPI 4: Vencimientos Atrasados (UF) */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Vencido Atrasado</span>
+              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900 font-mono">
+                {formatUF(stats.totalVencidoUf, 0)}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium ml-auto">Cuotas atrasadas</span>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION B: Barra de Filtros y Búsqueda */}
+        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+          {/* Left Side: Buscar and Limpiar */}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
+              <div className="relative w-full">
+                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                  placeholder="Factura, Proyecto o Cliente..."
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+            {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos') && (
+              <button
+                onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                title="Limpiar Filtros"
+              >
+                <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                <span>Limpiar</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right Side: Filters */}
+          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
+            {/* Temporal Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                {[
+                  { value: '1_mes', label: '1 Mes' },
+                  { value: '6_meses', label: '6 Meses' },
+                  { value: '12_meses', label: '12 Meses' },
+                  { value: 'Todos', label: 'Histórico' }
+                ].map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setTemporalFilter(p.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Estado Cuota:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                {[
+                  { value: 'Todos', label: 'Todos' },
+                  { value: 'Por facturar', label: 'Por facturar' },
+                  { value: 'Vencida', label: 'Vencidas' },
+                  { value: 'Factura emitida', label: 'Factura emitida' },
+                  { value: 'Pagada', label: 'Pagada' }
+                ].map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setStatusFilter(s.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Client Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
+              <select
+                value={clientFilter}
+                onChange={(e) => setClientFilter(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[200px] truncate"
+              >
+                <option value="Todos">Todos los clientes</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.company || c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Encargado Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
+              <select
+                value={encargadoFilter}
+                onChange={(e) => setEncargadoFilter(e.target.value)}
+                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
+              >
+                <option value="Todos">Todos los encargados</option>
+                {availableEncargados.map(enc => (
+                  <option key={enc} value={enc}>
+                    {enc}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -1017,8 +1063,8 @@ export default function Facturacion({
                     </div>
                     <div className="flex flex-col min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
-                        <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={`${project.projectNumber} - ${project.rawProjectName}`}>
-                          {project.projectNumber} - {project.rawProjectName}
+                        <h3 className="font-title-lg text-title-lg text-primary font-bold truncate max-w-lg" title={project.projectName || `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`}>
+                          {project.projectName || `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`}
                         </h3>
                         {(!budgets || budgets.filter(b => b.projectId === project.id).length === 0) && (
                           <span
@@ -1037,6 +1083,23 @@ export default function Facturacion({
                           <>
                             <span className="text-outline-variant">•</span>
                             <span>Año {project.anio}</span>
+                          </>
+                        )}
+                        {project.tipo && (
+                          <>
+                            <span className="text-outline-variant">•</span>
+                            <span className="bg-secondary-container text-primary text-[11px] font-bold px-2 py-0.5 rounded-full border border-secondary/20 uppercase tracking-wider">
+                              {project.tipo}
+                            </span>
+                          </>
+                        )}
+                        {project.encargado && (
+                          <>
+                            <span className="text-outline-variant">•</span>
+                            <span className="bg-slate-100 text-slate-800 text-[11px] font-bold px-2 py-0.5 rounded-full border border-slate-200 flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[13px] text-secondary">person</span>
+                              Encargado: {project.encargado}
+                            </span>
                           </>
                         )}
                       </div>
@@ -1774,7 +1837,7 @@ export default function Facturacion({
             setIsInstallmentsModalOpen(false);
             setActiveBudgetForInstallments(null);
           }}
-          projectName={`${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName}`}
+          projectName={activeBudgetForInstallments.project.projectName || `${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName} - ${activeBudgetForInstallments.project.cliente}`}
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
@@ -1815,7 +1878,7 @@ export default function Facturacion({
               {(targetBudgetForRazonSocial || targetProjectForRazonSocial) && (
                 <div className="bg-slate-50 p-sm rounded-lg border border-slate-200 text-xs text-slate-600 font-medium text-center space-y-0.5">
                   {targetProjectForRazonSocial && (
-                    <div>Proyecto: <span className="font-bold text-slate-800">{targetProjectForRazonSocial.projectNumber} - {targetProjectForRazonSocial.rawProjectName}</span></div>
+                    <div>Proyecto: <span className="font-bold text-slate-800">{targetProjectForRazonSocial.projectName || `${targetProjectForRazonSocial.projectNumber}-${targetProjectForRazonSocial.rawProjectName} - ${targetProjectForRazonSocial.cliente}`}</span></div>
                   )}
                   {targetBudgetForRazonSocial && (
                     <div>Presupuesto: <span className="font-bold text-slate-800">#{targetBudgetForRazonSocial.quoteId} - {targetBudgetForRazonSocial.title}</span></div>
@@ -1903,7 +1966,7 @@ export default function Facturacion({
                   <p className="text-xs text-slate-300">
                     {targetBudgetForRazonSocial 
                       ? `Presupuesto #${targetBudgetForRazonSocial.quoteId} - ${targetBudgetForRazonSocial.title}` 
-                      : `Proyecto: ${targetProjectForRazonSocial?.projectNumber} - ${targetProjectForRazonSocial?.rawProjectName}`}
+                      : `Proyecto: ${targetProjectForRazonSocial?.projectName || `${targetProjectForRazonSocial?.projectNumber}-${targetProjectForRazonSocial?.rawProjectName} - ${targetProjectForRazonSocial?.cliente}`}`}
                   </p>
                 </div>
               </div>

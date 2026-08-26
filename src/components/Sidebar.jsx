@@ -12,8 +12,8 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
   const navItems = [
     { id: 'crm', label: 'Clientes', icon: 'groups', category: 'CRM & Datos' },
     { id: 'presupuestos', label: 'Presupuestos', icon: 'request_quote', category: 'Ventas & Cotizaciones' },
-    { id: 'facturacion', label: 'Facturación', icon: 'receipt_long', category: 'Cobranza & Finanzas' },
     { id: 'proyectos', label: 'Proyectos', icon: 'folder', category: 'Operaciones' },
+    { id: 'facturacion', label: 'Facturación', icon: 'receipt_long', category: 'Cobranza & Finanzas' },
     ...(isAdmin ? [{ id: 'usuarios', label: 'Control de Accesos', icon: 'manage_accounts', category: 'Administración' }] : []),
   ];
 
@@ -205,7 +205,7 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
         </header>
 
         {/* Dynamic Page Content */}
-        <main className="p-6 bg-slate-50/50 flex-1 overflow-x-hidden">
+        <main className="p-6 bg-slate-50/50 flex-1 overflow-x-clip">
           {children}
         </main>
       </div>
