@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { sanitizeFileName } from '../utils/supabaseService';
+import { sanitizeFileName, supabaseService } from '../utils/supabaseService';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 
@@ -8,6 +8,7 @@ const PROJECT_TYPES = [
   "Casas y Colegios",
   "Otros proyectos",
   "Revision",
+  "Memoria de Calculo",
   "BTD",
   "Recuperacion de gastos",
   "Industrial",
@@ -110,9 +111,11 @@ const isQuoteInPeriod = (quote, period) => {
 export default function Presupuestos({
   quotes,
   mainClients = [],
-  clients,
+  clients = [],
   onAddQuote,
   onDeleteQuote,
+  onAddMainClient,
+  onAddClient,
   projects,
   onApproveBudgetAndCreateProject,
   installments,
@@ -286,6 +289,102 @@ export default function Presupuestos({
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [isClientSearchOpen, setIsClientSearchOpen] = useState(false);
   const clientSearchRef = useRef(null);
+
+  // New Client Modal states
+  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientContactName, setNewClientContactName] = useState('');
+  const [newClientContactEmail, setNewClientContactEmail] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientAddress, setNewClientAddress] = useState('');
+  const [newClientComuna, setNewClientComuna] = useState('');
+  const [newClientCiudad, setNewClientCiudad] = useState('');
+  const [newClientError, setNewClientError] = useState('');
+  const [isSavingNewClient, setIsSavingNewClient] = useState(false);
+
+  const handleOpenNewClientModal = (initialName = '') => {
+    const defaultName = typeof initialName === 'string' && initialName.trim() ? initialName.trim() : (clientSearchTerm.trim() || '');
+    setNewClientName(defaultName);
+    setNewClientContactName('');
+    setNewClientContactEmail('');
+    setNewClientPhone('');
+    setNewClientAddress('');
+    setNewClientComuna('');
+    setNewClientCiudad('');
+    setNewClientError('');
+    setIsClientSearchOpen(false);
+    setIsNewClientModalOpen(true);
+  };
+
+  const handleCloseNewClientModal = () => {
+    setIsNewClientModalOpen(false);
+    setNewClientName('');
+    setNewClientContactName('');
+    setNewClientContactEmail('');
+    setNewClientPhone('');
+    setNewClientAddress('');
+    setNewClientComuna('');
+    setNewClientCiudad('');
+    setNewClientError('');
+    setIsSavingNewClient(false);
+  };
+
+  const handleSubmitNewClient = async (e) => {
+    e.preventDefault();
+    const cleanName = newClientName.trim();
+    if (!cleanName) {
+      setNewClientError('El nombre del cliente o empresa es obligatorio');
+      return;
+    }
+
+    // Uniqueness validation
+    const isDuplicate = mainClients.some(mc => mc.name && mc.name.toLowerCase() === cleanName.toLowerCase());
+    if (isDuplicate) {
+      setNewClientError('Ya existe un cliente principal registrado con este nombre');
+      return;
+    }
+
+    setIsSavingNewClient(true);
+    setNewClientError('');
+
+    const newClientPayload = {
+      name: cleanName,
+      contactName: newClientContactName.trim() || null,
+      contactEmail: newClientContactEmail.trim() || null,
+      address: newClientAddress.trim() || null,
+      comuna: newClientComuna.trim() || null,
+      ciudad: newClientCiudad.trim() || null,
+      phone: newClientPhone.trim() || null
+    };
+
+    try {
+      let savedClient = null;
+      if (onAddMainClient) {
+        savedClient = await onAddMainClient(newClientPayload);
+      } else {
+        savedClient = await supabaseService.saveMainClient(newClientPayload);
+      }
+
+      if (savedClient) {
+        setSelectedMainClient(savedClient.id);
+        setSelectedClient(savedClient.id);
+        setSelectedLegalEntity('');
+        setClientSearchTerm(savedClient.name);
+      }
+
+      handleCloseNewClientModal();
+      setNotification({
+        type: 'success',
+        title: '¡Cliente Creado!',
+        message: `El cliente "${cleanName}" ha sido registrado exitosamente y asignado al presupuesto actual.`
+      });
+    } catch (err) {
+      console.error("Error al registrar cliente desde presupuesto:", err);
+      setNewClientError(err.message || 'Error al guardar el cliente principal.');
+    } finally {
+      setIsSavingNewClient(false);
+    }
+  };
 
   const isClientSelected = Boolean(selectedMainClient);
 
@@ -785,6 +884,8 @@ export default function Presupuestos({
       setTipo('');
       setIsCustomTipo(false);
       setEncargado('');
+      setPreviewFile(null);
+      setDocxHtml('');
     } catch (err) {
       setValidationError(err.message || 'Error al aprobar presupuesto.');
     } finally {
@@ -2144,50 +2245,66 @@ export default function Presupuestos({
 
                             {/* Desplegable Filtrado */}
                             {isClientSearchOpen && (
-                              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-56 overflow-y-auto custom-scrollbar animate-fade-in">
-                                {(() => {
-                                  const filtered = mainClients.filter(mc =>
-                                    mc.name.toLowerCase().includes(clientSearchTerm.toLowerCase())
-                                  );
-
-                                  if (filtered.length === 0) {
-                                    return (
-                                      <div className="p-3 text-center text-slate-400 text-body-sm italic">
-                                        No se encontraron clientes que coincidan.
-                                      </div>
+                              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 max-h-64 flex flex-col overflow-hidden animate-fade-in divide-y divide-slate-100">
+                                <div className="overflow-y-auto max-h-48 custom-scrollbar">
+                                  {(() => {
+                                    const filtered = mainClients.filter(mc =>
+                                      mc.name.toLowerCase().includes(clientSearchTerm.toLowerCase())
                                     );
-                                  }
 
-                                  return filtered.map(mc => {
-                                    const isSelected = selectedMainClient === mc.id;
-                                    return (
-                                      <div
-                                        key={mc.id}
-                                        onClick={() => {
-                                          setSelectedMainClient(mc.id);
-                                          setSelectedClient(mc.id);
-                                          setSelectedLegalEntity('');
-                                          setClientSearchTerm(mc.name);
-                                          setIsClientSearchOpen(false);
-                                        }}
-                                        className={`p-2.5 px-3 hover:bg-slate-100/80 cursor-pointer flex items-center justify-between text-body-sm transition-colors ${isSelected ? 'bg-secondary/10 font-bold text-secondary' : 'text-slate-700'
-                                          }`}
-                                      >
-                                        <div className="flex items-center gap-2 truncate">
-                                          <span className={`material-symbols-outlined text-[18px] ${isSelected ? 'text-secondary' : 'text-slate-400'}`}>
-                                            domain
-                                          </span>
-                                          <span className="truncate">{mc.name}</span>
+                                    if (filtered.length === 0) {
+                                      return (
+                                        <div className="p-3 text-center text-slate-400 text-body-sm italic">
+                                          No se encontraron clientes existentes.
                                         </div>
-                                        {isSelected && (
-                                          <span className="material-symbols-outlined text-[18px] text-secondary">
-                                            check
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  });
-                                })()}
+                                      );
+                                    }
+
+                                    return filtered.map(mc => {
+                                      const isSelected = selectedMainClient === mc.id;
+                                      return (
+                                        <div
+                                          key={mc.id}
+                                          onClick={() => {
+                                            setSelectedMainClient(mc.id);
+                                            setSelectedClient(mc.id);
+                                            setSelectedLegalEntity('');
+                                            setClientSearchTerm(mc.name);
+                                            setIsClientSearchOpen(false);
+                                          }}
+                                          className={`p-2.5 px-3 hover:bg-slate-100/80 cursor-pointer flex items-center justify-between text-body-sm transition-colors ${isSelected ? 'bg-secondary/10 font-bold text-secondary' : 'text-slate-700'
+                                            }`}
+                                        >
+                                          <div className="flex items-center gap-2 truncate">
+                                            <span className={`material-symbols-outlined text-[18px] ${isSelected ? 'text-secondary' : 'text-slate-400'}`}>
+                                              domain
+                                            </span>
+                                            <span className="truncate">{mc.name}</span>
+                                          </div>
+                                          {isSelected && (
+                                            <span className="material-symbols-outlined text-[18px] text-secondary">
+                                              check
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    });
+                                  })()}
+                                </div>
+
+                                {/* Opción para registrar un nuevo cliente */}
+                                <div
+                                  onClick={() => handleOpenNewClientModal(clientSearchTerm)}
+                                  className="p-2.5 px-3 bg-secondary/5 hover:bg-secondary/15 text-secondary font-bold cursor-pointer flex items-center gap-2 text-body-sm border-t border-slate-200/80 transition-colors active:scale-98"
+                                  title="Crear un nuevo cliente principal"
+                                >
+                                  <span className="material-symbols-outlined text-[20px] text-secondary">
+                                    person_add
+                                  </span>
+                                  <span className="truncate">
+                                    + Nuevo Cliente {clientSearchTerm.trim() ? `"${clientSearchTerm.trim()}"` : ''}
+                                  </span>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2632,8 +2749,8 @@ export default function Presupuestos({
         </div>
       )}
 
-      {/* Document Preview Modal Overlay (When Budget Modal is not open) */}
-      {!isModalOpen && previewFile && (
+      {/* Document Preview Modal Overlay (When neither Budget Modal nor Approval Modal is open) */}
+      {!isModalOpen && !isApproveModalOpen && previewFile && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-lg bg-primary/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-scale-up text-left border border-outline-variant/30">
             {/* Header */}
@@ -2829,12 +2946,13 @@ export default function Presupuestos({
           </div>
         </div>
       )}
+
       {/* Modal: Aprobar Presupuesto y Crear Proyecto */}
       {isApproveModalOpen && approvingQuote && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
-          <div className="relative bg-white w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up border border-outline-variant/30">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-xs md:p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className={`relative bg-white w-full ${previewFile ? 'max-w-[1550px]' : 'max-w-6xl'} max-h-[92vh] rounded-xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out border border-outline-variant/30 overflow-hidden animate-scale-up`}>
             {/* Header */}
-            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+            <div className="p-md md:p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
               <div>
                 <h2 className="font-headline-md text-headline-md text-primary font-bold">Aprobar Presupuesto y Crear Proyecto</h2>
                 <p className="text-body-md text-on-surface-variant flex items-center gap-2">
@@ -2842,571 +2960,654 @@ export default function Presupuestos({
                   <span>Configurando proyecto para el Presupuesto <strong>#{approvingQuote.quoteId}</strong></span>
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsApproveModalOpen(false);
-                  setApprovingQuote(null);
-                  setMatchedProjectId(null);
-                  setPrefilledFromProjectId(null);
-                  setShowSuggestions(false);
-                  setTipo('');
-                  setIsCustomTipo(false);
-                  setEncargado('');
-                }}
-                className="p-2 hover:bg-slate-100 rounded-full transition-all"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-
-            {/* Content (Form) */}
-            <form onSubmit={handleApproveSubmit} className="p-lg space-y-lg text-left">
-              {validationError && (
-                <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-md text-body-sm flex items-start gap-2 animate-fade-in mb-md">
-                  <span className="material-symbols-outlined text-[18px] text-red-600 flex-shrink-0">warning</span>
-                  <div>
-                    <span className="font-bold">Aviso del Sistema: </span>
-                    {validationError}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-xl">
-
-                {/* Columna Izquierda: Información del Proyecto y del Presupuesto */}
-                <div className="lg:col-span-5 space-y-lg">
-                  {/* Grupo 1: Datos del Proyecto */}
-                  <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
-                      <span className="material-symbols-outlined text-[20px] text-secondary">folder</span>
-                      Datos del Proyecto
-                    </h3>
-
-                    {/* Campo: Nº y Nombre del proyecto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
-                        Nº y Nombre del Proyecto
-                      </label>
-                      <div className="flex gap-2 relative">
-                        <div className="relative flex-grow" ref={suggestionsRef}>
-                          <input
-                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                            type="text"
-                            value={projectName}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setProjectName(val);
-                              checkAndPrefillExistingProject(val, false);
-                              setShowSuggestions(true);
-                            }}
-                            onFocus={() => setShowSuggestions(true)}
-                            onBlur={() => {
-                              setTimeout(() => {
-                                setShowSuggestions(false);
-                                checkAndPrefillExistingProject(projectName, true);
-                              }, 200);
-                            }}
-                            placeholder="Ej: 0280-NombreProyecto - Cliente"
-                            required
-                          />
-                          {showSuggestions && filteredProjects.length > 0 && (
-                            <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar border-outline-variant/30 py-1">
-                              {filteredProjects.map((proj) => (
-                                <div
-                                  key={proj.id}
-                                  onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    setProjectName(proj.projectName);
-                                    checkAndPrefillExistingProject(proj, true);
-                                    setShowSuggestions(false);
-                                  }}
-                                  onClick={() => {
-                                    setProjectName(proj.projectName);
-                                    checkAndPrefillExistingProject(proj, true);
-                                    setShowSuggestions(false);
-                                  }}
-                                  className="px-4 py-2.5 text-body-md text-on-surface hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100 last:border-b-0 font-medium"
-                                >
-                                  {proj.projectName}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleFolderSearch}
-                          className="px-3 bg-secondary text-white rounded-lg hover:brightness-105 transition-all flex items-center justify-center shadow-sm"
-                          title="Buscar carpeta en PC"
-                        >
-                          <span className="material-symbols-outlined text-[20px]">search</span>
-                        </button>
-                      </div>
-                      {matchedProjectId ? (
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 animate-fade-in mt-1">
-                          <span className="material-symbols-outlined text-[16px] text-emerald-600">link</span>
-                          <span>Proyecto existente.</span>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-on-surface-variant/80">
-                          Formato requerido: <strong>Nº Proyecto-Nombre - Cliente</strong>
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Fila: Superficie y Rentabilidad */}
-                    <div className="grid grid-cols-2 gap-md">
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Superficie (m2)</label>
-                        <input
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                          type="number"
-                          value={superficie}
-                          onChange={(e) => setSuperficie(e.target.value)}
-                          placeholder="Ej: 150"
-                          min="0"
-                          step="0.1"
-                          required
-                        />
-                      </div>
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Rentabilidad Esperada (%)</label>
-                        <div className="relative rounded-lg shadow-sm">
-                          <input
-                            className="w-full pr-7 border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold"
-                            type="number"
-                            value={rentabilidad}
-                            onChange={(e) => setRentabilidad(e.target.value)}
-                            placeholder="Ej: 25"
-                            min="0"
-                            max="100"
-                            step="0.1"
-                            required
-                          />
-                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
-                            <span className="text-slate-500 text-body-md">%</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Fila: Año y Encargado del Proyecto */}
-                    <div className="grid grid-cols-12 gap-md">
-                      <div className="col-span-4 sm:col-span-3 flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Año</label>
-                        <input
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                          type="number"
-                          value={anio}
-                          onChange={(e) => setAnio(e.target.value)}
-                          placeholder="2026"
-                          required
-                        />
-                      </div>
-                      <div className="col-span-8 sm:col-span-9 flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
-                          Encargado del Proyecto
-                        </label>
-                        <select
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
-                          value={encargado}
-                          onChange={(e) => setEncargado(e.target.value)}
-                        >
-                          <option value="">Seleccione un encargado...</option>
-                          {adminUsers.map((u) => (
-                            <option key={u.id} value={u.name}>
-                              {u.name}
-                            </option>
-                          ))}
-                          {encargado && !adminUsers.some((u) => u.name === encargado) && (
-                            <option value={encargado}>{encargado}</option>
-                          )}
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Fila: Tipo de Proyecto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
-                        Tipo de Proyecto <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
-                        value={isCustomTipo ? 'custom' : tipo}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === 'custom') {
-                            setIsCustomTipo(true);
-                            setTipo('');
-                          } else {
-                            setIsCustomTipo(false);
-                            setTipo(val);
-                          }
-                        }}
-                        required
-                      >
-                        <option value="">Seleccione un tipo...</option>
-                        {PROJECT_TYPES.map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                        <option value="custom">Otro (Ingresar manualmente)...</option>
-                      </select>
-
-                      {isCustomTipo && (
-                        <input
-                          type="text"
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white animate-fade-in mt-1 font-medium text-primary"
-                          placeholder="Escriba el tipo de proyecto..."
-                          value={tipo}
-                          onChange={(e) => setTipo(e.target.value)}
-                          required
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Grupo 2: Datos del Presupuesto */}
-                  <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
-                      <span className="material-symbols-outlined text-[20px] text-secondary">request_quote</span>
-                      Datos del Presupuesto
-                    </h3>
-
-                    {/* Fila: Nº Presupuesto y Cliente (Solo lectura) */}
-                    <div className="grid grid-cols-2 gap-md">
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Nº de Presupuesto</label>
-                        <input
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none"
-                          type="text"
-                          value={approvingQuote.quoteId}
-                          readOnly
-                        />
-                      </div>
-                      <div className="flex flex-col gap-xs">
-                        <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Cliente</label>
-                        <input
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none font-semibold text-primary"
-                          type="text"
-                          value={cliente}
-                          readOnly
-                        />
-                        {approvingQuote.company && approvingQuote.company !== cliente && (
-                          <span className="text-[11px] text-on-surface-variant/80 italic mt-0.5 truncate" title={approvingQuote.company}>
-                            Razón Social Facturación: <strong className="font-semibold text-slate-700">{approvingQuote.company}</strong>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Fila: Valor Presupuesto (UF) */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto (UF)</label>
-                      <input
-                        className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
-                        type="number"
-                        value={valorProyecto}
-                        onChange={(e) => handleValorProyectoChange(e.target.value)}
-                        min="0"
-                        step="0.01"
-                        required
-                      />
-                    </div>
-
-                    {/* Fila: Inicio Facturación */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Inicio Facturación</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="text"
-                          readOnly
-                          value={fechaInicio ? fechaInicio.split('-').reverse().join('/') : ''}
-                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white font-medium pr-10"
-                          placeholder="dd/mm/yyyy"
-                        />
-                        <input
-                          type="date"
-                          value={fechaInicio}
-                          onChange={(e) => handleFechaInicioChange(e.target.value)}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                          required
-                        />
-                        <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
-                          calendar_month
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Descripción del Presupuesto */}
-                    <div className="flex flex-col gap-xs">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Descripción</label>
-                      <textarea
-                        className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                        rows="2"
-                        value={descripcion}
-                        onChange={(e) => setDescripcion(e.target.value)}
-                        placeholder="Ingrese comentarios sobre los alcances del presupuesto..."
-                      />
-                    </div>
-
-                    {/* Sección Respaldo */}
-                    <div className="space-y-sm pt-sm border-t border-slate-200/60">
-                      <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
-                        Respaldo (Documentos asociados)
-                      </label>
-                      <div className="flex items-center gap-base">
-                        <label className="flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-outline-variant hover:border-secondary rounded bg-white hover:bg-slate-50 text-on-surface hover:text-primary transition-all cursor-pointer text-body-sm font-bold shadow-sm">
-                          <span className="material-symbols-outlined text-[18px] text-on-surface-variant">upload_file</span>
-                          <span>Subir Respaldo</span>
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                            className="hidden"
-                            onChange={handleApproveModalFileUpload}
-                          />
-                        </label>
-                        <span className="text-[11px] text-on-surface-variant/70 italic">PDF o DOCX</span>
-                      </div>
-
-                      {approvingQuoteBackupFiles.length > 0 ? (
-                        <div className="space-y-xs mt-sm max-h-[140px] overflow-y-auto pr-xs custom-scrollbar">
-                          {approvingQuoteBackupFiles.map((file, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border border-outline-variant/30 shadow-xs">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="material-symbols-outlined text-secondary flex-shrink-0 text-[18px]">
-                                  {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
-                                </span>
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-body-sm font-bold truncate max-w-[150px]" title={file.name}>{file.name}</span>
-                                  <span className="text-[10px] text-on-surface-variant">{(file.size / 1024).toFixed(1)} KB</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => setPreviewFile(file)}
-                                  className="p-1 hover:bg-slate-100 rounded text-secondary transition-all"
-                                  title="Ver archivo"
-                                >
-                                  <span className="material-symbols-outlined text-[16px]">visibility</span>
-                                </button>
-                                {file.url && (
-                                  <a
-                                    href={file.url}
-                                    download={file.name}
-                                    className="p-1 hover:bg-slate-100 rounded text-secondary transition-all"
-                                    title="Descargar"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">download</span>
-                                  </a>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleApproveModalRemoveFile(idx)}
-                                  className="p-1 hover:bg-slate-100 rounded text-error hover:text-red-600 transition-all"
-                                  title="Eliminar"
-                                >
-                                  <span className="material-symbols-outlined text-[16px]">delete</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-body-sm text-on-surface-variant italic pt-xs">No hay archivos de respaldo adjuntos.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna Derecha: Tabla de Facturación */}
-                <div className="lg:col-span-7 space-y-lg flex flex-col h-full">
-                  <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md flex-grow flex flex-col">
-                    <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
-                      <span className="material-symbols-outlined text-[20px] text-secondary">calendar_month</span>
-                      Cronograma de Facturación
-                    </h3>
-
-                    {billingTable.length > 0 ? (
-                      <>
-                        <div className="flex-grow overflow-y-auto max-h-[380px] custom-scrollbar border border-slate-200/60 rounded-lg bg-white">
-                          <table className="w-full text-left border-collapse">
-                            <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0">
-                              <tr>
-                                <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
-                                <th className="p-2 border-b border-slate-200">Fecha</th>
-                                <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota (UF)</th>
-                                <th className="p-2 border-b border-slate-200">Comentario</th>
-                                <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
-                              </tr>
-                            </thead>
-                            <tbody className="text-body-sm divide-y divide-slate-100">
-                              {billingTable.map((row, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50/50">
-                                  <td className="p-1 w-20 text-center">
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={row.cuotas}
-                                      onChange={(e) => handleRowChange(idx, 'cuotas', e.target.value)}
-                                      className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center font-bold"
-                                    />
-                                  </td>
-                                  <td className="p-1">
-                                    <div className="relative flex items-center w-full">
-                                      <input
-                                        type="text"
-                                        readOnly
-                                        value={row.date ? row.date.split('-').reverse().join('/') : ''}
-                                        className="w-full border-0 bg-transparent p-1 focus:bg-white rounded outline-none text-body-sm pr-6"
-                                        placeholder="dd/mm/yyyy"
-                                      />
-                                      <input
-                                        type="date"
-                                        value={row.date || ''}
-                                        onChange={(e) => handleRowChange(idx, 'date', e.target.value)}
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                      />
-                                      <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">
-                                        calendar_month
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className="p-1 w-28">
-                                    <input
-                                      type="number"
-                                      value={row.uf}
-                                      onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
-                                      className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
-                                      step="0.01"
-                                    />
-                                  </td>
-                                  <td className="p-1">
-                                    <input
-                                      type="text"
-                                      list={`approve-comments-options-${idx}`}
-                                      value={row.comment || ''}
-                                      onChange={(e) => handleRowChange(idx, 'comment', e.target.value)}
-                                      placeholder="Seleccionar o escribir..."
-                                      className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm"
-                                    />
-                                    <datalist id={`approve-comments-options-${idx}`}>
-                                      {COMMENT_OPTIONS.map((opt) => (
-                                        <option key={opt} value={opt} />
-                                      ))}
-                                    </datalist>
-                                  </td>
-                                  <td className="p-1 w-12 text-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveRow(idx)}
-                                      className="p-1 hover:bg-red-50 rounded text-error hover:text-red-600 transition-all flex items-center justify-center mx-auto"
-                                      title="Eliminar fila"
-                                    >
-                                      <span className="material-symbols-outlined text-[18px]">delete</span>
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Add Row Button */}
-                        <div className="flex justify-start mt-2">
-                          <button
-                            type="button"
-                            onClick={handleAddRow}
-                            className="px-3 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary text-body-sm font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">add_circle</span>
-                            <span>Agregar Fila</span>
-                          </button>
-                        </div>
-
-                        {/* Verification Total Bar */}
-                        {(() => {
-                          const currentSum = billingTable.reduce((acc, r) => acc + ((parseInt(r.cuotas) || 1) * (parseFloat(r.uf) || 0)), 0);
-                          const roundedSum = Math.round(currentSum * 100) / 100;
-                          const expectedTotal = Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
-                          const isMatch = Math.abs(roundedSum - expectedTotal) < 0.02;
-                          const totalCuotas = billingTable.reduce((acc, r) => acc + (parseInt(r.cuotas) || 1), 0);
-                          return (
-                            <div className={`mt-3 p-3 rounded-lg flex flex-col gap-2 font-bold text-body-sm border ${isMatch
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : 'bg-amber-50 text-amber-800 border-amber-200'
-                              }`}>
-                              <div className="flex flex-wrap justify-between items-center gap-2">
-                                <div className="flex flex-wrap gap-x-md gap-y-1">
-                                  <span>Suma Planificada: {roundedSum.toFixed(2)} UF</span>
-                                  <span className="text-slate-350">/</span>
-                                  <span>Monto Requerido: {expectedTotal.toFixed(2)} UF</span>
-                                </div>
-                                <div>
-                                  {isMatch ? (
-                                    <span className="flex items-center gap-1 text-emerald-600">
-                                      <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                                      Montos coinciden
-                                    </span>
-                                  ) : (
-                                    <span className="flex items-center gap-1 text-amber-600">
-                                      <span className="material-symbols-outlined text-[18px]">warning</span>
-                                      Diferencia: {(expectedTotal - roundedSum).toFixed(2)} UF
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="border-t border-slate-200/50 pt-2 flex justify-between items-center text-[11px] text-on-surface-variant/80">
-                                <span>Total de cuotas (resultante):</span>
-                                <span className="font-extrabold text-primary">{totalCuotas} {totalCuotas === 1 ? 'cuota' : 'cuotas'}</span>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </>
-                    ) : (
-                      <div className="flex-grow flex flex-col items-center justify-center p-xl border border-dashed border-outline-variant/60 rounded-lg text-on-surface-variant italic text-body-sm">
-                        <span className="material-symbols-outlined text-[36px] text-slate-300 mb-2">calendar_today</span>
-                        Ingrese Fecha Inicio y Nº Cuotas para generar la tabla.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Footer Actions */}
-              <div className="flex justify-end gap-md pt-lg border-t border-outline-variant">
+              <div className="flex items-center gap-3">
+                {previewFile && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewFile(null);
+                      setDocxHtml('');
+                    }}
+                    className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                    title="Cerrar vista previa del documento"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                    <span>Cerrar Vista Previa</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  disabled={isApproving}
                   onClick={() => {
                     setIsApproveModalOpen(false);
                     setApprovingQuote(null);
                     setMatchedProjectId(null);
                     setPrefilledFromProjectId(null);
                     setShowSuggestions(false);
+                    setTipo('');
+                    setIsCustomTipo(false);
+                    setEncargado('');
+                    setPreviewFile(null);
+                    setDocxHtml('');
                   }}
-                  className={`px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold ${isApproving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-all text-slate-500 hover:text-slate-700"
+                  title="Cerrar modal"
                 >
-                  Cancelar Aprobación
-                </button>
-                <button
-                  type="submit"
-                  disabled={isApproving}
-                  className={`px-lg py-2 bg-secondary text-white rounded hover:brightness-110 transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${isApproving ? 'opacity-70 cursor-not-allowed' : ''}`}
-                >
-                  {isApproving ? (
-                    <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
-                  ) : (
-                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                  )}
-                  <span>{isApproving ? 'Aprobando...' : 'Aprobar Presupuesto y Crear Proyecto'}</span>
+                  <span className="material-symbols-outlined">close</span>
                 </button>
               </div>
-            </form>
+            </div>
+
+            {/* Split Screen Body */}
+            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+              {/* Form Side */}
+              <div className={`w-full ${previewFile ? 'lg:w-1/2 xl:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200' : 'w-full'} overflow-y-auto max-h-[calc(92vh-80px)]`}>
+                <form onSubmit={handleApproveSubmit} className="p-lg space-y-lg text-left">
+                  {validationError && (
+                    <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-md text-body-sm flex items-start gap-2 animate-fade-in mb-md">
+                      <span className="material-symbols-outlined text-[18px] text-red-600 flex-shrink-0">warning</span>
+                      <div>
+                        <span className="font-bold">Aviso del Sistema: </span>
+                        {validationError}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`grid grid-cols-1 ${previewFile ? '2xl:grid-cols-12' : 'lg:grid-cols-12'} gap-xl`}>
+
+                    {/* Columna Izquierda: Información del Proyecto y del Presupuesto */}
+                    <div className={`${previewFile ? '2xl:col-span-5' : 'lg:col-span-5'} space-y-lg`}>
+                      {/* Grupo 1: Datos del Proyecto */}
+                      <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
+                          <span className="material-symbols-outlined text-[20px] text-secondary">folder</span>
+                          Datos del Proyecto
+                        </h3>
+
+                        {/* Campo: Nº y Nombre del proyecto */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                            Nº y Nombre del Proyecto
+                          </label>
+                          <div className="flex gap-2 relative">
+                            <div className="relative flex-grow" ref={suggestionsRef}>
+                              <input
+                                className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                                type="text"
+                                value={projectName}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setProjectName(val);
+                                  checkAndPrefillExistingProject(val, false);
+                                  setShowSuggestions(true);
+                                }}
+                                onFocus={() => setShowSuggestions(true)}
+                                onBlur={() => {
+                                  setTimeout(() => {
+                                    setShowSuggestions(false);
+                                    checkAndPrefillExistingProject(projectName, true);
+                                  }, 200);
+                                }}
+                                placeholder="Ej: 0280-NombreProyecto - Cliente"
+                                required
+                              />
+                              {showSuggestions && filteredProjects.length > 0 && (
+                                <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto custom-scrollbar border-outline-variant/30 py-1">
+                                  {filteredProjects.map((proj) => (
+                                    <div
+                                      key={proj.id}
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        setProjectName(proj.projectName);
+                                        checkAndPrefillExistingProject(proj, true);
+                                        setShowSuggestions(false);
+                                      }}
+                                      onClick={() => {
+                                        setProjectName(proj.projectName);
+                                        checkAndPrefillExistingProject(proj, true);
+                                        setShowSuggestions(false);
+                                      }}
+                                      className="px-4 py-2.5 text-body-md text-on-surface hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100 last:border-b-0 font-medium"
+                                    >
+                                      {proj.projectName}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleFolderSearch}
+                              className="px-3 bg-secondary text-white rounded-lg hover:brightness-105 transition-all flex items-center justify-center shadow-sm"
+                              title="Buscar carpeta en PC"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">search</span>
+                            </button>
+                          </div>
+                          {matchedProjectId ? (
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 animate-fade-in mt-1">
+                              <span className="material-symbols-outlined text-[16px] text-emerald-600">link</span>
+                              <span>Proyecto existente.</span>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-on-surface-variant/80">
+                              Formato requerido: <strong>Nº Proyecto-Nombre - Cliente</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Fila: Superficie y Rentabilidad */}
+                        <div className="grid grid-cols-2 gap-md">
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Superficie (m2)</label>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                              type="number"
+                              value={superficie}
+                              onChange={(e) => setSuperficie(e.target.value)}
+                              placeholder="Ej: 150"
+                              min="0"
+                              step="0.1"
+                              required
+                            />
+                          </div>
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Rentabilidad Esperada (%)</label>
+                            <div className="relative rounded-lg shadow-sm">
+                              <input
+                                className="w-full pr-7 border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold"
+                                type="number"
+                                value={rentabilidad}
+                                onChange={(e) => setRentabilidad(e.target.value)}
+                                placeholder="Ej: 25"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                required
+                              />
+                              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                                <span className="text-slate-500 text-body-md">%</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Fila: Año y Encargado del Proyecto */}
+                        <div className="grid grid-cols-12 gap-md">
+                          <div className="col-span-4 sm:col-span-3 flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Año</label>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                              type="number"
+                              value={anio}
+                              onChange={(e) => setAnio(e.target.value)}
+                              placeholder="2026"
+                              required
+                            />
+                          </div>
+                          <div className="col-span-8 sm:col-span-9 flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                              Encargado del Proyecto
+                            </label>
+                            <select
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
+                              value={encargado}
+                              onChange={(e) => setEncargado(e.target.value)}
+                            >
+                              <option value="">Seleccione un encargado...</option>
+                              {adminUsers.map((u) => (
+                                <option key={u.id} value={u.name}>
+                                  {u.name}
+                                </option>
+                              ))}
+                              {encargado && !adminUsers.some((u) => u.name === encargado) && (
+                                <option value={encargado}>{encargado}</option>
+                              )}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Fila: Tipo de Proyecto */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                            Tipo de Proyecto <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-primary"
+                            value={isCustomTipo ? 'custom' : tipo}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'custom') {
+                                setIsCustomTipo(true);
+                                setTipo('');
+                              } else {
+                                setIsCustomTipo(false);
+                                setTipo(val);
+                              }
+                            }}
+                            required
+                          >
+                            <option value="">Seleccione un tipo...</option>
+                            {PROJECT_TYPES.map(t => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                            <option value="custom">Otro (Ingresar manualmente)...</option>
+                          </select>
+
+                          {isCustomTipo && (
+                            <input
+                              type="text"
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white animate-fade-in mt-1 font-medium text-primary"
+                              placeholder="Escriba el tipo de proyecto..."
+                              value={tipo}
+                              onChange={(e) => setTipo(e.target.value)}
+                              required
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Grupo 2: Datos del Presupuesto */}
+                      <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
+                          <span className="material-symbols-outlined text-[20px] text-secondary">request_quote</span>
+                          Datos del Presupuesto
+                        </h3>
+
+                        {/* Fila: Nº Presupuesto y Cliente (Solo lectura) */}
+                        <div className="grid grid-cols-2 gap-md">
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Nº de Presupuesto</label>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none"
+                              type="text"
+                              value={approvingQuote.quoteId}
+                              readOnly
+                            />
+                          </div>
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Cliente</label>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 bg-slate-100/80 text-on-surface-variant/80 cursor-not-allowed outline-none font-semibold text-primary"
+                              type="text"
+                              value={cliente}
+                              readOnly
+                            />
+                            {approvingQuote.company && approvingQuote.company !== cliente && (
+                              <span className="text-[11px] text-on-surface-variant/80 italic mt-0.5 truncate" title={approvingQuote.company}>
+                                Razón Social Facturación: <strong className="font-semibold text-slate-700">{approvingQuote.company}</strong>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Fila: Valor Presupuesto (UF) */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto (UF)</label>
+                          <input
+                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
+                            type="number"
+                            value={valorProyecto}
+                            onChange={(e) => handleValorProyectoChange(e.target.value)}
+                            min="0"
+                            step="0.01"
+                            required
+                          />
+                        </div>
+
+                        {/* Fila: Inicio Facturación */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Inicio Facturación</label>
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              readOnly
+                              value={fechaInicio ? fechaInicio.split('-').reverse().join('/') : ''}
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white font-medium pr-10"
+                              placeholder="dd/mm/yyyy"
+                            />
+                            <input
+                              type="date"
+                              value={fechaInicio}
+                              onChange={(e) => handleFechaInicioChange(e.target.value)}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                              required
+                            />
+                            <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
+                              calendar_month
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Descripción del Presupuesto */}
+                        <div className="flex flex-col gap-xs">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Descripción</label>
+                          <textarea
+                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                            rows="2"
+                            value={descripcion}
+                            onChange={(e) => setDescripcion(e.target.value)}
+                            placeholder="Ingrese comentarios sobre los alcances del presupuesto..."
+                          />
+                        </div>
+
+                        {/* Sección Respaldo */}
+                        <div className="space-y-sm pt-sm border-t border-slate-200/60">
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
+                            Respaldo (Documentos asociados)
+                          </label>
+                          <div className="flex items-center gap-base">
+                            <label className="flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-outline-variant hover:border-secondary rounded bg-white hover:bg-slate-50 text-on-surface hover:text-primary transition-all cursor-pointer text-body-sm font-bold shadow-sm">
+                              <span className="material-symbols-outlined text-[18px] text-on-surface-variant">upload_file</span>
+                              <span>Subir Respaldo</span>
+                              <input
+                                type="file"
+                                multiple
+                                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                className="hidden"
+                                onChange={handleApproveModalFileUpload}
+                              />
+                            </label>
+                            <span className="text-[11px] text-on-surface-variant/70 italic">PDF o DOCX</span>
+                          </div>
+
+                          {approvingQuoteBackupFiles.length > 0 ? (
+                            <div className="space-y-xs mt-sm max-h-[140px] overflow-y-auto pr-xs custom-scrollbar">
+                              {approvingQuoteBackupFiles.map((file, idx) => (
+                                <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border border-outline-variant/30 shadow-xs">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="material-symbols-outlined text-secondary flex-shrink-0 text-[18px]">
+                                      {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                                    </span>
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-body-sm font-bold truncate max-w-[150px]" title={file.name}>{file.name}</span>
+                                      <span className="text-[10px] text-on-surface-variant">{(file.size / 1024).toFixed(1)} KB</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewFile(file)}
+                                      className="p-1 hover:bg-slate-100 rounded text-secondary transition-all"
+                                      title="Ver archivo"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">visibility</span>
+                                    </button>
+                                    {file.url && (
+                                      <a
+                                        href={file.url}
+                                        download={file.name}
+                                        className="p-1 hover:bg-slate-100 rounded text-secondary transition-all"
+                                        title="Descargar"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px]">download</span>
+                                      </a>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApproveModalRemoveFile(idx)}
+                                      className="p-1 hover:bg-slate-100 rounded text-error hover:text-red-600 transition-all"
+                                      title="Eliminar"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-body-sm text-on-surface-variant italic pt-xs">No hay archivos de respaldo adjuntos.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Columna Derecha: Tabla de Facturación */}
+                    <div className={`${previewFile ? '2xl:col-span-7' : 'lg:col-span-7'} space-y-lg flex flex-col h-full`}>
+                      <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-md flex-grow flex flex-col">
+                        <h3 className="text-body-md font-bold text-primary flex items-center gap-2 border-b border-slate-200/60 pb-2">
+                          <span className="material-symbols-outlined text-[20px] text-secondary">calendar_month</span>
+                          Cronograma de Facturación
+                        </h3>
+
+                        {billingTable.length > 0 ? (
+                          <>
+                            <div className="flex-grow overflow-y-auto max-h-[380px] custom-scrollbar border border-slate-200/60 rounded-lg bg-white">
+                              <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0">
+                                  <tr>
+                                    <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
+                                    <th className="p-2 border-b border-slate-200">Fecha</th>
+                                    <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota (UF)</th>
+                                    <th className="p-2 border-b border-slate-200">Comentario</th>
+                                    <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="text-body-sm divide-y divide-slate-100">
+                                  {billingTable.map((row, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50/50">
+                                      <td className="p-1 w-20 text-center">
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={row.cuotas}
+                                          onChange={(e) => handleRowChange(idx, 'cuotas', e.target.value)}
+                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center font-bold"
+                                        />
+                                      </td>
+                                      <td className="p-1">
+                                        <div className="relative flex items-center w-full">
+                                          <input
+                                            type="text"
+                                            readOnly
+                                            value={row.date ? row.date.split('-').reverse().join('/') : ''}
+                                            className="w-full border-0 bg-transparent p-1 focus:bg-white rounded outline-none text-body-sm pr-6"
+                                            placeholder="dd/mm/yyyy"
+                                          />
+                                          <input
+                                            type="date"
+                                            value={row.date || ''}
+                                            onChange={(e) => handleRowChange(idx, 'date', e.target.value)}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                          />
+                                          <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">
+                                            calendar_month
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="p-1 w-28">
+                                        <input
+                                          type="number"
+                                          value={row.uf}
+                                          onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
+                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
+                                          step="0.01"
+                                        />
+                                      </td>
+                                      <td className="p-1">
+                                        <input
+                                          type="text"
+                                          list={`approve-comments-options-${idx}`}
+                                          value={row.comment || ''}
+                                          onChange={(e) => handleRowChange(idx, 'comment', e.target.value)}
+                                          placeholder="Seleccionar o escribir..."
+                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm"
+                                        />
+                                        <datalist id={`approve-comments-options-${idx}`}>
+                                          {COMMENT_OPTIONS.map((opt) => (
+                                            <option key={opt} value={opt} />
+                                          ))}
+                                        </datalist>
+                                      </td>
+                                      <td className="p-1 w-12 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveRow(idx)}
+                                          className="p-1 hover:bg-red-50 rounded text-error hover:text-red-600 transition-all flex items-center justify-center mx-auto"
+                                          title="Eliminar fila"
+                                        >
+                                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Add Row Button */}
+                            <div className="flex justify-start mt-2">
+                              <button
+                                type="button"
+                                onClick={handleAddRow}
+                                className="px-3 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary text-body-sm font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                                <span>Agregar Fila</span>
+                              </button>
+                            </div>
+
+                            {/* Verification Total Bar */}
+                            {(() => {
+                              const currentSum = billingTable.reduce((acc, r) => acc + ((parseInt(r.cuotas) || 1) * (parseFloat(r.uf) || 0)), 0);
+                              const roundedSum = Math.round(currentSum * 100) / 100;
+                              const expectedTotal = Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
+                              const isMatch = Math.abs(roundedSum - expectedTotal) < 0.02;
+                              const totalCuotas = billingTable.reduce((acc, r) => acc + (parseInt(r.cuotas) || 1), 0);
+                              return (
+                                <div className={`mt-3 p-3 rounded-lg flex flex-col gap-2 font-bold text-body-sm border ${isMatch
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                                  }`}>
+                                  <div className="flex flex-wrap justify-between items-center gap-2">
+                                    <div className="flex flex-wrap gap-x-md gap-y-1">
+                                      <span>Suma Planificada: {roundedSum.toFixed(2)} UF</span>
+                                      <span className="text-slate-350">/</span>
+                                      <span>Monto Requerido: {expectedTotal.toFixed(2)} UF</span>
+                                    </div>
+                                    <div>
+                                      {isMatch ? (
+                                        <span className="flex items-center gap-1 text-emerald-600">
+                                          <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                          Montos coinciden
+                                        </span>
+                                      ) : (
+                                        <span className="flex items-center gap-1 text-amber-600">
+                                          <span className="material-symbols-outlined text-[18px]">warning</span>
+                                          Diferencia: {(expectedTotal - roundedSum).toFixed(2)} UF
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="border-t border-slate-200/50 pt-2 flex justify-between items-center text-[11px] text-on-surface-variant/80">
+                                    <span>Total de cuotas (resultante):</span>
+                                    <span className="font-extrabold text-primary">{totalCuotas} {totalCuotas === 1 ? 'cuota' : 'cuotas'}</span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </>
+                        ) : (
+                          <div className="flex-grow flex flex-col items-center justify-center p-xl border border-dashed border-outline-variant/60 rounded-lg text-on-surface-variant italic text-body-sm">
+                            <span className="material-symbols-outlined text-[36px] text-slate-300 mb-2">calendar_today</span>
+                            Ingrese Fecha Inicio y Nº Cuotas para generar la tabla.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* Footer Actions */}
+                  <div className="flex justify-end gap-md pt-lg border-t border-outline-variant">
+                    <button
+                      type="button"
+                      disabled={isApproving}
+                      onClick={() => {
+                        setIsApproveModalOpen(false);
+                        setApprovingQuote(null);
+                        setApprovingQuoteBackupFiles([]);
+                        setMatchedProjectId(null);
+                        setPrefilledFromProjectId(null);
+                        setShowSuggestions(false);
+                        setTipo('');
+                        setIsCustomTipo(false);
+                        setEncargado('');
+                        setPreviewFile(null);
+                        setDocxHtml('');
+                      }}
+                      className={`px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold ${isApproving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      Cancelar Aprobación
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isApproving}
+                      className={`px-lg py-2 bg-secondary text-white rounded hover:brightness-110 transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${isApproving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isApproving ? (
+                        <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                      ) : (
+                        <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                      )}
+                      <span>{isApproving ? 'Aprobando...' : 'Aprobar Presupuesto y Crear Proyecto'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Document Preview Side Panel inside Approval Modal */}
+              {previewFile && (
+                <div className="w-full lg:w-1/2 xl:w-5/12 bg-slate-50 flex flex-col max-h-[calc(92vh-80px)] animate-fade-in border-t lg:border-t-0">
+                  <div className="p-3 md:p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-xs sticky top-0 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="material-symbols-outlined text-secondary flex-shrink-0">
+                        {previewFile.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                      </span>
+                      <span className="font-bold text-body-sm text-primary truncate" title={previewFile.name}>
+                        {previewFile.name}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewFile(null);
+                        setDocxHtml('');
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-md text-label-sm font-semibold transition-all cursor-pointer flex-shrink-0"
+                      title="Cerrar vista previa del documento"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">close</span>
+                      <span>Cerrar Vista Previa</span>
+                    </button>
+                  </div>
+
+                  <div className="flex-grow overflow-auto p-md flex flex-col bg-slate-100/50">
+                    {previewFile.name.toLowerCase().endsWith('.pdf') ? (
+                      <iframe
+                        src={previewFile.url || (previewFile.fileObject ? URL.createObjectURL(previewFile.fileObject) : '')}
+                        className="w-full h-full min-h-[500px] rounded-lg border border-slate-200 bg-white shadow-xs"
+                        title="Vista previa PDF"
+                      />
+                    ) : previewFile.name.toLowerCase().endsWith('.docx') ? (
+                      docxHtml ? (
+                        <div className="w-full bg-white p-lg rounded-lg shadow-xs border border-slate-200 overflow-y-auto max-h-full">
+                          <div className="prose prose-slate max-w-none text-body-md" dangerouslySetInnerHTML={{ __html: docxHtml }} />
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant w-full h-full">
+                          <span className="material-symbols-outlined text-[40px] animate-spin text-secondary">sync</span>
+                          <span className="text-body-sm font-medium mt-3">Generando vista previa de Word...</span>
+                        </div>
+                      )
+                    ) : (
+                      <div className="text-center py-20 text-on-surface-variant italic text-body-sm">
+                        Vista previa no disponible para este formato.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -3529,6 +3730,179 @@ export default function Presupuestos({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Registrar Nuevo Cliente (Desde Presupuestos) */}
+      {isNewClientModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4 text-left">
+          <div className="relative bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up">
+            <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+              <div>
+                <h2 className="font-headline-md text-headline-md text-primary font-bold">
+                  Registrar Nuevo Cliente
+                </h2>
+                <p className="text-body-md text-on-surface-variant">
+                  Ingrese los datos para registrar el cliente principal
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseNewClientModal}
+                className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all cursor-pointer"
+                title="Cerrar modal"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitNewClient} className="p-lg space-y-md text-left">
+              {newClientError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-error text-body-sm font-medium flex items-center gap-2 animate-fade-in">
+                  <span className="material-symbols-outlined text-[18px]">error</span>
+                  <span>{newClientError}</span>
+                </div>
+              )}
+
+              <div className="space-y-md">
+                {/* Nombre del Cliente o Empresa */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center justify-between">
+                    <span>Nombre del Cliente o Empresa *</span>
+                    <span className="text-xs text-secondary font-semibold">Obligatorio</span>
+                  </label>
+                  <input
+                    type="text"
+                    className={`w-full border rounded-lg text-body-md py-2.5 px-3 focus:ring-1 outline-none transition-all bg-white font-medium ${newClientError ? 'border-error focus:ring-error/20 focus:border-error' : 'border-slate-300 focus:ring-secondary focus:border-secondary'
+                      }`}
+                    placeholder="Ej: Inmobiliaria Nueva Era"
+                    required
+                    value={newClientName}
+                    onChange={(e) => {
+                      setNewClientName(e.target.value);
+                      setNewClientError('');
+                    }}
+                    autoFocus
+                  />
+                </div>
+
+                {/* Nombre de Contacto */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Nombre de Contacto (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                    placeholder="Ej: Juan Pérez"
+                    value={newClientContactName}
+                    onChange={(e) => setNewClientContactName(e.target.value)}
+                  />
+                </div>
+
+                {/* Grid: Email y Teléfono */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+                  <div className="flex flex-col gap-xs">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                      Mail de Contacto (Opcional)
+                    </label>
+                    <input
+                      type="email"
+                      className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                      placeholder="contacto@empresa.cl"
+                      value={newClientContactEmail}
+                      onChange={(e) => setNewClientContactEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-xs">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                      Teléfono (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                      placeholder="+56 9 1234 5678"
+                      value={newClientPhone}
+                      onChange={(e) => setNewClientPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Dirección */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Dirección (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                    placeholder="Av. Providencia 1234, Of. 501"
+                    value={newClientAddress}
+                    onChange={(e) => setNewClientAddress(e.target.value)}
+                  />
+                </div>
+
+                {/* Grid: Comuna y Ciudad */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+                  <div className="flex flex-col gap-xs">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                      Comuna (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                      placeholder="Providencia"
+                      value={newClientComuna}
+                      onChange={(e) => setNewClientComuna(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-xs">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                      Ciudad (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg text-body-md py-2.5 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                      placeholder="Santiago"
+                      value={newClientCiudad}
+                      onChange={(e) => setNewClientCiudad(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="pt-lg flex justify-end gap-md border-t border-outline-variant/30 sticky bottom-0 bg-white z-10 mt-md">
+                <button
+                  type="button"
+                  onClick={handleCloseNewClientModal}
+                  disabled={isSavingNewClient}
+                  className="px-lg py-2 border border-outline-variant rounded-lg text-on-surface hover:bg-slate-50 transition-all font-bold cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingNewClient}
+                  className="bg-secondary text-white px-xl py-2 rounded-lg font-bold shadow-sm hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingNewClient ? (
+                    <>
+                      <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined text-[18px]">person_add</span>
+                      <span>Guardar y Asignar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

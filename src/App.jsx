@@ -653,6 +653,8 @@ export default function App() {
               clients={clients} 
               onAddQuote={addQuote} 
               onDeleteQuote={deleteQuote}
+              onAddMainClient={addMainClient}
+              onAddClient={addClient}
               projects={projects}
               onApproveBudgetAndCreateProject={handleApproveBudgetAndCreateProject}
               installments={installments}
