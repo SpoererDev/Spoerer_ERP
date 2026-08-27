@@ -30,14 +30,8 @@ const getGroupMetadata = (installments) => {
 
   const metadata = {};
   Object.entries(groups).forEach(([groupName, members]) => {
-    // Ordenar miembros: primero por fecha ascendente, luego por index original en el arreglo
-    members.sort((a, b) => {
-      const dateA = a.inst.date || '';
-      const dateB = b.inst.date || '';
-      if (dateA < dateB) return -1;
-      if (dateA > dateB) return 1;
-      return a.index - b.index;
-    });
+    // Ordenar miembros por orden en el arreglo (index)
+    members.sort((a, b) => a.index - b.index);
 
     const master = members[0];
     metadata[groupName] = {
@@ -380,26 +374,11 @@ export default function InstallmentsModal({
       return;
     }
 
-    // Nueva verificación: Las fechas deben respetar el orden temporal del número de cuota
-    for (let i = 1; i < localInstallments.length; i++) {
-      const prev = localInstallments[i - 1];
+    // Verificar que todas las cuotas tengan fecha planificada asignada
+    for (let i = 0; i < localInstallments.length; i++) {
       const curr = localInstallments[i];
-
-      if (!prev.date) {
-        setValidationError(`La cuota ${prev.numQuota} no tiene una fecha planificada asignada.`);
-        return;
-      }
       if (!curr.date) {
         setValidationError(`La cuota ${curr.numQuota} no tiene una fecha planificada asignada.`);
-        return;
-      }
-
-      if (curr.date < prev.date) {
-        const formattedPrevDate = prev.date.split('-').reverse().join('/');
-        const formattedCurrDate = curr.date.split('-').reverse().join('/');
-        setValidationError(
-          `La fecha de la cuota ${curr.numQuota} (${formattedCurrDate}) no puede ser anterior a la de la cuota ${prev.numQuota} (${formattedPrevDate}).`
-        );
         return;
       }
     }

@@ -1175,8 +1175,17 @@ export const supabaseService = {
         installment_number: inst.numQuota,
         scheduled_date: inst.date,
         planned_amount_uf: parseFloat(inst.uf) || 0,
-        status: 'Por facturar',
-        date_confirmed: inst.dateConfirmed || false
+        comment: inst.comment || '',
+        status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
+        date_confirmed: inst.dateConfirmed || false,
+        invoice_number: inst.invoiceNumber || null,
+        invoice_file_url: inst.invoiceFileUrl || null,
+        actual_invoice_date: inst.actualInvoiceDate || null,
+        actual_payment_date: inst.actualPaymentDate || null,
+        payment_backup_url: inst.paymentBackupUrl || null,
+        net_amount_clp: inst.net_clp || null,
+        tax_amount_clp: inst.tax_clp || null,
+        total_amount_clp: inst.total_clp || null
       }));
 
       const { error: instError } = await supabase

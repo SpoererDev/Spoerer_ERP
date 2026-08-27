@@ -665,7 +665,7 @@ export default function Presupuestos({
     return date.toISOString().split('T')[0];
   };
 
-  const regenerateGroupedBillingTable = (startDate, totalVal) => {
+  const generateInitialBillingTable = (startDate, totalVal) => {
     const parsedTotalVal = parseFloat(totalVal) || 0;
     if (!startDate) {
       setBillingTable([]);
@@ -695,12 +695,10 @@ export default function Presupuestos({
 
   const handleFechaInicioChange = (val) => {
     setFechaInicio(val);
-    regenerateGroupedBillingTable(val, valorProyecto);
   };
 
   const handleValorProyectoChange = (val) => {
     setValorProyecto(val);
-    regenerateGroupedBillingTable(fechaInicio, val);
   };
 
   const handleRowChange = (index, field, value) => {
@@ -991,27 +989,8 @@ export default function Presupuestos({
           setEncargado('');
         }
 
-        // Regenerate billing table with default 2 rows: 1 cuota with 25%, 10 cuotas with 75%
-        const budgetAmount = quote.amount || 0;
-        const firstRowUf = parseFloat((budgetAmount * 0.25).toFixed(2));
-        const secondRowUf = parseFloat(((budgetAmount * 0.75) / 10).toFixed(2));
-        const secondRowDate = addMonthsToDateString(nextMonthDate, 1);
-
-        const initialTable = [
-          {
-            cuotas: 1,
-            date: nextMonthDate,
-            uf: firstRowUf,
-            comment: 'Anticipo'
-          },
-          {
-            cuotas: 10,
-            date: secondRowDate,
-            uf: secondRowUf,
-            comment: 'Mensualidades'
-          }
-        ];
-        setBillingTable(initialTable);
+        // Generate billing table proposal ONLY when opening approval modal
+        generateInitialBillingTable(nextMonthDate, quote.amount || 0);
         setIsApproveModalOpen(true);
       } else {
         onAddQuote({

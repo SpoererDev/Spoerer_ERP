@@ -268,16 +268,25 @@ export default function Facturacion({
 
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
 
+        // Find associated budget
+        const budget = inst.origin_budget_id && Array.isArray(budgets) ? budgets.find(b => b.id === inst.origin_budget_id) : null;
+        const budgetNum = budget?.quoteId?.toLowerCase() || '';
+        const budgetTitle = budget?.title?.toLowerCase() || '';
+        const rawDigitsTerm = term.replace(/\D/g, '');
+
         const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
         const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term);
         const matchesInvoice = invNum.includes(term);
+        const matchesBudget = budgetNum.includes(term) || 
+                              budgetTitle.includes(term) || 
+                              (rawDigitsTerm !== '' && budgetNum.replace(/\D/g, '').includes(rawDigitsTerm));
 
-        if (!matchesProject && !matchesClient && !matchesInvoice) return false;
+        if (!matchesProject && !matchesClient && !matchesInvoice && !matchesBudget) return false;
       }
 
       return true;
     });
-  }, [installments, projects, clients, temporalFilter, statusFilter, clientFilter, encargadoFilter, searchTerm, todayStr]);
+  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, searchTerm, todayStr]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -821,6 +830,15 @@ export default function Facturacion({
     }
   };
 
+  const handleToggleDateConfirmed = async (inst) => {
+    if (!onUpdateInstallment || !inst) return;
+    try {
+      await onUpdateInstallment(inst.id, { dateConfirmed: !inst.dateConfirmed });
+    } catch (err) {
+      console.error("Error al actualizar confirmación de fecha:", err);
+    }
+  };
+
   return (
     <div className="space-y-6 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
@@ -932,7 +950,7 @@ export default function Facturacion({
                 <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
                 <input
                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="Factura, Proyecto o Cliente..."
+                  placeholder="N° Presupuesto, Factura, Proyecto o Cliente..."
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -1187,11 +1205,13 @@ export default function Facturacion({
 
                           {/* Nivel 3: Tabla de Cuotas */}
                           <div className="overflow-x-auto rounded-lg border border-outline-variant/30">
-                            <table className="w-full text-left border-collapse min-w-[850px]">
+                            <table className="w-full text-left border-collapse min-w-[1050px]">
                               <thead>
                                 <tr className="bg-surface-container-low">
-                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 w-24">Nº Cuota</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 w-20">Nº Cuota</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center w-36">Fecha Confirmada</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Fecha Planificada</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Comentario</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Monto (UF)</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center">Estado</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Folio Factura</th>
@@ -1210,15 +1230,25 @@ export default function Facturacion({
                                       <td className={`px-md py-md font-semibold ${isOverdue ? 'text-red-600' : 'text-primary'}`}>
                                         {inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}
                                       </td>
-                                      <td className={`px-md py-md ${isOverdue ? 'text-red-600 font-semibold' : 'text-on-surface-variant'}`}>
-                                        <div className="flex items-center gap-1">
-                                          <span>{formatDate(inst.date)}</span>
-                                          {inst.dateConfirmed && (
-                                            <span className="material-symbols-outlined text-[15px] text-emerald-600 font-bold" title="Fecha Confirmada">
-                                              verified
-                                            </span>
-                                          )}
+                                      <td
+                                        className="px-md py-md text-center cursor-pointer select-none"
+                                        onDoubleClick={() => handleToggleDateConfirmed(inst)}
+                                        title="Doble clic para activar o desactivar confirmación"
+                                      >
+                                        <div className="flex justify-center items-center">
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(inst.dateConfirmed)}
+                                            onChange={() => {}}
+                                            className="w-4 h-4 text-secondary accent-secondary rounded border-slate-300 focus:ring-secondary/30 cursor-pointer pointer-events-none"
+                                          />
                                         </div>
+                                      </td>
+                                      <td className={`px-md py-md ${isOverdue ? 'text-red-600 font-semibold' : 'text-on-surface-variant'}`}>
+                                        {formatDate(inst.date)}
+                                      </td>
+                                      <td className="px-md py-md text-on-surface-variant text-body-sm max-w-[200px] truncate" title={inst.comment || ''}>
+                                        {inst.comment || '-'}
                                       </td>
                                       <td className={`px-md py-md text-right font-semibold ${isOverdue ? 'text-red-600' : 'text-primary'}`}>
                                         {formatUF(inst.uf)}
