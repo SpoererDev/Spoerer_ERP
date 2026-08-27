@@ -42,6 +42,29 @@ export default function Proyectos({
 }) {
   const [expandedProjectId, setExpandedProjectId] = useState(null);
 
+  // Sticky filter header offset measurement
+  const filterHeaderRef = useRef(null);
+  const [stickyHeaderOffset, setStickyHeaderOffset] = useState(0);
+
+  useEffect(() => {
+    const updateOffset = () => {
+      if (filterHeaderRef.current) {
+        // 64px is top navbar height (top-16)
+        setStickyHeaderOffset(64 + filterHeaderRef.current.offsetHeight);
+      }
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    if (filterHeaderRef.current) {
+      observer.observe(filterHeaderRef.current);
+    }
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, []);
+
   // Installments unified modal state
   const [isInstallmentsModalOpen, setIsInstallmentsModalOpen] = useState(false);
   const [activeBudgetForInstallments, setActiveBudgetForInstallments] = useState(null);
@@ -586,7 +609,7 @@ export default function Proyectos({
   return (
     <div className="space-y-6 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
           <div>
@@ -790,12 +813,15 @@ export default function Proyectos({
             return (
               <div
                 key={project.id}
-                className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden transition-all hover:shadow"
+                className="bg-white rounded-xl border border-outline-variant/40 shadow-sm transition-all hover:shadow"
               >
                 {/* Project Summary Header */}
                 <div
                   onClick={() => toggleExpand(project.id)}
-                  className="p-md sm:p-lg flex flex-col md:flex-row md:items-center justify-between gap-md bg-slate-50/50 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                  className={`p-md sm:p-lg flex flex-col md:flex-row md:items-center justify-between gap-md bg-slate-50 cursor-pointer hover:bg-slate-100/80 transition-colors ${
+                    isExpanded ? 'sticky z-20 rounded-t-xl border-b border-slate-200/80 shadow-xs' : 'rounded-xl'
+                  }`}
+                  style={isExpanded ? { top: `${stickyHeaderOffset}px` } : undefined}
                 >
                   <div className="flex items-start gap-md min-w-0">
                     <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white flex-shrink-0 shadow-sm mt-1">
@@ -912,7 +938,7 @@ export default function Proyectos({
 
                 {/* Collapsible Details: Associated Budgets and Billing Tables */}
                 {isExpanded && (
-                  <div className="border-t border-outline-variant/20 p-md sm:p-lg space-y-lg bg-white">
+                  <div className="border-t border-outline-variant/20 p-md sm:p-lg space-y-lg bg-white rounded-b-xl">
                     {/* Costos Extras Detallados */}
                     {projectExtraCosts.length > 0 && (
                       <div className="border border-amber-200 rounded-xl p-md bg-amber-50/10 space-y-sm">

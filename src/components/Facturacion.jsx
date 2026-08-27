@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
@@ -33,6 +33,29 @@ export default function Facturacion({
 
   // --- EXPANSION STATE ---
   const [expandedProjects, setExpandedProjects] = useState({});
+
+  // Sticky filter header offset measurement
+  const filterHeaderRef = useRef(null);
+  const [stickyHeaderOffset, setStickyHeaderOffset] = useState(0);
+
+  useEffect(() => {
+    const updateOffset = () => {
+      if (filterHeaderRef.current) {
+        // 64px is top navbar height (top-16)
+        setStickyHeaderOffset(64 + filterHeaderRef.current.offsetHeight);
+      }
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    if (filterHeaderRef.current) {
+      observer.observe(filterHeaderRef.current);
+    }
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, []);
 
   // --- MODALS STATE ---
   const [isEmitModalOpen, setIsEmitModalOpen] = useState(false);
@@ -842,7 +865,7 @@ export default function Facturacion({
   return (
     <div className="space-y-6 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
           <div>
@@ -1068,12 +1091,15 @@ export default function Facturacion({
             return (
               <div
                 key={pId}
-                className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden transition-all hover:shadow text-left"
+                className="bg-white rounded-xl border border-outline-variant/40 shadow-sm transition-all hover:shadow text-left"
               >
                 {/* Nivel 1: Tarjeta de Proyecto */}
                 <div
                   onClick={() => toggleProject(pId)}
-                  className="p-md sm:p-lg flex flex-col md:flex-row md:items-center justify-between gap-md bg-slate-50/50 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                  className={`p-md sm:p-lg flex flex-col md:flex-row md:items-center justify-between gap-md bg-slate-50 cursor-pointer hover:bg-slate-100/80 transition-colors ${
+                    isExpanded ? 'sticky z-20 rounded-t-xl border-b border-slate-200/80 shadow-xs' : 'rounded-xl'
+                  }`}
+                  style={isExpanded ? { top: `${stickyHeaderOffset}px` } : undefined}
                 >
                   <div className="flex items-start gap-md min-w-0">
                     <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center text-white flex-shrink-0 shadow-sm mt-1">
@@ -1140,7 +1166,7 @@ export default function Facturacion({
 
                 {/* Nivel 2: Presupuestos del Proyecto */}
                 {isExpanded && (
-                  <div className="border-t border-outline-variant/20 p-lg bg-surface-container-lowest divide-y divide-outline-variant/20 space-y-lg">
+                  <div className="border-t border-outline-variant/20 p-lg bg-surface-container-lowest divide-y divide-outline-variant/20 space-y-lg rounded-b-xl">
                     {projectBudgets.map(({ id: bId, budget, title, amount, installments: budgetInstallments }) => {
                       const budgetRazonSocial = getBudgetRazonSocial(budget);
 
