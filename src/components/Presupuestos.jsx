@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { sanitizeFileName, supabaseService } from '../utils/supabaseService';
+import { sanitizeFileName, supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 
@@ -275,6 +275,7 @@ export default function Presupuestos({
   const [issueDate, setIssueDate] = useState(getTodayDDMMYYYY());
   const [validity, setValidity] = useState(30);
   const [quoteTitle, setQuoteTitle] = useState('Servicios ERP');
+  const [quoteCurrency, setQuoteCurrency] = useState('UF');
   const [backupFiles, setBackupFiles] = useState([]);
   const [isExistingQuote, setIsExistingQuote] = useState(false);
   const [isAiExtracting, setIsAiExtracting] = useState(false);
@@ -451,11 +452,11 @@ export default function Presupuestos({
   const handleSubtotalBlur = (e) => {
     const val = e.target.value;
     if (!val || val.trim() === '') {
-      setSubtotal('0,00');
+      setSubtotal(quoteCurrency === 'CLP' ? '0' : '0,00');
       return;
     }
     const num = parseSubtotal(val);
-    setSubtotal(formatToChileanNumber(num, 2));
+    setSubtotal(formatToChileanNumber(num, quoteCurrency === 'CLP' ? 0 : 2));
   };
 
   const handleSubtotalFocus = (e) => {
@@ -1011,6 +1012,7 @@ export default function Presupuestos({
     setIssueDate(getTodayDDMMYYYY());
     setValidity(30);
     setQuoteTitle('Servicios ERP');
+    setQuoteCurrency('UF');
     setSubtotal(formatToChileanNumber(1200.00, 2)); // default value
     setBackupFiles([]);
     setEditBillingTable([]);
@@ -1022,6 +1024,7 @@ export default function Presupuestos({
   const handleEditQuote = (quote) => {
     setQuoteId(quote.quoteId);
     setCurrentBudgetUuid(quote.id);
+    setQuoteCurrency(quote.currency || 'UF');
 
     const matchedMC = mainClients.find(mc =>
       (quote.mainClientId && mc.id === quote.mainClientId) ||
@@ -1049,7 +1052,7 @@ export default function Presupuestos({
     const initialSubtotal = quote.items && quote.items.length > 0
       ? quote.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
       : quote.amount;
-    setSubtotal(formatToChileanNumber(initialSubtotal || 0, 2));
+    setSubtotal(formatToChileanNumber(initialSubtotal || 0, (quote.currency === 'CLP' ? 0 : 2)));
 
     setBackupFiles(quote.backupFiles || []);
 
@@ -1080,6 +1083,7 @@ export default function Presupuestos({
       if (!currentBudgetUuid || currentBudgetUuid === existing.id) {
         setIsExistingQuote(true);
         setCurrentBudgetUuid(existing.id);
+        setQuoteCurrency(existing.currency || 'UF');
 
         const matchedMC = mainClients.find(mc =>
           (existing.mainClientId && mc.id === existing.mainClientId) ||
@@ -1106,7 +1110,7 @@ export default function Presupuestos({
         const initialSubtotal = existing.items && existing.items.length > 0
           ? existing.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
           : existing.amount;
-        setSubtotal(formatToChileanNumber(initialSubtotal || 0, 2));
+        setSubtotal(formatToChileanNumber(initialSubtotal || 0, (existing.currency === 'CLP' ? 0 : 2)));
 
         setBackupFiles(existing.backupFiles || []);
 
@@ -1409,7 +1413,7 @@ export default function Presupuestos({
         setNotification({
           type: 'error',
           title: 'Error de Cuotas',
-          message: `La suma de las cuotas (${roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF) no coincide con el subtotal del presupuesto (${expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF).`
+          message: `La suma de las cuotas (${roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${quoteCurrency}) no coincide con el subtotal del presupuesto (${expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${quoteCurrency}).`
         });
         return;
       }
@@ -1434,6 +1438,7 @@ export default function Presupuestos({
             superficie: 0,
             rentabilidad: 0,
             anio: new Date().getFullYear(),
+            currency: quoteCurrency,
             status: 'Activo'
           });
           projectIdToLink = newProj.id;
@@ -1467,6 +1472,7 @@ export default function Presupuestos({
       title: quoteTitle,
       date: ensureDDMMYYYY(issueDate),
       amount: parseSubtotal(subtotal),
+      currency: quoteCurrency,
       validity: `${validity} días`,
       status: finalStatus,
       items: [
@@ -1490,6 +1496,7 @@ export default function Presupuestos({
       setSelectedClient('');
       setValidity(30);
       setQuoteTitle('Servicios ERP');
+      setQuoteCurrency('UF');
       setSubtotal(formatToChileanNumber(0, 2));
       setBackupFiles([]);
       setEditBillingTable([]);
@@ -1527,27 +1534,24 @@ export default function Presupuestos({
     return matchesSearch && matchesStatus && matchesPeriod;
   });
 
-  // Calculate totals based on filtered quotes
-  const totalApproved = filteredQuotes
-    .filter(q => q.status === 'Aprobado' || q.status === 'Aprovado')
-    .reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  // Calculate totals based on filtered quotes grouped by status and currency
+  const approvedQuotes = filteredQuotes.filter(q => q.status === 'Aprobado' || q.status === 'Aprovado');
+  const approvedQuotesCount = approvedQuotes.length;
+  const totalApprovedUF = approvedQuotes.filter(q => (q.currency || 'UF') === 'UF').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalApprovedUSD = approvedQuotes.filter(q => q.currency === 'USD').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalApprovedCLP = approvedQuotes.filter(q => q.currency === 'CLP').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
 
-  const totalSent = filteredQuotes
-    .filter(q => q.status === 'Enviado')
-    .reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const sentQuotes = filteredQuotes.filter(q => q.status === 'Enviado');
+  const sentQuotesCount = sentQuotes.length;
+  const totalSentUF = sentQuotes.filter(q => (q.currency || 'UF') === 'UF').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalSentUSD = sentQuotes.filter(q => q.currency === 'USD').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalSentCLP = sentQuotes.filter(q => q.currency === 'CLP').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
 
-  const totalRejected = filteredQuotes
-    .filter(q => q.status === 'Rechazado')
-    .reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
-
-  const approvedQuotesCount = filteredQuotes
-    .filter(q => q.status === 'Aprobado' || q.status === 'Aprovado').length;
-
-  const sentQuotesCount = filteredQuotes
-    .filter(q => q.status === 'Enviado').length;
-
-  const rejectedQuotesCount = filteredQuotes
-    .filter(q => q.status === 'Rechazado').length;
+  const rejectedQuotes = filteredQuotes.filter(q => q.status === 'Rechazado');
+  const rejectedQuotesCount = rejectedQuotes.length;
+  const totalRejectedUF = rejectedQuotes.filter(q => (q.currency || 'UF') === 'UF').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalRejectedUSD = rejectedQuotes.filter(q => q.currency === 'USD').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
+  const totalRejectedCLP = rejectedQuotes.filter(q => q.currency === 'CLP').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
 
   const existingQuoteObj = quotes.find(q => q.quoteId === quoteId || q.quoteId === quoteId.padStart(4, '0') || q.id === currentBudgetUuid);
 
@@ -1579,59 +1583,104 @@ export default function Presupuestos({
         {/* Tarjetas KPI Stat Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Tarjeta Aprobados */}
-          <div className="stat-card">
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
               <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">check_circle</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {totalApproved.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </span>
-              <span className="text-xs font-bold text-emerald-700">UF</span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">
-                {approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-              </span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalApprovedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalApprovedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${totalApprovedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>Registros:</span>
+              <span className="font-semibold text-slate-600">{approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
             </div>
           </div>
 
           {/* Tarjeta Enviados */}
-          <div className="stat-card">
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
               <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">send</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {totalSent.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </span>
-              <span className="text-xs font-bold text-blue-700">UF</span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">
-                {sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-              </span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalSentUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalSentUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${totalSentCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>Registros:</span>
+              <span className="font-semibold text-slate-600">{sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
             </div>
           </div>
 
           {/* Tarjeta Rechazados */}
-          <div className="stat-card">
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
               <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">cancel</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {totalRejected.toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </span>
-              <span className="text-xs font-bold text-rose-700">UF</span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">
-                {rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}
-              </span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalRejectedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalRejectedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${totalRejectedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>Registros:</span>
+              <span className="font-semibold text-slate-600">{rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
             </div>
           </div>
         </div>
@@ -1726,8 +1775,7 @@ export default function Presupuestos({
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título de presupuesto</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Fecha de Emisión</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto Total (UF)</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Validez</th>
+                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Respaldo</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Estado</th>
                   <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
@@ -1757,9 +1805,8 @@ export default function Presupuestos({
                     </td>
                     <td className="p-md font-body-md text-on-surface">{quote.date}</td>
                     <td className="p-md font-body-md font-bold text-on-surface text-right">
-                      ${quote.amount.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {formatAmountWithCurrency(quote.amount, quote.currency)}
                     </td>
-                    <td className="p-md font-body-md text-on-surface">{quote.validity}</td>
                     <td className="p-md text-center">
                       {quote.backupFiles && quote.backupFiles.length > 0 ? (
                         <div className="flex justify-center items-center gap-1.5">
@@ -1912,7 +1959,7 @@ export default function Presupuestos({
                     <div>
                       <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Monto Total</span>
                       <span className="font-extrabold text-primary text-headline-sm">
-                        {viewingQuote.amount.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
+                        {formatAmountWithCurrency(viewingQuote.amount, viewingQuote.currency)}
                       </span>
                     </div>
                     <div>
@@ -1965,8 +2012,8 @@ export default function Presupuestos({
                         <tr>
                           <th className="p-2 font-semibold text-on-surface-variant">Descripción</th>
                           <th className="p-2 font-semibold text-on-surface-variant text-center">Cant.</th>
-                          <th className="p-2 font-semibold text-on-surface-variant text-right">Unitario (UF)</th>
-                          <th className="p-2 font-semibold text-on-surface-variant text-right">Total (UF)</th>
+                          <th className="p-2 font-semibold text-on-surface-variant text-right">Unitario ({viewingQuote.currency || 'UF'})</th>
+                          <th className="p-2 font-semibold text-on-surface-variant text-right">Total ({viewingQuote.currency || 'UF'})</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -2013,7 +2060,7 @@ export default function Presupuestos({
                                 <th className="p-md font-semibold text-on-surface-variant">N° Cuota</th>
                                 <th className="p-md font-semibold text-on-surface-variant">Fecha de Cobro</th>
                                 <th className="p-md font-semibold text-on-surface-variant">Estado</th>
-                                <th className="p-md font-semibold text-on-surface-variant text-right">Monto (UF)</th>
+                                <th className="p-md font-semibold text-on-surface-variant text-right">Monto</th>
                                 <th className="p-md font-semibold text-on-surface-variant">Comentario</th>
                               </tr>
                             </thead>
@@ -2042,7 +2089,7 @@ export default function Presupuestos({
                                     </span>
                                   </td>
                                   <td className="p-md text-right font-bold text-on-surface">
-                                    {cuota.uf.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
+                                    {formatAmountWithCurrency(cuota.uf, cuota.currency || viewingQuote.currency || 'UF')}
                                   </td>
                                   <td className="p-md text-on-surface-variant italic">
                                     {cuota.comment || 'Facturación ordinaria'}
@@ -2395,22 +2442,41 @@ export default function Presupuestos({
                         </div>
 
                         {/* Separador de Valores Financieros */}
-                        <h4 className="text-body-sm font-bold text-primary flex items-center gap-2 pt-sm border-t border-slate-200/60">
-                          <span className="material-symbols-outlined text-[18px] text-secondary">payments</span>
-                          Valores Financieros
-                        </h4>
+                        <div className="flex items-center justify-between pt-sm border-t border-slate-200/60">
+                          <h4 className="text-body-sm font-bold text-primary flex items-center gap-2">
+                            <span className="material-symbols-outlined text-[18px] text-secondary">payments</span>
+                            Valores Financieros
+                          </h4>
+                          {/* Selector de Moneda */}
+                          <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            {['UF', 'USD', 'CLP'].map((curr) => (
+                              <button
+                                key={curr}
+                                type="button"
+                                disabled={!isClientSelected}
+                                onClick={() => setQuoteCurrency(curr)}
+                                className={`px-2.5 py-0.5 rounded-md text-label-xs font-bold transition-all ${quoteCurrency === curr
+                                  ? 'bg-[#091426] text-white shadow-xs'
+                                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                                  } ${!isClientSelected ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                              >
+                                {curr}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
 
                         {/* Fila 4: Subtotal Neto */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal (UF)</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal ({quoteCurrency})</label>
                           <div className="relative rounded-lg shadow-sm">
                             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                              <span className="text-slate-500 text-body-md">$</span>
+                              <span className="text-slate-500 text-body-xs font-bold">{quoteCurrency}</span>
                             </div>
                             <input
                               type="text"
                               inputMode="decimal"
-                              className={`w-full pl-7 border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-bold ${!isClientSelected
+                              className={`w-full pl-12 border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all font-bold ${!isClientSelected
                                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
                                 : 'bg-white text-on-surface focus:ring-1 focus:ring-secondary focus:border-secondary'
                                 }`}
@@ -2418,7 +2484,7 @@ export default function Presupuestos({
                               onChange={handleSubtotalChange}
                               onFocus={handleSubtotalFocus}
                               onBlur={handleSubtotalBlur}
-                              placeholder="0,00"
+                              placeholder={quoteCurrency === 'CLP' ? '0' : '0,00'}
                               disabled={!isClientSelected}
                               required={isClientSelected}
                             />
@@ -2429,12 +2495,12 @@ export default function Presupuestos({
                         <div className="space-y-sm pt-sm border-t border-slate-200/60">
                           <div className="flex justify-between text-body-sm text-on-surface-variant px-1">
                             <span>Impuesto (19% IVA)</span>
-                            <span className="font-medium">${tax.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="font-medium">{formatAmountWithCurrency(tax, quoteCurrency)}</span>
                           </div>
                           <div className="flex justify-between items-center bg-secondary/5 px-md py-2.5 rounded-lg border border-secondary/10">
                             <span className="text-body-md font-bold text-secondary">Total (IVA Incluido)</span>
                             <span className="text-title-lg font-black text-secondary">
-                              ${total.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {formatAmountWithCurrency(total, quoteCurrency)}
                             </span>
                           </div>
                         </div>
@@ -2580,7 +2646,7 @@ export default function Presupuestos({
                             <div className="p-md bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm">
                               <span className="material-symbols-outlined text-[20px]">warning</span>
                               <span>
-                                La suma de las cuotas ({roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF) no coincide con el subtotal del presupuesto (antes de impuestos) ({expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF). Diferencia: {diff.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF.
+                                La suma de las cuotas ({formatAmountWithCurrency(roundedSum, quoteCurrency)}) no coincide con el subtotal del presupuesto (antes de impuestos) ({formatAmountWithCurrency(expectedTotal, quoteCurrency)}). Diferencia: {formatAmountWithCurrency(diff, quoteCurrency)}.
                               </span>
                             </div>
                           );
@@ -2596,7 +2662,7 @@ export default function Presupuestos({
                                 <th className="p-2 border-b border-slate-200 text-center w-24">N° Cuota</th>
                                 <th className="p-2 border-b border-slate-200 w-40">Fecha de Cobro</th>
                                 <th className="p-2 border-b border-slate-200 w-40">Estado</th>
-                                <th className="p-2 border-b border-slate-200 text-right w-32 font-semibold text-on-surface-variant">Monto (UF)</th>
+                                <th className="p-2 border-b border-slate-200 text-right w-32 font-semibold text-on-surface-variant">Monto</th>
                                 <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Comentario / Descripción</th>
                               </tr>
                             </thead>
@@ -2627,7 +2693,7 @@ export default function Presupuestos({
                                     </span>
                                   </td>
                                   <td className="p-2 text-right font-semibold text-primary">
-                                    {row.uf.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
+                                    {formatAmountWithCurrency(row.uf, row.currency || quoteCurrency || 'UF')}
                                   </td>
                                   <td className="p-2 text-on-surface-variant italic">
                                     {row.comment || 'Facturación ordinaria'}
@@ -3222,16 +3288,16 @@ export default function Presupuestos({
                           </div>
                         </div>
 
-                        {/* Fila: Valor Presupuesto (UF) */}
+                        {/* Fila: Valor Presupuesto */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto (UF)</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto ({approvingQuote?.currency || 'UF'})</label>
                           <input
                             className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
                             type="number"
                             value={valorProyecto}
                             onChange={(e) => handleValorProyectoChange(e.target.value)}
                             min="0"
-                            step="0.01"
+                            step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
                             required
                           />
                         </div>
@@ -3359,7 +3425,7 @@ export default function Presupuestos({
                                   <tr>
                                     <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
                                     <th className="p-2 border-b border-slate-200">Fecha</th>
-                                    <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota (UF)</th>
+                                    <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota ({approvingQuote?.currency || 'UF'})</th>
                                     <th className="p-2 border-b border-slate-200">Comentario</th>
                                     <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
                                   </tr>
@@ -3402,7 +3468,7 @@ export default function Presupuestos({
                                           value={row.uf}
                                           onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
                                           className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
-                                          step="0.01"
+                                          step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
                                         />
                                       </td>
                                       <td className="p-1">
@@ -3462,9 +3528,9 @@ export default function Presupuestos({
                                   }`}>
                                   <div className="flex flex-wrap justify-between items-center gap-2">
                                     <div className="flex flex-wrap gap-x-md gap-y-1">
-                                      <span>Suma Planificada: {roundedSum.toFixed(2)} UF</span>
+                                      <span>Suma Planificada: {formatAmountWithCurrency(roundedSum, approvingQuote?.currency || 'UF')}</span>
                                       <span className="text-slate-350">/</span>
-                                      <span>Monto Requerido: {expectedTotal.toFixed(2)} UF</span>
+                                      <span>Monto Requerido: {formatAmountWithCurrency(expectedTotal, approvingQuote?.currency || 'UF')}</span>
                                     </div>
                                     <div>
                                       {isMatch ? (
@@ -3475,7 +3541,7 @@ export default function Presupuestos({
                                       ) : (
                                         <span className="flex items-center gap-1 text-amber-600">
                                           <span className="material-symbols-outlined text-[18px]">warning</span>
-                                          Diferencia: {(expectedTotal - roundedSum).toFixed(2)} UF
+                                          Diferencia: {formatAmountWithCurrency(expectedTotal - roundedSum, approvingQuote?.currency || 'UF')}
                                         </span>
                                       )}
                                     </div>
@@ -3922,6 +3988,7 @@ export default function Presupuestos({
         <InstallmentsModal
           isOpen={isInstallmentsModalOpen}
           onClose={() => setIsInstallmentsModalOpen(false)}
+          currency={quoteCurrency}
           projectName={existingQuoteObj?.projectId ? (() => {
             const assoc = projects.find(p => p.id === existingQuoteObj.projectId);
             return assoc ? `${assoc.projectNumber} - ${assoc.rawProjectName}` : quoteTitle;

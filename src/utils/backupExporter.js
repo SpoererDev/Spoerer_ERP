@@ -96,6 +96,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Comentario": inst.comment || '',
         "Cuota": inst.installment_number || '',
         "TotCuota": totCuotas || '',
+        "Moneda": inst.currency || budg?.currency || 'UF',
+        "Monto": parseFloat(inst.planned_amount_uf) || 0,
         "UF": parseFloat(inst.planned_amount_uf) || 0,
         "$": isInvoiced ? parseFloat(inst.total_amount_clp) || 0 : '',
         "F-Pago": isPaid ? formatDateExcel(inst.actual_payment_date) : '',
@@ -109,6 +111,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Ingeniero": '',
         "Dibujante": '',
         "M2": proj ? parseFloat(proj.superficie) || 0 : 0,
+        "Total Presupuesto": budg ? parseFloat(budg.total_amount) || 0 : 0,
         "Total UF": budg ? parseFloat(budg.total_amount) || 0 : 0
       });
     });
@@ -134,8 +137,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       header: [
         "Presupuesto #", "Factura #", "Fecha", "Año", "Año Proy", "RUT", "Razón Social",
         "Giro", "Dirección", "Comuna", "Ciudad", "Contacto", "Obra", "Comentario",
-        "Cuota", "TotCuota", "UF", "$", "F-Pago", "Estado F#", "Tipo", "Cliente",
-        "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total UF"
+        "Cuota", "TotCuota", "Moneda", "Monto", "UF", "$", "F-Pago", "Estado F#", "Tipo", "Cliente",
+        "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total Presupuesto", "Total UF"
       ]
     });
 
@@ -153,7 +156,10 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         proyectosRows.push({
           "Código de presupuesto": budg.budget_number || '',
           "Proyecto": fullProjTitle,
+          "Moneda": budg.currency || 'UF',
+          "Presupuesto": parseFloat(budg.total_amount) || 0,
           "Presupuesto (UF)": parseFloat(budg.total_amount) || 0,
+          "Costo Extra": '',
           "Costo Extra (UF)": '',
           "Descripción": budg.title || '',
           "Comentario": '',
@@ -168,7 +174,10 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         proyectosRows.push({
           "Código de presupuesto": '',
           "Proyecto": fullProjTitle,
+          "Moneda": cost.currency || 'UF',
+          "Presupuesto": '',
           "Presupuesto (UF)": '',
+          "Costo Extra": parseFloat(cost.amount) || 0,
           "Costo Extra (UF)": parseFloat(cost.amount) || 0,
           "Descripción": cost.comment || '',
           "Comentario": '',
@@ -182,7 +191,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
 
     const wsProyectos = XLSX.utils.json_to_sheet(proyectosRows, {
       header: [
-        "Código de presupuesto", "Proyecto", "Presupuesto (UF)", "Costo Extra (UF)",
+        "Código de presupuesto", "Proyecto", "Moneda", "Presupuesto", "Presupuesto (UF)", "Costo Extra", "Costo Extra (UF)",
         "Descripción", "Comentario", "m2", "Rentabilidad esperada", "Factura", "Facturado"
       ]
     });

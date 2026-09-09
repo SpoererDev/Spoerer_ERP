@@ -63,7 +63,8 @@ export default function InstallmentsModal({
   initialInstallments = [],
   onSave,
   projectNumber = 'SPR',
-  isDeferredSave = false
+  isDeferredSave = false,
+  currency = 'UF'
 }) {
   const [localInstallments, setLocalInstallments] = useState([]);
   const [editingFileIdx, setEditingFileIdx] = useState(null);
@@ -76,6 +77,7 @@ export default function InstallmentsModal({
       setLocalInstallments(
         initialInstallments.map(inst => ({
           ...inst,
+          currency: inst.currency || currency || 'UF',
           // Newly added local files in memory
           invoiceFileObject: null,
           paymentBackupFileObject: null,
@@ -88,7 +90,7 @@ export default function InstallmentsModal({
       setIsSaving(false);
       setSelectedIds(new Set());
     }
-  }, [isOpen, initialInstallments]);
+  }, [isOpen, initialInstallments, currency]);
 
   if (!isOpen) return null;
 
@@ -169,6 +171,7 @@ export default function InstallmentsModal({
       status: 'Por facturar',
       comment: '',
       dateConfirmed: false,
+      currency: currency || 'UF',
       invoiceNumber: '',
       invoiceFileUrl: '',
       paymentBackupUrl: '',
@@ -369,7 +372,7 @@ export default function InstallmentsModal({
 
     if (Math.abs(roundedTotal - expectedTotal) >= 0.02) {
       setValidationError(
-        `La suma de las cuotas (${roundedTotal.toFixed(2)} UF) no coincide con el total del presupuesto (${expectedTotal.toFixed(2)} UF). Diferencia: ${(expectedTotal - roundedTotal).toFixed(2)} UF.`
+        `La suma de las cuotas (${roundedTotal.toFixed(2)} ${currency}) no coincide con el total del presupuesto (${expectedTotal.toFixed(2)} ${currency}). Diferencia: ${(expectedTotal - roundedTotal).toFixed(2)} ${currency}.`
       );
       return;
     }
@@ -484,7 +487,7 @@ export default function InstallmentsModal({
                   <th className="p-2 border-b border-slate-200 text-center w-14">Nº Cuota</th>
                   <th className="p-2 border-b border-slate-200 text-center w-36">Fecha Planificada</th>
                   <th className="p-2 border-b border-slate-200 text-center w-16">Conf.</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-28">Monto (UF)</th>
+                  <th className="p-2 border-b border-slate-200 text-center w-28">Monto ({currency})</th>
                   <th className="p-2 border-b border-slate-200 text-center w-28">Estado</th>
                   <th className="p-2 border-b border-slate-200 text-center w-28">Folio Factura</th>
                   <th className="p-2 border-b border-slate-200 text-center w-36">Detalle Pesos (CLP)</th>
@@ -828,9 +831,9 @@ export default function InstallmentsModal({
                   <div className="flex flex-wrap gap-x-base items-center text-slate-700">
                     <span>Cuotas: {localInstallments.length}</span>
                     <span className="text-slate-350">|</span>
-                    <span>Suma Planificada: {roundedTotal.toFixed(2)} UF</span>
+                    <span>Suma Planificada: {roundedTotal.toFixed(2)} {currency}</span>
                     <span className="text-slate-350">/</span>
-                    <span>Requerido: {expectedTotal.toFixed(2)} UF</span>
+                    <span>Requerido: {expectedTotal.toFixed(2)} {currency}</span>
                   </div>
                   <div className="flex items-center">
                     {isMatch ? (
@@ -841,7 +844,7 @@ export default function InstallmentsModal({
                     ) : (
                       <span className="flex items-center gap-0.5 text-amber-600">
                         <span className="material-symbols-outlined text-[18px]">warning</span>
-                        <span>Diferencia: {(expectedTotal - roundedTotal).toFixed(2)} UF</span>
+                        <span>Diferencia: {(expectedTotal - roundedTotal).toFixed(2)} {currency}</span>
                       </span>
                     )}
                   </div>

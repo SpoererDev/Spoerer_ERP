@@ -65,6 +65,27 @@ const mapClientToDb = (client) => ({
   contact_phone: client.phone
 });
 
+// Helper: Format amount with currency symbol/unit
+export const formatAmountWithCurrency = (val, currency = 'UF', decimals = 2) => {
+  if (val === null || val === undefined || isNaN(val)) {
+    return `0 ${currency || 'UF'}`;
+  }
+  const num = typeof val === 'number' ? val : parseFloat(val) || 0;
+  const curr = (currency || 'UF').toUpperCase();
+
+  if (curr === 'CLP') {
+    return `$${num.toLocaleString('es-CL', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    })} CLP`;
+  }
+
+  return `${num.toLocaleString('es-CL', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  })} ${curr}`;
+};
+
 // Helper: Map budget fields between database and frontend
 const mapBudgetFromDb = (dbBudget) => {
   if (!dbBudget) return null;
@@ -90,6 +111,7 @@ const mapBudgetFromDb = (dbBudget) => {
     title: dbBudget.title,
     date: dbBudget.date ? dbBudget.date.split('-').reverse().join('/') : '', // YYYY-MM-DD -> DD/MM/YYYY
     amount: parseFloat(dbBudget.total_amount) || 0,
+    currency: dbBudget.currency || 'UF',
     validity: `${dbBudget.validity_days} días`,
     status: dbBudget.status,
     items: dbBudget.budget_items ? dbBudget.budget_items.map(item => ({
@@ -129,6 +151,7 @@ const mapProjectFromDb = (dbProject) => {
     legalEntityId: dbProject.legal_entity_id || dbProject.client_id || null,
     status: dbProject.status,
     tipo: dbProject.tipo,
+    currency: dbProject.currency || 'UF',
     encargado: dbProject.encargado || ''
   };
 };
@@ -153,6 +176,7 @@ const mapInstallmentFromDb = (dbInst) => ({
   numQuota: dbInst.installment_number,
   date: dbInst.scheduled_date,
   uf: parseFloat(dbInst.planned_amount_uf) || 0,
+  currency: dbInst.currency || 'UF',
   net_clp: dbInst.net_amount_clp ? parseFloat(dbInst.net_amount_clp) : null,
   tax_clp: dbInst.tax_amount_clp ? parseFloat(dbInst.tax_amount_clp) : null,
   total_clp: dbInst.total_amount_clp ? parseFloat(dbInst.total_amount_clp) : null,
@@ -171,6 +195,7 @@ const mapExtraCostFromDb = (dbCost) => ({
   id: dbCost.id,
   project_id: dbCost.project_id,
   amount: parseFloat(dbCost.amount) || 0,
+  currency: dbCost.currency || 'UF',
   superficie: parseFloat(dbCost.superficie) || 0,
   comment: dbCost.comment || ''
 });
@@ -595,6 +620,7 @@ export const supabaseService = {
         title: quote.title,
         date: formattedDate,
         total_amount: totalAmount,
+        currency: quote.currency || 'UF',
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         backup_files: finalFiles
@@ -620,6 +646,7 @@ export const supabaseService = {
         title: quote.title,
         date: formattedDate,
         total_amount: totalAmount,
+        currency: quote.currency || 'UF',
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         created_by: quote.createdBy || null,
@@ -681,6 +708,7 @@ export const supabaseService = {
           installment_number: inst.numQuota,
           scheduled_date: inst.date,
           planned_amount_uf: parseFloat(inst.uf) || 0,
+          currency: inst.currency || quote.currency || savedBudget.currency || 'UF',
           comment: inst.comment || '',
           status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
           date_confirmed: inst.dateConfirmed || false,
@@ -814,6 +842,7 @@ export const supabaseService = {
       year: parseInt(project.anio) || new Date().getFullYear(),
       status: project.status || 'Activo',
       tipo: project.tipo || null,
+      currency: project.currency || 'UF',
       encargado: project.encargado || null
     };
 
@@ -880,6 +909,7 @@ export const supabaseService = {
     const dbData = {
       project_id: cost.project_id,
       amount: parseFloat(cost.amount) || 0,
+      currency: cost.currency || 'UF',
       superficie: parseFloat(cost.superficie) || 0,
       comment: cost.comment
     };
@@ -928,6 +958,7 @@ export const supabaseService = {
     if (updates.date !== undefined) dbUpdates.scheduled_date = updates.date;
     if (updates.status !== undefined) dbUpdates.status = mapInstallmentStatusToDb(updates.status);
     if (updates.uf !== undefined) dbUpdates.planned_amount_uf = parseFloat(updates.uf) || 0;
+    if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
     if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
     if (updates.dateConfirmed !== undefined) dbUpdates.date_confirmed = updates.dateConfirmed;
     
@@ -960,6 +991,7 @@ export const supabaseService = {
       installment_number: installment.numQuota,
       scheduled_date: installment.date,
       planned_amount_uf: parseFloat(installment.uf) || 0,
+      currency: installment.currency || 'UF',
       status: mapInstallmentStatusToDb(installment.status || 'Por facturar'),
       comment: installment.comment || '',
       date_confirmed: installment.dateConfirmed || false,
@@ -1006,6 +1038,7 @@ export const supabaseService = {
       year: parseInt(projectForm.anio) || new Date().getFullYear(),
       status: 'Activo',
       tipo: projectForm.tipo || null,
+      currency: projectForm.currency || (budgetForm ? budgetForm.currency : null) || 'UF',
       encargado: projectForm.encargado || null
     };
 
@@ -1088,7 +1121,7 @@ export const supabaseService = {
     // 3. Move files in storage if status changes to Aprobado, or handle budgetForm files
     const { data: currentBudget } = await supabase
       .from('budgets')
-      .select('status, budget_number, backup_files')
+      .select('status, budget_number, backup_files, currency')
       .eq('id', budgetId)
       .single();
 
@@ -1175,6 +1208,7 @@ export const supabaseService = {
         installment_number: inst.numQuota,
         scheduled_date: inst.date,
         planned_amount_uf: parseFloat(inst.uf) || 0,
+        currency: inst.currency || (currentBudget ? currentBudget.currency : 'UF') || 'UF',
         comment: inst.comment || '',
         status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
         date_confirmed: inst.dateConfirmed || false,
@@ -1509,6 +1543,8 @@ export const supabaseService = {
       installments: installments || [],
       profiles: profiles || []
     };
-  }
+  },
+
+  formatAmountWithCurrency
 };
 

@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import { validateRut, formatRut } from '../utils/validation';
+import { formatAmountWithCurrency } from '../utils/supabaseService';
 
 export default function Facturacion({
   projects,
@@ -208,9 +209,9 @@ export default function Facturacion({
     return publicUrl;
   };
 
-  // --- UF AUTO-FETCHING FOR A GIVEN DATE ---
-  const fetchUfForDate = async (dateStr) => {
-    if (!dateStr) {
+  // --- RATE AUTO-FETCHING FOR A GIVEN DATE (UF / USD) ---
+  const fetchRateForDate = async (dateStr, currency = 'UF') => {
+    if (!dateStr || currency === 'CLP') {
       setUfRate('');
       return;
     }
@@ -220,8 +221,11 @@ export default function Facturacion({
       const parts = dateStr.split('-');
       if (parts.length !== 3) throw new Error('Formato de fecha no válido');
       const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; // YYYY-MM-DD to DD-MM-YYYY
-      const res = await fetch(`https://mindicador.cl/api/uf/${formattedDate}`);
-      if (!res.ok) throw new Error('Error al conectar con el servidor de UF');
+      const endpoint = currency === 'USD' 
+        ? `https://mindicador.cl/api/dolar/${formattedDate}` 
+        : `https://mindicador.cl/api/uf/${formattedDate}`;
+      const res = await fetch(endpoint);
+      if (!res.ok) throw new Error(`Error al conectar con el servidor de ${currency}`);
       const data = await res.json();
       if (data.serie && data.serie.length > 0) {
         const rate = data.serie[0].valor;
@@ -230,7 +234,7 @@ export default function Facturacion({
         throw new Error('Sin datos para esa fecha');
       }
     } catch (err) {
-      console.error("Error fetching UF for date:", err);
+      console.error(`Error fetching rate for date (${currency}):`, err);
       setUfFetchError(true);
       setUfRate('');
     } finally {
@@ -238,17 +242,25 @@ export default function Facturacion({
     }
   };
 
-  // Fetch UF rate automatically when Emit Invoice Modal is open or selected emission date changes
+  // Fetch rate automatically when Emit Invoice Modal is open or selected emission date changes
   useEffect(() => {
     if (isEmitModalOpen && selectedInstallment && actualInvoiceDate) {
-      fetchUfForDate(actualInvoiceDate);
+      const instCurr = (selectedInstallment.currency || 'UF').toUpperCase();
+      if (instCurr !== 'CLP') {
+        fetchRateForDate(actualInvoiceDate, instCurr);
+      } else {
+        setUfRate('');
+      }
     }
   }, [isEmitModalOpen, selectedInstallment, actualInvoiceDate]);
 
   // --- DYNAMIC CALCULATIONS FOR EMIT MODAL ---
-  const plannedUf = selectedInstallment ? parseFloat(selectedInstallment.uf) || 0 : 0;
+  const plannedAmount = selectedInstallment ? parseFloat(selectedInstallment.uf) || 0 : 0;
+  const instCurrency = (selectedInstallment?.currency || 'UF').toUpperCase();
   const parsedUfRate = parseFloat(ufRate) || 0;
-  const calculatedNet = Math.round(plannedUf * parsedUfRate);
+  const calculatedNet = instCurrency === 'CLP'
+    ? Math.round(plannedAmount)
+    : Math.round(plannedAmount * parsedUfRate);
   const calculatedTax = Math.round(calculatedNet * 0.19);
   const calculatedTotal = calculatedNet + calculatedTax;
 
@@ -315,33 +327,50 @@ export default function Facturacion({
   const stats = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
 
-    let totalPorFacturarUf = 0;
-    let totalFacturadoPendienteClp = 0;
-    let totalRecaudadoClp = 0;
-    let totalVencidoUf = 0;
+    const porFacturar = { UF: 0, USD: 0, CLP: 0, count: 0 };
+    const facturadoPendiente = { UF: 0, USD: 0, CLP: 0, totalClp: 0, count: 0 };
+    const recaudado = { UF: 0, USD: 0, CLP: 0, totalClp: 0, count: 0 };
+    const vencido = { UF: 0, USD: 0, CLP: 0, count: 0 };
 
     filteredInstallments.forEach(inst => {
       const isUnpaid = inst.status === 'Por facturar' || inst.status === 'Factura emitida';
       const isExpired = inst.date && inst.date < todayStr;
+      const curr = (inst.currency || 'UF').toUpperCase();
+      const amt = parseFloat(inst.uf) || 0;
+      const clpVal = parseFloat(inst.total_clp) || 0;
 
       if (inst.status === 'Por facturar') {
-        totalPorFacturarUf += parseFloat(inst.uf) || 0;
+        porFacturar.count++;
+        if (curr === 'USD') porFacturar.USD += amt;
+        else if (curr === 'CLP') porFacturar.CLP += amt;
+        else porFacturar.UF += amt;
       } else if (inst.status === 'Factura emitida') {
-        totalFacturadoPendienteClp += parseFloat(inst.total_clp) || 0;
+        facturadoPendiente.count++;
+        facturadoPendiente.totalClp += clpVal;
+        if (curr === 'USD') facturadoPendiente.USD += amt;
+        else if (curr === 'CLP') facturadoPendiente.CLP += (clpVal || amt);
+        else facturadoPendiente.UF += amt;
       } else if (inst.status === 'Pagada') {
-        totalRecaudadoClp += parseFloat(inst.total_clp) || 0;
+        recaudado.count++;
+        recaudado.totalClp += clpVal;
+        if (curr === 'USD') recaudado.USD += amt;
+        else if (curr === 'CLP') recaudado.CLP += (clpVal || amt);
+        else recaudado.UF += amt;
       }
 
       if (isUnpaid && isExpired) {
-        totalVencidoUf += parseFloat(inst.uf) || 0;
+        vencido.count++;
+        if (curr === 'USD') vencido.USD += amt;
+        else if (curr === 'CLP') vencido.CLP += amt;
+        else vencido.UF += amt;
       }
     });
 
     return {
-      totalPorFacturarUf,
-      totalFacturadoPendienteClp,
-      totalRecaudadoClp,
-      totalVencidoUf
+      porFacturar,
+      facturadoPendiente,
+      recaudado,
+      vencido
     };
   }, [filteredInstallments]);
 
@@ -371,7 +400,7 @@ export default function Facturacion({
 
       const budgetGroups = groups[pId];
       const projectBudgets = [];
-      let projectPlannedTotalUf = 0;
+      const projectTotalsByCurrency = {};
 
       Object.keys(budgetGroups).forEach(bId => {
         const budget = budgets.find(b => b.id === bId);
@@ -385,8 +414,10 @@ export default function Facturacion({
         // Sort installments by numQuota or date
         budgetInstallments.sort((a, b) => (a.numQuota || 0) - (b.numQuota || 0));
 
-        const budgetTotalUf = budgetInstallments.reduce((sum, inst) => sum + (inst.uf || 0), 0);
-        projectPlannedTotalUf += budgetTotalUf;
+        budgetInstallments.forEach(inst => {
+          const curr = (inst.currency || budget?.currency || 'UF').toUpperCase();
+          projectTotalsByCurrency[curr] = (projectTotalsByCurrency[curr] || 0) + (parseFloat(inst.uf) || 0);
+        });
 
         projectBudgets.push({
           id: bId,
@@ -402,7 +433,7 @@ export default function Facturacion({
       result.push({
         id: pId,
         project,
-        plannedTotalUf: projectPlannedTotalUf,
+        plannedTotalsByCurrency: projectTotalsByCurrency,
         budgets: projectBudgets
       });
     });
@@ -530,6 +561,8 @@ export default function Facturacion({
         "Comentario": installment.comment || '',
         "Cuota": installment.numQuota || '',
         "TotCuota": totCuotas || '',
+        "Moneda": installment.currency || budget?.currency || 'UF',
+        "Monto": parseFloat(installment.uf) || 0,
         "UF": parseFloat(installment.uf) || 0,
         "$": isInvoiced ? parseFloat(installment.total_clp) || 0 : '',
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
@@ -543,6 +576,7 @@ export default function Facturacion({
         "Ingeniero": '',
         "Dibujante": '',
         "M2": project ? parseFloat(project.superficie) || 0 : 0,
+        "Total Presupuesto": budget ? parseFloat(budget.amount) || 0 : 0,
         "Total UF": budget ? parseFloat(budget.amount) || 0 : 0
       });
     });
@@ -583,6 +617,8 @@ export default function Facturacion({
         "Comentario",
         "Cuota",
         "TotCuota",
+        "Moneda",
+        "Monto",
         "UF",
         "$",
         "F-Pago",
@@ -596,6 +632,7 @@ export default function Facturacion({
         "Ingeniero",
         "Dibujante",
         "M2",
+        "Total Presupuesto",
         "Total UF"
       ]
     });
@@ -780,8 +817,9 @@ export default function Facturacion({
       alert("Por favor, ingrese el número de factura.");
       return;
     }
-    if (!ufRate || isNaN(parseFloat(ufRate))) {
-      alert("Por favor, ingrese un valor de UF válido.");
+    const curr = (selectedInstallment?.currency || 'UF').toUpperCase();
+    if (curr !== 'CLP' && (!ufRate || isNaN(parseFloat(ufRate)))) {
+      alert(`Por favor, ingrese un valor de ${curr === 'USD' ? 'Dólar' : 'UF'} válido.`);
       return;
     }
 
@@ -899,67 +937,139 @@ export default function Facturacion({
 
         {/* SECTION A: Dashboard de KPIs Financieros */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Total por Facturar (UF) */}
-          <div className="stat-card">
+          {/* KPI 1: Por Facturar (Planificado) */}
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar (Planificado)</span>
               <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">calendar_today</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {formatUF(stats.totalPorFacturarUf, 0)}
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">Plan de cobro</span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.porFacturar.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.porFacturar.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${stats.porFacturar.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>Registros:</span>
+              <span className="font-semibold text-slate-600">{stats.porFacturar.count} {stats.porFacturar.count === 1 ? 'cuota' : 'cuotas'}</span>
             </div>
           </div>
 
-          {/* KPI 2: Total Facturado Pendiente (CLP) */}
-          <div className="stat-card">
+          {/* KPI 2: Total Facturado Pendiente */}
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente</span>
               <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">pending_actions</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {formatCLP(stats.totalFacturadoPendienteClp)}
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">Por cobrar</span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.facturadoPendiente.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.facturadoPendiente.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${stats.facturadoPendiente.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>{stats.facturadoPendiente.count} {stats.facturadoPendiente.count === 1 ? 'cuota' : 'cuotas'}</span>
+              <span className="font-bold text-amber-700 font-mono">{formatCLP(stats.facturadoPendiente.totalClp)}</span>
             </div>
           </div>
 
-          {/* KPI 3: Total Recaudado (CLP) */}
-          <div className="stat-card">
+          {/* KPI 3: Total Recaudado */}
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
               <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">payments</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {formatCLP(stats.totalRecaudadoClp)}
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">Pagos confirmados</span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.recaudado.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.recaudado.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${stats.recaudado.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>{stats.recaudado.count} {stats.recaudado.count === 1 ? 'cuota' : 'cuotas'}</span>
+              <span className="font-bold text-emerald-700 font-mono">{formatCLP(stats.recaudado.totalClp)}</span>
             </div>
           </div>
 
-          {/* KPI 4: Vencimientos Atrasados (UF) */}
-          <div className="stat-card">
+          {/* KPI 4: Vencimientos Atrasados */}
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Vencido Atrasado</span>
               <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {formatUF(stats.totalVencidoUf, 0)}
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium ml-auto">Cuotas atrasadas</span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.vencido.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {stats.vencido.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${stats.vencido.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+              <span>Registros:</span>
+              <span className="font-semibold text-slate-600">{stats.vencido.count} {stats.vencido.count === 1 ? 'cuota' : 'cuotas'}</span>
             </div>
           </div>
         </div>
@@ -1085,7 +1195,7 @@ export default function Facturacion({
       {/* SECTION C: Lista de Facturación Agrupada (Jerárquica) */}
       <div className="space-y-md">
         {groupedData.length > 0 ? (
-          groupedData.map(({ id: pId, project, plannedTotalUf, budgets: projectBudgets }) => {
+          groupedData.map(({ id: pId, project, plannedTotalsByCurrency, budgets: projectBudgets }) => {
             const isExpanded = expandedProjects[pId];
 
             return (
@@ -1152,8 +1262,16 @@ export default function Facturacion({
 
                   <div className="flex items-center gap-lg self-end md:self-auto pl-12 md:pl-0">
                     <div className="text-right">
-                      <span className="text-[10px] font-bold text-outline-variant block uppercase tracking-wider">Total UF Filtrado</span>
-                      <span className="text-body-md font-bold text-primary">{formatUF(plannedTotalUf)}</span>
+                      <span className="text-[10px] font-bold text-outline-variant block uppercase tracking-wider">Total Planificado</span>
+                      <div className="text-body-md font-bold text-primary flex flex-wrap justify-end gap-x-2">
+                        {plannedTotalsByCurrency && Object.keys(plannedTotalsByCurrency).length > 0 ? (
+                          Object.entries(plannedTotalsByCurrency).map(([curr, amt]) => (
+                            <span key={curr}>{formatAmountWithCurrency(amt, curr)}</span>
+                          ))
+                        ) : (
+                          <span>0,00 UF</span>
+                        )}
+                      </div>
                     </div>
                     <div className={`p-2 hover:bg-slate-200/60 rounded text-secondary transition-all flex items-center gap-1 font-bold text-body-sm ${isExpanded ? 'bg-slate-200/60' : ''}`}>
                       <span>{isExpanded ? 'Colapsar' : 'Detalle'}</span>
@@ -1205,7 +1323,7 @@ export default function Facturacion({
                             </div>
                             <div className="flex items-center gap-sm flex-wrap">
                               <span className="text-body-sm text-on-surface-variant font-medium">
-                                Monto Presupuestado: <strong className="font-semibold text-slate-700">{formatCLP(amount)}</strong>
+                                Monto Presupuestado: <strong className="font-semibold text-slate-700">{formatAmountWithCurrency(amount, budget?.currency || 'UF')}</strong>
                               </span>
                               <button
                                 type="button"
@@ -1238,7 +1356,7 @@ export default function Facturacion({
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center w-36">Fecha Confirmada</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Fecha Planificada</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Comentario</th>
-                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Monto (UF)</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Monto</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center">Estado</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Folio Factura</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Detalle Pesos (CLP)</th>
@@ -1277,7 +1395,7 @@ export default function Facturacion({
                                         {inst.comment || '-'}
                                       </td>
                                       <td className={`px-md py-md text-right font-semibold ${isOverdue ? 'text-red-600' : 'text-primary'}`}>
-                                        {formatUF(inst.uf)}
+                                        {formatAmountWithCurrency(inst.uf, inst.currency || budget?.currency || 'UF')}
                                       </td>
                                       <td className="px-md py-md text-center">
                                         <span className={`inline-flex items-center px-sm py-xs rounded-full text-[10px] font-bold uppercase border ${inst.status === 'Pagada'
@@ -1451,7 +1569,7 @@ export default function Facturacion({
                 </p>
                 <p className="flex justify-between items-center border-t border-slate-200/40 pt-1 mt-1">
                   <span className="text-on-surface-variant font-medium">Monto Pactado:</span>
-                  <span className="font-bold text-secondary">{formatUF(selectedInstallment.uf)}</span>
+                  <span className="font-bold text-secondary">{formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')}</span>
                 </p>
               </div>
 
@@ -1494,46 +1612,59 @@ export default function Facturacion({
                 </div>
               </div>
 
-              {/* Valor UF del dia (Fetch proposal) */}
-              <div className="space-y-xs">
-                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Valor de la UF del día ($)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
-                    value={ufRate}
-                    onChange={(e) => setUfRate(e.target.value)}
-                    placeholder="Ej: 38250"
-                    required
-                    disabled={isSaving}
-                  />
-                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-xs">
-                    {isFetchingUf ? (
-                      <span className="animate-spin text-outline-variant text-[18px] material-symbols-outlined">sync</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => fetchUfForDate(actualInvoiceDate)}
-                        className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
-                        title="Recargar UF de la fecha seleccionada"
-                        disabled={isSaving}
-                      >
-                        <span className="material-symbols-outlined text-[18px]">sync</span>
-                      </button>
-                    )}
+              {/* Valor UF / Dólar del día */}
+              {instCurrency !== 'CLP' ? (
+                <div className="space-y-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
+                    {instCurrency === 'USD' ? 'Valor del Dólar del día ($)' : 'Valor de la UF del día ($)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                      value={ufRate}
+                      onChange={(e) => setUfRate(e.target.value)}
+                      placeholder={instCurrency === 'USD' ? 'Ej: 950' : 'Ej: 38250'}
+                      required
+                      disabled={isSaving}
+                    />
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-xs">
+                      {isFetchingUf ? (
+                        <span className="animate-spin text-outline-variant text-[18px] material-symbols-outlined">sync</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => fetchRateForDate(actualInvoiceDate, instCurrency)}
+                          className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
+                          title={`Recargar ${instCurrency === 'USD' ? 'Dólar' : 'UF'} de la fecha seleccionada`}
+                          disabled={isSaving}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">sync</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
+                  {ufFetchError ? (
+                    <p className="text-[10px] text-amber-600 mt-1">
+                      No se pudo cargar {instCurrency === 'USD' ? 'el Dólar' : 'la UF'} automáticamente para la fecha seleccionada. Ingrésela manualmente.
+                    </p>
+                  ) : (
+                    !isFetchingUf && ufRate && (
+                      <p className="text-[10px] text-secondary font-semibold mt-1">
+                        {instCurrency === 'USD' ? 'Dólar cargado' : 'UF cargada'} automáticamente para la fecha de emisión
+                      </p>
+                    )
+                  )}
                 </div>
-                {ufFetchError ? (
-                  <p className="text-[10px] text-amber-600 mt-1">No se pudo cargar la UF automáticamente para la fecha seleccionada. Ingrésela manualmente.</p>
-                ) : (
-                  !isFetchingUf && ufRate && (
-                    <p className="text-[10px] text-secondary font-semibold mt-1">UF cargada automáticamente para la fecha de emisión</p>
-                  )
-                )}
-              </div>
+              ) : (
+                <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-lg flex items-center gap-2 text-xs text-slate-600">
+                  <span className="material-symbols-outlined text-[18px] text-secondary">info</span>
+                  <span>La cuota está pactada en Pesos Chilenos (CLP). No requiere tipo de cambio.</span>
+                </div>
+              )}
 
               {/* Reactive calculated fields */}
-              {parsedUfRate > 0 && (
+              {(instCurrency === 'CLP' || parsedUfRate > 0) && (
                 <div className="bg-slate-50/50 border border-slate-200/60 p-md rounded-xl text-body-sm space-y-1.5">
                   <div className="font-bold text-primary mb-2 text-[11px] uppercase tracking-wider border-b border-slate-200/40 pb-1">Cálculo Estimado CLP (19% IVA)</div>
                   <div className="flex justify-between">
@@ -1789,8 +1920,8 @@ export default function Facturacion({
 
               <div className="grid grid-cols-2 gap-md border-b border-slate-200/40 pb-3">
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Monto Planificado UF</span>
-                  <span className="font-semibold text-primary">{formatUF(selectedInstallment.uf)}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Monto Planificado</span>
+                  <span className="font-semibold text-primary">{formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')}</span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Folio Factura</span>
@@ -1812,9 +1943,9 @@ export default function Facturacion({
                   <span className="text-primary">Total Recibido:</span>
                   <span className="font-mono text-primary">{formatCLP(selectedInstallment.total_clp)}</span>
                 </div>
-                {selectedInstallment.uf > 0 && selectedInstallment.net_clp && (
+                {selectedInstallment.currency !== 'CLP' && selectedInstallment.uf > 0 && selectedInstallment.net_clp && (
                   <div className="flex justify-between text-[10px] text-on-surface-variant border-t border-slate-200/20 pt-1 mt-1">
-                    <span>UF Referencial Aplicada:</span>
+                    <span>{selectedInstallment.currency === 'USD' ? 'Dólar Referencial Aplicado:' : 'UF Referencial Aplicada:'}</span>
                     <span className="font-bold">${Math.round(selectedInstallment.net_clp / selectedInstallment.uf).toLocaleString('es-CL')}</span>
                   </div>
                 )}
@@ -1896,6 +2027,7 @@ export default function Facturacion({
           projectName={activeBudgetForInstallments.project.projectName || `${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName} - ${activeBudgetForInstallments.project.cliente}`}
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}
+          currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
           initialInstallments={activeBudgetForInstallments.installments}
           onSave={async (updated) => {

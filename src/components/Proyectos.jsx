@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
+import { formatAmountWithCurrency } from '../utils/supabaseService';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -79,6 +80,7 @@ export default function Proyectos({
 
   // Extra cost modal state
   const [extraCostProject, setExtraCostProject] = useState(null);
+  const [extraCostCurrency, setExtraCostCurrency] = useState('UF');
   const [extraCostUF, setExtraCostUF] = useState('');
   const [extraCostSuperficie, setExtraCostSuperficie] = useState('');
   const [extraCostComment, setExtraCostComment] = useState('');
@@ -265,11 +267,22 @@ export default function Proyectos({
   // Calculate KPIs using filteredProjects
   const totalProjects = filteredProjects.length;
 
-  const totalUF = filteredProjects.reduce((acc, p) => {
-    const projectBudgets = budgets.filter(b => b.projectId === p.id);
-    const budgetSum = projectBudgets.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
-    return acc + budgetSum;
-  }, 0);
+  const { totalProjectsUF, totalProjectsUSD, totalProjectsCLP } = useMemo(() => {
+    let uf = 0;
+    let usd = 0;
+    let clp = 0;
+    filteredProjects.forEach(p => {
+      const projectBudgets = budgets.filter(b => b.projectId === p.id);
+      projectBudgets.forEach(b => {
+        const amt = parseFloat(b.amount) || 0;
+        const curr = (b.currency || 'UF').toUpperCase();
+        if (curr === 'USD') usd += amt;
+        else if (curr === 'CLP') clp += amt;
+        else uf += amt;
+      });
+    });
+    return { totalProjectsUF: uf, totalProjectsUSD: usd, totalProjectsCLP: clp };
+  }, [filteredProjects, budgets]);
 
   const avgProfitability = filteredProjects.length > 0
     ? (filteredProjects.reduce((acc, p) => acc + (parseFloat(p.rentabilidad) || 0), 0) / filteredProjects.length).toFixed(1)
@@ -460,6 +473,7 @@ export default function Proyectos({
   // Extra cost modal handlers
   const handleOpenExtraCostModal = (project) => {
     setExtraCostProject(project);
+    setExtraCostCurrency('UF');
     setExtraCostUF('');
     setExtraCostSuperficie('');
     setExtraCostComment('');
@@ -471,7 +485,7 @@ export default function Proyectos({
       setNotification({
         type: 'error',
         title: 'Error de Validación',
-        message: 'Por favor ingrese el Costo Extra (UF).'
+        message: 'Por favor ingrese el Monto del Costo Extra.'
       });
       return;
     }
@@ -480,6 +494,7 @@ export default function Proyectos({
       await onAddExtraCost({
         project_id: extraCostProject.id,
         amount: parseFloat(extraCostUF) || 0,
+        currency: extraCostCurrency,
         superficie: parseFloat(extraCostSuperficie) || 0,
         comment: extraCostComment || ''
       });
@@ -489,6 +504,7 @@ export default function Proyectos({
         message: 'El costo extra ha sido registrado exitosamente.'
       });
       // Reset fields to allow adding another cost extra
+      setExtraCostCurrency('UF');
       setExtraCostUF('');
       setExtraCostSuperficie('');
       setExtraCostComment('');
@@ -543,8 +559,9 @@ export default function Proyectos({
         rows.push({
           "Código de presupuesto": budget.quoteId || '',
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
-          "Presupuesto (UF)": parseFloat(budget.amount) || 0,
-          "Costo Extra (UF)": '',
+          "Moneda": budget.currency || 'UF',
+          "Presupuesto": parseFloat(budget.amount) || 0,
+          "Costo Extra": '',
           "Descripción": budget.title || '',
           "Comentario": '',
           "m2": parseFloat(project.superficie) || 0,
@@ -559,8 +576,9 @@ export default function Proyectos({
         rows.push({
           "Código de presupuesto": '',
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
-          "Presupuesto (UF)": '',
-          "Costo Extra (UF)": parseFloat(cost.amount) || 0,
+          "Moneda": cost.currency || 'UF',
+          "Presupuesto": '',
+          "Costo Extra": parseFloat(cost.amount) || 0,
           "Descripción": cost.comment || '',
           "Comentario": '',
           "m2": parseFloat(cost.superficie) || 0,
@@ -576,8 +594,9 @@ export default function Proyectos({
       header: [
         "Código de presupuesto",
         "Proyecto",
-        "Presupuesto (UF)",
-        "Costo Extra (UF)",
+        "Moneda",
+        "Presupuesto",
+        "Costo Extra",
         "Descripción",
         "Comentario",
         "m2",
@@ -646,18 +665,32 @@ export default function Proyectos({
           </div>
 
           {/* KPI 2: Monto Total Presupuestos */}
-          <div className="stat-card">
+          <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
               <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[20px]">payments</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {totalUF.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
-              </span>
-              <span className="text-xs font-bold text-emerald-700">UF</span>
+            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalProjectsUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  {totalProjectsUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                <span className="font-bold text-slate-900 font-mono text-sm">
+                  ${totalProjectsCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -804,11 +837,19 @@ export default function Proyectos({
 
             // Filter budgets associated with this project
             const projectBudgets = budgets.filter(b => b.projectId === project.id);
-            const projectTotalUF = projectBudgets.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+            const projectTotalsByCurrency = projectBudgets.reduce((acc, b) => {
+              const curr = (b.currency || 'UF').toUpperCase();
+              acc[curr] = (acc[curr] || 0) + (parseFloat(b.amount) || 0);
+              return acc;
+            }, {});
 
             // Filter extra costs associated with this project
             const projectExtraCosts = extraCosts.filter(ec => ec.project_id === project.id);
-            const projectExtraCostsUF = projectExtraCosts.reduce((sum, c) => sum + (parseFloat(c.amount) || 0), 0);
+            const projectExtraCostsByCurrency = projectExtraCosts.reduce((acc, c) => {
+              const curr = (c.currency || 'UF').toUpperCase();
+              acc[curr] = (acc[curr] || 0) + (parseFloat(c.amount) || 0);
+              return acc;
+            }, {});
 
             return (
               <div
@@ -880,11 +921,19 @@ export default function Proyectos({
                     </div>
                     <div className="flex flex-col">
                       <span className="text-label-sm text-on-surface-variant/80 uppercase">Monto Total</span>
-                      <span className="font-bold text-body-md text-secondary">{projectTotalUF.toLocaleString('es-CL')} UF</span>
+                      <span className="font-bold text-body-md text-secondary">
+                        {Object.keys(projectTotalsByCurrency).length > 0
+                          ? Object.entries(projectTotalsByCurrency).map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ')
+                          : '0 UF'}
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-label-sm text-on-surface-variant/80 uppercase">Costos Extras</span>
-                      <span className="font-bold text-body-md text-amber-600">{projectExtraCostsUF.toLocaleString('es-CL')} UF</span>
+                      <span className="font-bold text-body-md text-amber-600">
+                        {Object.keys(projectExtraCostsByCurrency).length > 0
+                          ? Object.entries(projectExtraCostsByCurrency).map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ')
+                          : '0 UF'}
+                      </span>
                     </div>
 
                     {/* Actions */}
@@ -952,7 +1001,7 @@ export default function Proyectos({
                               <div>
                                 <p className="text-body-sm font-semibold text-slate-800">{cost.comment || 'Sin descripción'}</p>
                                 <div className="mt-1.5 flex flex-col">
-                                  <span className="font-bold text-amber-600 text-body-md">{cost.amount.toLocaleString('es-CL', { minimumFractionDigits: 1 })} UF</span>
+                                  <span className="font-bold text-amber-600 text-body-md">{formatAmountWithCurrency(cost.amount, cost.currency || 'UF')}</span>
                                   <span className="text-[11px] text-on-surface-variant/70 mt-0.5">Superficie: {(cost.superficie || 0).toLocaleString('es-CL')} m²</span>
                                 </div>
                               </div>
@@ -1030,11 +1079,11 @@ export default function Proyectos({
                                   );
                                 })()}
                                 <span className="text-xs bg-secondary/10 text-secondary font-bold px-2 py-0.5 rounded-full">
-                                  {budget.amount} UF
+                                  {formatAmountWithCurrency(budget.amount, budget.currency)}
                                 </span>
                               </div>
                               <div className="text-body-sm text-on-surface-variant leading-relaxed flex flex-wrap items-center gap-x-base gap-y-1">
-                                <span><strong>Monto total:</strong> {budget.amount} UF ({budget.validity})</span>
+                                <span><strong>Monto total:</strong> {formatAmountWithCurrency(budget.amount, budget.currency)} ({budget.validity})</span>
                                 {(() => {
                                   const targetId = budget.legalEntityId || budget.clientId;
                                   const found = clients.find(c => c.id === targetId && c.company) || (budget.company ? { company: budget.company } : null);
@@ -1087,7 +1136,7 @@ export default function Proyectos({
                                        <th className="p-2.5 border-b border-slate-200 text-center w-12">Cuota</th>
                                        <th className="p-2.5 border-b border-slate-200">Fecha Planificada</th>
                                        <th className="p-2.5 border-b border-slate-200 w-36 text-center">Estado</th>
-                                       <th className="p-2.5 border-b border-slate-200 text-right w-28">UF</th>
+                                       <th className="p-2.5 border-b border-slate-200 text-right w-28">Monto</th>
                                        <th className="p-2.5 border-b border-slate-200">Comentario / Estado de Hito</th>
                                      </tr>
                                    </thead>
@@ -1118,7 +1167,7 @@ export default function Proyectos({
                                            </span>
                                          </td>
                                          <td className="p-2.5 w-28 text-right font-bold text-primary">
-                                           {row.uf.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} UF
+                                           {formatAmountWithCurrency(row.uf, row.currency || budget.currency || 'UF')}
                                          </td>
                                          <td className="p-2.5 text-on-surface-variant italic">
                                            {row.comment || '-'}
@@ -1364,12 +1413,30 @@ export default function Proyectos({
                 <h4 className="font-title-sm text-title-sm text-primary font-bold uppercase tracking-wider text-xs">Agregar Nuevo Costo Extra</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
                   <div className="flex flex-col">
-                    <label className="text-label-sm text-on-surface-variant font-bold mb-1 uppercase tracking-wider">Monto (UF)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Monto ({extraCostCurrency})</label>
+                      <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-md border border-slate-300/50">
+                        {['UF', 'USD', 'CLP'].map((curr) => (
+                          <button
+                            key={curr}
+                            type="button"
+                            onClick={() => setExtraCostCurrency(curr)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                              extraCostCurrency === curr
+                                ? 'bg-[#091426] text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                            }`}
+                          >
+                            {curr}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <input
                       type="number"
-                      step="0.01"
+                      step={extraCostCurrency === 'CLP' ? "1" : "0.01"}
                       required
-                      placeholder="Ej: 45.50"
+                      placeholder={extraCostCurrency === 'CLP' ? "Ej: 1500000" : "Ej: 45.50"}
                       value={extraCostUF}
                       onChange={(e) => setExtraCostUF(e.target.value)}
                       className="p-sm bg-white border border-outline-variant/50 focus:border-primary outline-none rounded-lg text-body-sm"
@@ -1424,7 +1491,7 @@ export default function Proyectos({
                           <tr>
                             <th className="p-2.5 border-b border-slate-200">Comentario</th>
                             <th className="p-2.5 border-b border-slate-200 text-right w-28">Superficie</th>
-                            <th className="p-2.5 border-b border-slate-200 text-right w-28">Monto (UF)</th>
+                            <th className="p-2.5 border-b border-slate-200 text-right w-28">Monto</th>
                             <th className="p-2.5 border-b border-slate-200 text-center w-16">Acción</th>
                           </tr>
                         </thead>
@@ -1438,7 +1505,7 @@ export default function Proyectos({
                                 {cost.superficie ? `${cost.superficie.toLocaleString('es-CL')} m²` : '0 m²'}
                               </td>
                               <td className="p-2.5 text-right font-bold text-secondary">
-                                {cost.amount.toLocaleString('es-CL', { minimumFractionDigits: 2 })}
+                                {formatAmountWithCurrency(cost.amount, cost.currency || 'UF')}
                               </td>
                               <td className="p-2.5 text-center">
                                 <button
@@ -1460,7 +1527,16 @@ export default function Proyectos({
                               {projectModalExtraCosts.reduce((sum, c) => sum + (c.superficie || 0), 0).toLocaleString('es-CL')} m²
                             </td>
                             <td className="p-2.5 text-right text-secondary">
-                              {projectModalExtraCosts.reduce((sum, c) => sum + (c.amount || 0), 0).toLocaleString('es-CL', { minimumFractionDigits: 2 })}
+                              {(() => {
+                                const totals = projectModalExtraCosts.reduce((acc, c) => {
+                                  const curr = (c.currency || 'UF').toUpperCase();
+                                  acc[curr] = (acc[curr] || 0) + (parseFloat(c.amount) || 0);
+                                  return acc;
+                                }, {});
+                                return Object.keys(totals).length > 0
+                                  ? Object.entries(totals).map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ')
+                                  : '0 UF';
+                              })()}
                             </td>
                             <td></td>
                           </tr>
@@ -1775,7 +1851,7 @@ export default function Proyectos({
                         .filter(b => (b.status === 'Aprobado' || b.status === 'Aprovado') && !b.projectId)
                         .map(b => (
                           <option key={b.id} value={b.id}>
-                            #{b.quoteId} - {b.title} ({b.amount} UF) - {b.clientName || b.company || 'Sin cliente'}
+                            #{b.quoteId} - {b.title} ({formatAmountWithCurrency(b.amount, b.currency)}) - {b.clientName || b.company || 'Sin cliente'}
                           </option>
                         ))
                       }
@@ -1855,6 +1931,7 @@ export default function Proyectos({
             setIsInstallmentsModalOpen(false);
             setActiveBudgetForInstallments(null);
           }}
+          currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
           projectName={`${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName}`}
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}
