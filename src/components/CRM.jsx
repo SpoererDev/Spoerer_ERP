@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { validateRut, formatRut } from '../utils/validation';
 
 export default function CRM({ 
@@ -354,10 +354,117 @@ export default function CRM({
     }
   };
 
+  // Sticky filter header offset measurement
+  const filterHeaderRef = useRef(null);
+  const [stickyHeaderOffset, setStickyHeaderOffset] = useState(0);
+
+  useEffect(() => {
+    const updateOffset = () => {
+      if (filterHeaderRef.current) {
+        // 64px is top navbar height (top-16)
+        setStickyHeaderOffset(64 + filterHeaderRef.current.offsetHeight);
+      }
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    if (filterHeaderRef.current) {
+      observer.observe(filterHeaderRef.current);
+    }
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, [activeSubTab]);
+
+  // Sort states for Sub-tab 1: Clientes Principales
+  const [mainClientSortField, setMainClientSortField] = useState(null);
+  const [mainClientSortDirection, setMainClientSortDirection] = useState('asc');
+
+  const handleSortMainClients = (field) => {
+    if (mainClientSortField === field) {
+      setMainClientSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setMainClientSortField(field);
+      setMainClientSortDirection('asc');
+    }
+  };
+
+  const sortedMainClients = useMemo(() => {
+    if (!mainClientSortField) return filteredMainClients;
+
+    return [...filteredMainClients].sort((a, b) => {
+      let comparison = 0;
+      if (mainClientSortField === 'name') {
+        comparison = String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
+      } else if (mainClientSortField === 'contactName') {
+        comparison = String(a.contactName || '').localeCompare(String(b.contactName || ''), 'es', { sensitivity: 'base' });
+      } else if (mainClientSortField === 'contactEmail') {
+        comparison = String(a.contactEmail || '').localeCompare(String(b.contactEmail || ''), 'es', { sensitivity: 'base' });
+      } else if (mainClientSortField === 'phone') {
+        comparison = String(a.phone || '').localeCompare(String(b.phone || ''), 'es', { sensitivity: 'base' });
+      } else if (mainClientSortField === 'razonesCount') {
+        const countA = clients.filter(c => 
+          (c.mainClientId && c.mainClientId === a.id) || 
+          (c.realClient && c.realClient.toLowerCase() === a.name.toLowerCase())
+        ).length;
+        const countB = clients.filter(c => 
+          (c.mainClientId && c.mainClientId === b.id) || 
+          (c.realClient && c.realClient.toLowerCase() === b.name.toLowerCase())
+        ).length;
+        comparison = countA - countB;
+      }
+
+      return mainClientSortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredMainClients, mainClientSortField, mainClientSortDirection, clients]);
+
+  // Sort states for Sub-tab 2: Clientes con Razón Social
+  const [legalSortField, setLegalSortField] = useState(null);
+  const [legalSortDirection, setLegalSortDirection] = useState('asc');
+
+  const handleSortLegal = (field) => {
+    if (legalSortField === field) {
+      setLegalSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setLegalSortField(field);
+      setLegalSortDirection('asc');
+    }
+  };
+
+  const sortedClients = useMemo(() => {
+    if (!legalSortField) return filteredClients;
+
+    return [...filteredClients].sort((a, b) => {
+      let comparison = 0;
+      if (legalSortField === 'rut') {
+        const cleanRutA = parseInt(String(a.rut || '').replace(/\D/g, ''), 10) || 0;
+        const cleanRutB = parseInt(String(b.rut || '').replace(/\D/g, ''), 10) || 0;
+        comparison = cleanRutA - cleanRutB;
+      } else if (legalSortField === 'company') {
+        comparison = String(a.company || '').localeCompare(String(b.company || ''), 'es', { sensitivity: 'base' });
+      } else if (legalSortField === 'mainClient') {
+        const mcA = String(a.mainClientName || a.realClient || '');
+        const mcB = String(b.mainClientName || b.realClient || '');
+        comparison = mcA.localeCompare(mcB, 'es', { sensitivity: 'base' });
+      } else if (legalSortField === 'giro') {
+        comparison = String(a.giro || '').localeCompare(String(b.giro || ''), 'es', { sensitivity: 'base' });
+      } else if (legalSortField === 'name') {
+        comparison = String(a.name || '').localeCompare(String(b.name || ''), 'es', { sensitivity: 'base' });
+      } else if (legalSortField === 'email') {
+        comparison = String(a.email || '').localeCompare(String(b.email || ''), 'es', { sensitivity: 'base' });
+      } else if (legalSortField === 'phone') {
+        comparison = String(a.phone || '').localeCompare(String(b.phone || ''), 'es', { sensitivity: 'base' });
+      }
+
+      return legalSortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredClients, legalSortField, legalSortDirection]);
+
   return (
     <div className="space-y-6 text-left">
       {/* Sticky Header Section: Title, KPIs, Subtabs, and Filters */}
-      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
           <div>
@@ -496,80 +603,153 @@ export default function CRM({
       {activeSubTab === 'main_clients' && (
         <>
           {filteredMainClients.length > 0 ? (
-            <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden animate-fade-in">
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left border-collapse min-w-[800px]">
-                  <thead>
-                    <tr className="bg-surface-container-low border-b border-outline-variant">
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente / Empresa Principal</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Contacto Directo</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Correo Electrónico</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Teléfono</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Razones Sociales</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant">
-                    {filteredMainClients.map((mc) => {
-                      const associatedEntities = clients.filter(c => 
-                        (c.mainClientId && c.mainClientId === mc.id) || 
-                        (c.realClient && c.realClient.toLowerCase() === mc.name.toLowerCase())
-                      );
-                      return (
-                        <tr key={mc.id} className="hover:bg-slate-50 transition-colors group">
-                          <td className="p-md">
-                            <div className="flex items-center gap-sm">
-                              <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs bg-primary text-white shadow-sm">
-                                {mc.initials}
-                              </div>
-                              <div>
-                                <span className="font-body-md font-bold text-primary block">{mc.name}</span>
-                                <span className="text-xs text-on-surface-variant">Cliente Principal</span>
-                              </div>
+            <div className="bg-white rounded-xl border border-outline-variant shadow-sm animate-fade-in">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-surface-container-low">
+                  <tr className="border-b border-outline-variant">
+                    <th
+                      onClick={() => handleSortMainClients('name')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Cliente / Empresa Principal"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Cliente / Empresa Principal</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          mainClientSortField === 'name' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {mainClientSortField === 'name' ? (mainClientSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortMainClients('contactName')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Contacto Directo"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Contacto Directo</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          mainClientSortField === 'contactName' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {mainClientSortField === 'contactName' ? (mainClientSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortMainClients('contactEmail')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Correo Electrónico"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Correo Electrónico</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          mainClientSortField === 'contactEmail' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {mainClientSortField === 'contactEmail' ? (mainClientSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortMainClients('phone')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Teléfono"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Teléfono</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          mainClientSortField === 'phone' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {mainClientSortField === 'phone' ? (mainClientSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortMainClients('razonesCount')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por N° de Razones Sociales"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Razones Sociales</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          mainClientSortField === 'razonesCount' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {mainClientSortField === 'razonesCount' ? (mainClientSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                    >
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant">
+                  {sortedMainClients.map((mc) => {
+                    const associatedEntities = clients.filter(c => 
+                      (c.mainClientId && c.mainClientId === mc.id) || 
+                      (c.realClient && c.realClient.toLowerCase() === mc.name.toLowerCase())
+                    );
+                    return (
+                      <tr key={mc.id} className="hover:bg-slate-50 transition-colors group">
+                        <td className="p-md">
+                          <div className="flex items-center gap-sm">
+                            <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs bg-primary text-white shadow-sm">
+                              {mc.initials}
                             </div>
-                          </td>
-                          <td className="p-md font-body-md text-on-surface">{mc.contactName || 'Sin registrar'}</td>
-                          <td className="p-md font-body-md text-on-surface">{mc.contactEmail || 'Sin registrar'}</td>
-                          <td className="p-md font-body-md text-on-surface">{mc.phone || 'Sin registrar'}</td>
-                          <td className="p-md text-center">
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                              associatedEntities.length > 0 ? 'bg-secondary-container/60 text-secondary' : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {associatedEntities.length} {associatedEntities.length === 1 ? 'Razón Social' : 'Razones Sociales'}
-                            </span>
-                          </td>
-                          <td className="p-md text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button 
-                                onClick={() => setViewingMainClient(mc)}
-                                className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
-                                title="Ver Ficha"
-                              >
-                                <span className="material-symbols-outlined text-[20px]">visibility</span>
-                              </button>
-                              <button 
-                                onClick={() => handleOpenEditMain(mc)}
-                                className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
-                                title="Editar"
-                              >
-                                <span className="material-symbols-outlined text-[20px]">edit</span>
-                              </button>
-                              <button 
-                                onClick={() => setMainClientToDelete(mc)}
-                                className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
-                                title="Eliminar"
-                              >
-                                <span className="material-symbols-outlined text-[20px]">delete</span>
-                              </button>
+                            <div>
+                              <span className="font-body-md font-bold text-primary block">{mc.name}</span>
+                              <span className="text-xs text-on-surface-variant">Cliente Principal</span>
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+                          </div>
+                        </td>
+                        <td className="p-md font-body-md text-on-surface">{mc.contactName || 'Sin registrar'}</td>
+                        <td className="p-md font-body-md text-on-surface">{mc.contactEmail || 'Sin registrar'}</td>
+                        <td className="p-md font-body-md text-on-surface">{mc.phone || 'Sin registrar'}</td>
+                        <td className="p-md text-center">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                            associatedEntities.length > 0 ? 'bg-secondary-container/60 text-secondary' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {associatedEntities.length} {associatedEntities.length === 1 ? 'Razón Social' : 'Razones Sociales'}
+                          </span>
+                        </td>
+                        <td className="p-md text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button 
+                              onClick={() => setViewingMainClient(mc)}
+                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                              title="Ver Ficha"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">visibility</span>
+                            </button>
+                            <button 
+                              onClick={() => handleOpenEditMain(mc)}
+                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                              title="Editar"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">edit</span>
+                            </button>
+                            <button 
+                              onClick={() => setMainClientToDelete(mc)}
+                              className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
+                              title="Eliminar"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">delete</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between rounded-b-xl">
                 <p className="text-body-sm text-on-surface-variant italic">
                   Mostrando {filteredMainClients.length} de {mainClients.length} clientes principales
                 </p>
@@ -587,71 +767,172 @@ export default function CRM({
       {activeSubTab === 'legal_entities' && (
         <>
           {filteredClients.length > 0 ? (
-            <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden animate-fade-in">
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left border-collapse min-w-[900px]">
-                  <thead>
-                    <tr className="bg-surface-container-low border-b border-outline-variant">
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">RUT</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Nombre o Razón Social</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente Principal</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Giro</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Contacto</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Correo Electrónico</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Teléfono</th>
-                      <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
+            <div className="bg-white rounded-xl border border-outline-variant shadow-sm animate-fade-in">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-surface-container-low">
+                  <tr className="border-b border-outline-variant">
+                    <th
+                      onClick={() => handleSortLegal('rut')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por RUT"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>RUT</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'rut' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'rut' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('company')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Nombre o Razón Social"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Nombre o Razón Social</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'company' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'company' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('mainClient')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Cliente Principal"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Cliente Principal</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'mainClient' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'mainClient' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('giro')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Giro"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Giro</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'giro' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'giro' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('name')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Contacto"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Contacto</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'name' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'name' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('email')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Correo Electrónico"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Correo Electrónico</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'email' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'email' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      onClick={() => handleSortLegal('phone')}
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                      title="Ordenar por Teléfono"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Teléfono</span>
+                        <span className={`material-symbols-outlined text-[16px] transition-all ${
+                          legalSortField === 'phone' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                        }`}>
+                          {legalSortField === 'phone' ? (legalSortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                      style={{ top: `${stickyHeaderOffset}px` }}
+                    >
+                      Acciones
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant">
+                  {sortedClients.map((client) => (
+                    <tr key={client.id} className="hover:bg-slate-50 transition-colors group">
+                      <td className="p-md font-body-md font-bold text-primary">{client.rut || 'N/A'}</td>
+                      <td className="p-md">
+                        <div className="flex items-center gap-sm">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-secondary-container text-on-secondary-container">
+                            {client.initials}
+                          </div>
+                          <span className="font-body-md font-bold text-on-surface">{client.company}</span>
+                        </div>
+                      </td>
+                      <td className="p-md font-body-md font-semibold text-primary">
+                        {client.mainClientName || client.realClient || <span className="text-on-surface-variant font-normal italic">Sin asignar</span>}
+                      </td>
+                      <td className="p-md font-body-md text-on-surface-variant">{client.giro || 'N/A'}</td>
+                      <td className="p-md font-body-md text-on-surface">{client.name || 'N/A'}</td>
+                      <td className="p-md font-body-md text-on-surface">{client.email}</td>
+                      <td className="p-md font-body-md text-on-surface">{client.phone}</td>
+                      <td className="p-md text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button 
+                            onClick={() => setViewingClient(client)}
+                            className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                            title="Ver Detalle"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">visibility</span>
+                          </button>
+                          <button 
+                            onClick={() => handleOpenEdit(client)}
+                            className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                            title="Editar"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">edit</span>
+                          </button>
+                          <button 
+                            onClick={() => setClientToDelete(client)}
+                            className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
+                            title="Eliminar"
+                          >
+                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant">
-                    {filteredClients.map((client) => (
-                      <tr key={client.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="p-md font-body-md font-bold text-primary">{client.rut || 'N/A'}</td>
-                        <td className="p-md">
-                          <div className="flex items-center gap-sm">
-                            <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-secondary-container text-on-secondary-container">
-                              {client.initials}
-                            </div>
-                            <span className="font-body-md font-bold text-on-surface">{client.company}</span>
-                          </div>
-                        </td>
-                        <td className="p-md font-body-md font-semibold text-primary">
-                          {client.mainClientName || client.realClient || <span className="text-on-surface-variant font-normal italic">Sin asignar</span>}
-                        </td>
-                        <td className="p-md font-body-md text-on-surface-variant">{client.giro || 'N/A'}</td>
-                        <td className="p-md font-body-md text-on-surface">{client.name || 'N/A'}</td>
-                        <td className="p-md font-body-md text-on-surface">{client.email}</td>
-                        <td className="p-md font-body-md text-on-surface">{client.phone}</td>
-                        <td className="p-md text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button 
-                              onClick={() => setViewingClient(client)}
-                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
-                              title="Ver Detalle"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">visibility</span>
-                            </button>
-                            <button 
-                              onClick={() => handleOpenEdit(client)}
-                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
-                              title="Editar"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">edit</span>
-                            </button>
-                            <button 
-                              onClick={() => setClientToDelete(client)}
-                              className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
-                              title="Eliminar"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+                  ))}
+                </tbody>
+              </table>
+              <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between rounded-b-xl">
                 <p className="text-body-sm text-on-surface-variant italic">
                   Mostrando {filteredClients.length} de {clients.length} razones sociales registradas
                 </p>

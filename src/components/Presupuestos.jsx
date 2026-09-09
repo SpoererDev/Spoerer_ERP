@@ -1576,10 +1576,87 @@ export default function Presupuestos({
     .filter(u => u.status === 'Active')
     .filter(u => !selectedReviewers.some(r => r.id === u.id));
 
+  // Sticky filter header offset measurement
+  const filterHeaderRef = useRef(null);
+  const [stickyHeaderOffset, setStickyHeaderOffset] = useState(0);
+
+  useEffect(() => {
+    const updateOffset = () => {
+      if (filterHeaderRef.current) {
+        // 64px is top navbar height (top-16)
+        setStickyHeaderOffset(64 + filterHeaderRef.current.offsetHeight);
+      }
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    if (filterHeaderRef.current) {
+      observer.observe(filterHeaderRef.current);
+    }
+    window.addEventListener('resize', updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateOffset);
+    };
+  }, []);
+
+  // Sort state for quotes table
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' | 'desc'
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedQuotes = useMemo(() => {
+    if (!sortField) return filteredQuotes;
+
+    return [...filteredQuotes].sort((a, b) => {
+      let comparison = 0;
+      if (sortField === 'quoteId') {
+        const idA = String(a.quoteId || '');
+        const idB = String(b.quoteId || '');
+        comparison = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortField === 'clientName') {
+        const cA = String(a.clientName || '');
+        const cB = String(b.clientName || '');
+        comparison = cA.localeCompare(cB, 'es', { sensitivity: 'base' });
+      } else if (sortField === 'title') {
+        const tA = String(a.title || '');
+        const tB = String(b.title || '');
+        comparison = tA.localeCompare(tB, 'es', { sensitivity: 'base' });
+      } else if (sortField === 'date') {
+        const dateA = parseDate(a.date);
+        const dateB = parseDate(b.date);
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        comparison = timeA - timeB;
+      } else if (sortField === 'amount') {
+        const amtA = parseFloat(a.amount) || 0;
+        const amtB = parseFloat(b.amount) || 0;
+        comparison = amtA - amtB;
+      } else if (sortField === 'backupFiles') {
+        const cntA = Array.isArray(a.backupFiles) ? a.backupFiles.length : 0;
+        const cntB = Array.isArray(b.backupFiles) ? b.backupFiles.length : 0;
+        comparison = cntA - cntB;
+      } else if (sortField === 'status') {
+        const sA = String(a.status || '');
+        const sB = String(b.status || '');
+        comparison = sA.localeCompare(sB, 'es', { sensitivity: 'base' });
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredQuotes, sortField, sortDirection]);
+
   return (
     <div className="space-y-6 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
           <div>
@@ -1783,23 +1860,125 @@ export default function Presupuestos({
 
       {/* Data Table Section */}
       {filteredQuotes.length > 0 ? (
-        <div className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                <tr className="bg-surface-container-low border-b border-outline-variant">
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">ID Presupuesto</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Cliente</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título de presupuesto</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Fecha de Emisión</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right">Monto</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Respaldo</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Estado</th>
-                  <th className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-outline-variant">
-                {filteredQuotes.map((quote) => (
+        <div className="bg-white rounded-xl border border-outline-variant shadow-sm">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-surface-container-low">
+              <tr className="border-b border-outline-variant">
+                <th
+                  onClick={() => handleSort('quoteId')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por ID Presupuesto"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>ID Presupuesto</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'quoteId' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'quoteId' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('clientName')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Cliente"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Cliente</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'clientName' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'clientName' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('title')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Título de presupuesto"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Título de presupuesto</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'title' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'title' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('date')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Fecha de Emisión"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Fecha de Emisión</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'date' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'date' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('amount')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Monto"
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>Monto</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'amount' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'amount' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('backupFiles')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Respaldo"
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span>Respaldo</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'backupFiles' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'backupFiles' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort('status')}
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                  title="Ordenar por Estado"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Estado</span>
+                    <span className={`material-symbols-outlined text-[16px] transition-all ${
+                      sortField === 'status' ? 'text-emerald-600 font-bold opacity-100' : 'text-slate-400 opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {sortField === 'status' ? (sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  </div>
+                </th>
+                <th
+                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                >
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant">
+              {sortedQuotes.map((quote) => (
                   <tr key={quote.id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-md font-body-md">
                       <div className="flex flex-col items-start gap-1">
@@ -1914,9 +2093,8 @@ export default function Presupuestos({
                 ))}
               </tbody>
             </table>
-          </div>
           {/* Pagination */}
-          <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+          <div className="px-lg py-md bg-surface-container-low border-t border-outline-variant flex items-center justify-between rounded-b-xl">
             <p className="text-body-sm text-on-surface-variant italic">
               Mostrando {filteredQuotes.length} de {quotes.length} presupuestos registrados
             </p>

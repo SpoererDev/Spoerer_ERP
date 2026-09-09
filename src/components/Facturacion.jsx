@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
@@ -125,6 +125,124 @@ export default function Facturacion({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [projects, adminUsers]);
 
+  // --- CLIENTS COMPUTATION (Clientes Principales & Asignados a Proyectos/Presupuestos, no Razones Sociales) ---
+  const availableClients = useMemo(() => {
+    const clientMap = new Map(); // lowercase -> original display name
+
+    const addClientName = (name) => {
+      if (!name || typeof name !== 'string') return;
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (lower === 'cliente' || lower === 'cliente no definido' || lower === 'sin asignar' || lower === 'todos') return;
+      if (!clientMap.has(lower)) {
+        clientMap.set(lower, trimmed);
+      }
+    };
+
+    // 1. From mainClients (Clientes Principales en CRM)
+    if (Array.isArray(mainClients)) {
+      mainClients.forEach(mc => addClientName(mc?.name));
+    }
+
+    // 2. From projects (campo cliente del proyecto)
+    if (Array.isArray(projects)) {
+      projects.forEach(p => {
+        addClientName(p?.cliente);
+      });
+    }
+
+    // 3. From budgets (campo mainClientName o clientName del presupuesto)
+    if (Array.isArray(budgets)) {
+      budgets.forEach(b => {
+        addClientName(b?.mainClientName);
+        addClientName(b?.clientName);
+      });
+    }
+
+    // 4. From clients (razones sociales que tienen cliente principal / cliente real configurado)
+    if (Array.isArray(clients)) {
+      clients.forEach(c => {
+        addClientName(c?.mainClientName);
+        addClientName(c?.realClient);
+      });
+    }
+
+    return Array.from(clientMap.values()).sort((a, b) => 
+      a.localeCompare(b, 'es', { sensitivity: 'base' })
+    );
+  }, [mainClients, projects, budgets, clients]);
+
+  // --- HELPER: RESOLVE CLIENT NAME FOR AN INSTALLMENT ---
+  const getInstallmentClientName = useCallback((inst) => {
+    if (!inst) return 'Sin asignar';
+    const project = projects.find(p => p.id === inst.project_id);
+    const budget = inst.origin_budget_id ? budgets.find(b => b.id === inst.origin_budget_id) : null;
+
+    let realClientName = '';
+
+    // 1. Budget main client
+    if (budget) {
+      if (budget.mainClientId) {
+        const matchedMC = mainClients.find(mc => mc.id === budget.mainClientId);
+        if (matchedMC?.name) realClientName = matchedMC.name;
+      }
+      if (!realClientName && budget.mainClientName && budget.mainClientName !== 'Cliente') {
+        realClientName = budget.mainClientName;
+      }
+    }
+
+    // 2. Budget legal entity's main client
+    if (!realClientName) {
+      const targetLegalId = budget?.legalEntityId || budget?.clientId;
+      const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) ||
+        (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null);
+
+      if (razonSocial) {
+        if (razonSocial.mainClientId) {
+          const matchedMC = mainClients.find(mc => mc.id === razonSocial.mainClientId);
+          if (matchedMC?.name) realClientName = matchedMC.name;
+        }
+        if (!realClientName && (razonSocial.mainClientName || razonSocial.realClient)) {
+          realClientName = razonSocial.mainClientName || razonSocial.realClient;
+        }
+      }
+    }
+
+    // 3. Project main client or client
+    if (!realClientName && project) {
+      if (project.mainClientId) {
+        const matchedMC = mainClients.find(mc => mc.id === project.mainClientId);
+        if (matchedMC?.name) realClientName = matchedMC.name;
+      } else if (project.clientId) {
+        const projClient = clients.find(c => c.id === project.clientId);
+        if (projClient) {
+          if (projClient.mainClientId) {
+            const matchedMC = mainClients.find(mc => mc.id === projClient.mainClientId);
+            if (matchedMC?.name) realClientName = matchedMC.name;
+          } else if (projClient.mainClientName || projClient.realClient) {
+            realClientName = projClient.mainClientName || projClient.realClient;
+          }
+        }
+      }
+      if (!realClientName && project.cliente && project.cliente !== 'Cliente no definido' && project.cliente !== 'Cliente') {
+        realClientName = project.cliente;
+      }
+    }
+
+    // 4. Budget clientName fallback
+    if (!realClientName && budget?.clientName && budget.clientName !== 'Cliente') {
+      realClientName = budget.clientName;
+    }
+
+    // 5. Project display client fallback
+    if (!realClientName && project?.cliente && project.cliente !== 'Cliente no definido' && project.cliente !== 'Cliente') {
+      realClientName = project.cliente;
+    }
+
+    return realClientName ? realClientName.trim() : (project?.cliente || budget?.clientName || 'Sin asignar');
+  }, [projects, budgets, clients, mainClients]);
+
   // Emit Invoice Form
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [actualInvoiceDate, setActualInvoiceDate] = useState('');
@@ -168,26 +286,64 @@ export default function Facturacion({
 
   // --- DATE FILTER HELPER ---
   const filterPeriod = (dateStr, period) => {
-    if (period === 'Todos') return true;
+    if (period === 'Todos' || !period) return true;
     if (!dateStr) return false;
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    let targetDate = null;
+    if (typeof dateStr === 'string') {
+      const cleanStr = dateStr.trim();
+      if (cleanStr.includes('-')) {
+        const parts = cleanStr.split('-');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            // YYYY-MM-DD
+            targetDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
+          } else {
+            // DD-MM-YYYY
+            targetDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10), 12, 0, 0);
+          }
+        }
+      } else if (cleanStr.includes('/')) {
+        const parts = cleanStr.split('/');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            // YYYY/MM/DD
+            targetDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
+          } else {
+            // DD/MM/YYYY
+            targetDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10), 12, 0, 0);
+          }
+        }
+      }
+    } else if (dateStr instanceof Date) {
+      targetDate = new Date(dateStr);
+    }
 
-    const targetDate = new Date(dateStr + 'T12:00:00'); // avoid timezone shifts
-    const diffTime = targetDate - today;
-    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    if (!targetDate || isNaN(targetDate.getTime())) {
+      targetDate = new Date(dateStr);
+      if (isNaN(targetDate.getTime())) return false;
+    }
 
-    if (period === '1_mes') {
-      return Math.abs(diffDays) <= 30;
+    let monthsToAdd = 0;
+    if (period === '1_mes') monthsToAdd = 1;
+    else if (period === '2_meses') monthsToAdd = 2;
+    else if (period === '3_meses') monthsToAdd = 3;
+    else if (period === '6_meses') monthsToAdd = 6;
+    else if (period === '12_meses') monthsToAdd = 12;
+    else return true;
+
+    const now = new Date();
+    // Maximum future date allowed (end of day)
+    const maxDate = new Date(now.getFullYear(), now.getMonth() + monthsToAdd, now.getDate(), 23, 59, 59, 999);
+    // Handle days overflow if target month has fewer days (e.g., Aug 31 + 1 month -> Sep 30)
+    const expectedMonth = (now.getMonth() + monthsToAdd) % 12;
+    if (maxDate.getMonth() !== expectedMonth) {
+      maxDate.setDate(0);
+      maxDate.setHours(23, 59, 59, 999);
     }
-    if (period === '6_meses') {
-      return Math.abs(diffDays) <= 180;
-    }
-    if (period === '12_meses') {
-      return Math.abs(diffDays) <= 365;
-    }
-    return true;
+
+    // Include all installments from past dates up to maxDate in the future
+    return targetDate <= maxDate;
   };
 
   // --- SUPABASE STORAGE FILE UPLOAD HELPER ---
@@ -283,12 +439,20 @@ export default function Facturacion({
         return false;
       }
 
-      // Find associated project to retrieve client ID
+      // Find associated project
       const project = projects.find(p => p.id === inst.project_id);
-      const clientId = project?.clientId || null;
 
-      // 3. Client Filter
-      if (clientFilter !== 'Todos' && clientId !== clientFilter) return false;
+      // 3. Client Filter (Filtro por Cliente / Cliente Principal, no Razón Social)
+      if (clientFilter !== 'Todos') {
+        const instClient = getInstallmentClientName(inst);
+        const projClient = project?.cliente?.trim() || '';
+        const target = clientFilter.trim().toLowerCase();
+
+        const matches = (instClient && instClient.toLowerCase() === target) ||
+                        (projClient && projClient.toLowerCase() === target);
+
+        if (!matches) return false;
+      }
 
       // 4. Encargado Filter
       if (encargadoFilter && encargadoFilter !== 'Todos' && project?.encargado !== encargadoFilter) return false;
@@ -305,10 +469,11 @@ export default function Facturacion({
         const projectName = project?.rawProjectName?.toLowerCase() || '';
         const projectEncargado = project?.encargado?.toLowerCase() || '';
 
-        const client = clients.find(c => c.id === clientId);
+        const client = clients.find(c => c.id === (project?.clientId || null));
         const clientCompany = client?.company?.toLowerCase() || '';
         const clientName = client?.name?.toLowerCase() || '';
         const projectClient = project?.cliente?.toLowerCase() || '';
+        const instClientName = getInstallmentClientName(inst).toLowerCase();
 
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
 
@@ -319,7 +484,7 @@ export default function Facturacion({
         const rawDigitsTerm = term.replace(/\D/g, '');
 
         const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
-        const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term);
+        const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term) || instClientName.includes(term);
         const matchesInvoice = invNum.includes(term);
         const matchesBudget = budgetNum.includes(term) || 
                               budgetTitle.includes(term) || 
@@ -330,7 +495,7 @@ export default function Facturacion({
 
       return true;
     });
-  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, searchTerm, todayStr]);
+  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, searchTerm, todayStr, getInstallmentClientName]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -494,50 +659,7 @@ export default function Facturacion({
         (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null);
 
       // Find the Real Client Name (Cliente Real)
-      let realClientName = '';
-      if (budget) {
-        if (budget.mainClientId) {
-          const matchedMC = mainClients.find(mc => mc.id === budget.mainClientId);
-          if (matchedMC) realClientName = matchedMC.name;
-        }
-        if (!realClientName && budget.mainClientName) {
-          realClientName = budget.mainClientName;
-        }
-      }
-
-      if (!realClientName && razonSocial) {
-        if (razonSocial.mainClientId) {
-          const matchedMC = mainClients.find(mc => mc.id === razonSocial.mainClientId);
-          if (matchedMC) realClientName = matchedMC.name;
-        }
-        if (!realClientName && (razonSocial.mainClientName || razonSocial.realClient)) {
-          realClientName = razonSocial.mainClientName || razonSocial.realClient;
-        }
-      }
-
-      if (!realClientName && project) {
-        if (project.mainClientId) {
-          const matchedMC = mainClients.find(mc => mc.id === project.mainClientId);
-          if (matchedMC) realClientName = matchedMC.name;
-        } else if (project.clientId) {
-          const projClient = clients.find(c => c.id === project.clientId);
-          if (projClient) {
-            if (projClient.mainClientId) {
-              const matchedMC = mainClients.find(mc => mc.id === projClient.mainClientId);
-              if (matchedMC) realClientName = matchedMC.name;
-            } else if (projClient.mainClientName || projClient.realClient) {
-              realClientName = projClient.mainClientName || projClient.realClient;
-            }
-          }
-        }
-        if (!realClientName && project.cliente) {
-          realClientName = project.cliente;
-        }
-      }
-
-      if (!realClientName && budget?.clientName) {
-        realClientName = budget.clientName;
-      }
+      const realClientName = getInstallmentClientName(installment);
 
       // Calculate total installments for this budget
       const budgetInstallments = budget ? installments.filter(i => i.origin_budget_id === budget.id) : [];
@@ -1150,8 +1272,8 @@ export default function Facturacion({
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                 {[
                   { value: '1_mes', label: '1 Mes' },
-                  { value: '6_meses', label: '6 Meses' },
-                  { value: '12_meses', label: '12 Meses' },
+                  { value: '2_meses', label: '2 Meses' },
+                  { value: '3_meses', label: '3 Meses' },
                   { value: 'Todos', label: 'Histórico' }
                 ].map((p) => (
                   <button
@@ -1204,9 +1326,9 @@ export default function Facturacion({
                 className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[200px] truncate"
               >
                 <option value="Todos">Todos los clientes</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.company || c.name}
+                {availableClients.map(clientName => (
+                  <option key={clientName} value={clientName}>
+                    {clientName}
                   </option>
                 ))}
               </select>
