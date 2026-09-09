@@ -64,7 +64,8 @@ export default function InstallmentsModal({
   onSave,
   projectNumber = 'SPR',
   isDeferredSave = false,
-  currency = 'UF'
+  currency = 'UF',
+  billingCompany = 'Spoerer'
 }) {
   const [localInstallments, setLocalInstallments] = useState([]);
   const [editingFileIdx, setEditingFileIdx] = useState(null);
@@ -78,6 +79,7 @@ export default function InstallmentsModal({
         initialInstallments.map(inst => ({
           ...inst,
           currency: inst.currency || currency || 'UF',
+          billingCompany: inst.billingCompany || billingCompany || 'Spoerer',
           // Newly added local files in memory
           invoiceFileObject: null,
           paymentBackupFileObject: null,
@@ -90,7 +92,7 @@ export default function InstallmentsModal({
       setIsSaving(false);
       setSelectedIds(new Set());
     }
-  }, [isOpen, initialInstallments, currency]);
+  }, [isOpen, initialInstallments, currency, billingCompany]);
 
   if (!isOpen) return null;
 
@@ -172,6 +174,7 @@ export default function InstallmentsModal({
       comment: '',
       dateConfirmed: false,
       currency: currency || 'UF',
+      billingCompany: initialInstallments[0]?.billingCompany || billingCompany || 'Spoerer',
       invoiceNumber: '',
       invoiceFileUrl: '',
       paymentBackupUrl: '',

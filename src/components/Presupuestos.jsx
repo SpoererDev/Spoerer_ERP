@@ -276,6 +276,7 @@ export default function Presupuestos({
   const [validity, setValidity] = useState(30);
   const [quoteTitle, setQuoteTitle] = useState('Servicios ERP');
   const [quoteCurrency, setQuoteCurrency] = useState('UF');
+  const [billingCompany, setBillingCompany] = useState('Spoerer');
   const [backupFiles, setBackupFiles] = useState([]);
   const [isExistingQuote, setIsExistingQuote] = useState(false);
   const [isAiExtracting, setIsAiExtracting] = useState(false);
@@ -427,12 +428,13 @@ export default function Presupuestos({
   // Calculate totals
   useEffect(() => {
     const roundedSub = Math.round((parseSubtotal(subtotal)) * 100) / 100;
-    const tx = Math.round((roundedSub * 0.19) * 100) / 100; // 19% tax (IVA)
+    const taxRate = billingCompany === 'FPF' ? 0 : 0.19;
+    const tx = Math.round((roundedSub * taxRate) * 100) / 100; // 0% tax for FPF, 19% tax (IVA) for Spoerer
     const roundedTotal = Math.round((roundedSub + tx) * 100) / 100;
 
     setTax(tx);
     setTotal(roundedTotal);
-  }, [subtotal]);
+  }, [subtotal, billingCompany]);
 
   const handleSubtotalChange = (e) => {
     let val = e.target.value;
@@ -810,6 +812,8 @@ export default function Presupuestos({
           numQuota: numStr,
           date: dateVal,
           uf: U,
+          currency: approvingQuote?.currency || 'UF',
+          billingCompany: approvingQuote?.billingCompany || 'Spoerer',
           comment: V,
           status: 'Por facturar'
         });
@@ -853,12 +857,15 @@ export default function Presupuestos({
       rentabilidad: parseFloat(rentabilidad) || existing?.rentabilidad || 0,
       anio: parseInt(anio) || existing?.anio || new Date().getFullYear(),
       tipo: tipo || existing?.tipo || null,
-      encargado: encargado || existing?.encargado || null
+      encargado: encargado || existing?.encargado || null,
+      billingCompany: existing?.billingCompany || approvingQuote?.billingCompany || 'Spoerer'
     };
 
     const budgetForm = {
       amount: parseFloat(valorProyecto) || 0,
       title: descripcion || '',
+      currency: approvingQuote?.currency || 'UF',
+      billingCompany: approvingQuote?.billingCompany || 'Spoerer',
       backupFiles: approvingQuoteBackupFiles
     };
 
@@ -1013,6 +1020,7 @@ export default function Presupuestos({
     setValidity(30);
     setQuoteTitle('Servicios ERP');
     setQuoteCurrency('UF');
+    setBillingCompany('Spoerer');
     setSubtotal(formatToChileanNumber(1200.00, 2)); // default value
     setBackupFiles([]);
     setEditBillingTable([]);
@@ -1025,6 +1033,7 @@ export default function Presupuestos({
     setQuoteId(quote.quoteId);
     setCurrentBudgetUuid(quote.id);
     setQuoteCurrency(quote.currency || 'UF');
+    setBillingCompany(quote.billingCompany || 'Spoerer');
 
     const matchedMC = mainClients.find(mc =>
       (quote.mainClientId && mc.id === quote.mainClientId) ||
@@ -1084,6 +1093,7 @@ export default function Presupuestos({
         setIsExistingQuote(true);
         setCurrentBudgetUuid(existing.id);
         setQuoteCurrency(existing.currency || 'UF');
+        setBillingCompany(existing.billingCompany || 'Spoerer');
 
         const matchedMC = mainClients.find(mc =>
           (existing.mainClientId && mc.id === existing.mainClientId) ||
@@ -1439,6 +1449,7 @@ export default function Presupuestos({
             rentabilidad: 0,
             anio: new Date().getFullYear(),
             currency: quoteCurrency,
+            billingCompany: billingCompany || 'Spoerer',
             status: 'Activo'
           });
           projectIdToLink = newProj.id;
@@ -1473,6 +1484,7 @@ export default function Presupuestos({
       date: ensureDDMMYYYY(issueDate),
       amount: parseSubtotal(subtotal),
       currency: quoteCurrency,
+      billingCompany: billingCompany || 'Spoerer',
       validity: `${validity} días`,
       status: finalStatus,
       items: [
@@ -1484,7 +1496,11 @@ export default function Presupuestos({
 
     try {
       setIsSaving(true);
-      await onAddQuote(newQuote, newQuote.items, editBillingTable);
+      const billingTableToSave = editBillingTable.map(row => ({
+        ...row,
+        billingCompany: row.billingCompany || billingCompany || 'Spoerer'
+      }));
+      await onAddQuote(newQuote, newQuote.items, billingTableToSave);
       setNotification({
         type: 'success',
         title: 'Presupuesto Guardado',
@@ -1497,6 +1513,7 @@ export default function Presupuestos({
       setValidity(30);
       setQuoteTitle('Servicios ERP');
       setQuoteCurrency('UF');
+      setBillingCompany('Spoerer');
       setSubtotal(formatToChileanNumber(0, 2));
       setBackupFiles([]);
       setEditBillingTable([]);
@@ -1784,7 +1801,18 @@ export default function Presupuestos({
               <tbody className="divide-y divide-outline-variant">
                 {filteredQuotes.map((quote) => (
                   <tr key={quote.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-md font-body-md font-bold text-primary">{quote.quoteId}</td>
+                    <td className="p-md font-body-md">
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="font-bold text-primary">{quote.quoteId}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          quote.billingCompany === 'FPF'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'bg-slate-100 text-slate-700 border border-slate-300'
+                        }`}>
+                          {quote.billingCompany || 'Spoerer'}
+                        </span>
+                      </div>
+                    </td>
                     <td className="p-md">
                       <div className="flex flex-col">
                         <span className="font-body-md font-bold text-on-surface">{quote.clientName}</span>
@@ -1943,6 +1971,19 @@ export default function Presupuestos({
                     <div>
                       <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Empresa</span>
                       <span className="text-on-surface">{viewingQuote.company || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Empresa Emisora</span>
+                      <span className={`inline-flex items-center gap-1 font-bold text-label-md px-2 py-0.5 rounded ${
+                        viewingQuote.billingCompany === 'FPF'
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-slate-100 text-slate-800'
+                      }`}>
+                        <span className="material-symbols-outlined text-[16px]">
+                          {viewingQuote.billingCompany === 'FPF' ? 'account_balance' : 'domain'}
+                        </span>
+                        {viewingQuote.billingCompany || 'Spoerer'}
+                      </span>
                     </div>
                     <div className="col-span-2">
                       <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Título de presupuesto</span>
@@ -2391,9 +2432,9 @@ export default function Presupuestos({
                         </div>
 
                         {/* Fila 3: Fecha de Emisión y Validez */}
-                        <div className="grid grid-cols-2 gap-md">
+                        <div className="grid grid-cols-2 gap-md items-end">
                           <div className="flex flex-col gap-xs">
-                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Fecha de Emisión presupuesto</label>
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold truncate" title="Fecha de Emisión">Fecha de Emisión</label>
                             <div className="relative">
                               <input
                                 type="text"
@@ -2438,6 +2479,45 @@ export default function Presupuestos({
                               disabled={!isClientSelected}
                               required={isClientSelected}
                             />
+                          </div>
+                        </div>
+
+                        {/* Empresa de Facturación */}
+                        <div className="flex flex-col gap-xs pt-xs border-t border-slate-200/60">
+                          <div className="flex items-center justify-between">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-[16px] text-secondary">domain</span>
+                              Empresa de Facturación
+                            </label>
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                              billingCompany === 'FPF'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-800'
+                            }`}>
+                              {billingCompany === 'FPF' ? '0% IVA (Exento)' : '19% IVA'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                            {['Spoerer', 'FPF'].map((comp) => (
+                              <button
+                                key={comp}
+                                type="button"
+                                disabled={!isClientSelected}
+                                onClick={() => setBillingCompany(comp)}
+                                className={`py-1.5 px-3 rounded-md text-label-sm font-bold flex items-center justify-center gap-1.5 transition-all ${
+                                  billingCompany === comp
+                                    ? comp === 'FPF'
+                                      ? 'bg-amber-600 text-white shadow-xs'
+                                      : 'bg-[#091426] text-white shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                                } ${!isClientSelected ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">
+                                  {comp === 'FPF' ? 'account_balance' : 'domain'}
+                                </span>
+                                {comp}
+                              </button>
+                            ))}
                           </div>
                         </div>
 
@@ -2494,11 +2574,13 @@ export default function Presupuestos({
                         {/* Fila 5: Impuestos y Totales */}
                         <div className="space-y-sm pt-sm border-t border-slate-200/60">
                           <div className="flex justify-between text-body-sm text-on-surface-variant px-1">
-                            <span>Impuesto (19% IVA)</span>
+                            <span>Impuesto ({billingCompany === 'FPF' ? '0% IVA - Exento' : '19% IVA'})</span>
                             <span className="font-medium">{formatAmountWithCurrency(tax, quoteCurrency)}</span>
                           </div>
                           <div className="flex justify-between items-center bg-secondary/5 px-md py-2.5 rounded-lg border border-secondary/10">
-                            <span className="text-body-md font-bold text-secondary">Total (IVA Incluido)</span>
+                            <span className="text-body-md font-bold text-secondary">
+                              {billingCompany === 'FPF' ? 'Total (Exento de IVA)' : 'Total (IVA Incluido)'}
+                            </span>
                             <span className="text-title-lg font-black text-secondary">
                               {formatAmountWithCurrency(total, quoteCurrency)}
                             </span>
@@ -3989,6 +4071,7 @@ export default function Presupuestos({
           isOpen={isInstallmentsModalOpen}
           onClose={() => setIsInstallmentsModalOpen(false)}
           currency={quoteCurrency}
+          billingCompany={billingCompany || 'Spoerer'}
           projectName={existingQuoteObj?.projectId ? (() => {
             const assoc = projects.find(p => p.id === existingQuoteObj.projectId);
             return assoc ? `${assoc.projectNumber} - ${assoc.rawProjectName}` : quoteTitle;

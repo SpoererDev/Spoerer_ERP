@@ -112,7 +112,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Dibujante": '',
         "M2": proj ? parseFloat(proj.superficie) || 0 : 0,
         "Total Presupuesto": budg ? parseFloat(budg.total_amount) || 0 : 0,
-        "Total UF": budg ? parseFloat(budg.total_amount) || 0 : 0
+        "Total UF": budg ? parseFloat(budg.total_amount) || 0 : 0,
+        "Empresa Emisora": inst.billing_company || budg?.billing_company || proj?.billing_company || 'Spoerer'
       });
     });
 
@@ -138,7 +139,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Presupuesto #", "Factura #", "Fecha", "Año", "Año Proy", "RUT", "Razón Social",
         "Giro", "Dirección", "Comuna", "Ciudad", "Contacto", "Obra", "Comentario",
         "Cuota", "TotCuota", "Moneda", "Monto", "UF", "$", "F-Pago", "Estado F#", "Tipo", "Cliente",
-        "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total Presupuesto", "Total UF"
+        "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total Presupuesto", "Total UF", "Empresa Emisora"
       ]
     });
 
@@ -166,7 +167,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
           "m2": parseFloat(proj.superficie) || 0,
           "Rentabilidad esperada": (proj.rentabilidad !== undefined && proj.rentabilidad !== null) ? `${proj.rentabilidad}%` : '',
           "Factura": '',
-          "Facturado": ''
+          "Facturado": '',
+          "Empresa Emisora": budg.billing_company || proj.billing_company || 'Spoerer'
         });
       });
 
@@ -184,7 +186,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
           "m2": parseFloat(cost.superficie) || 0,
           "Rentabilidad esperada": '',
           "Factura": '',
-          "Facturado": ''
+          "Facturado": '',
+          "Empresa Emisora": proj.billing_company || 'Spoerer'
         });
       });
     });
@@ -192,7 +195,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     const wsProyectos = XLSX.utils.json_to_sheet(proyectosRows, {
       header: [
         "Código de presupuesto", "Proyecto", "Moneda", "Presupuesto", "Presupuesto (UF)", "Costo Extra", "Costo Extra (UF)",
-        "Descripción", "Comentario", "m2", "Rentabilidad esperada", "Factura", "Facturado"
+        "Descripción", "Comentario", "m2", "Rentabilidad esperada", "Factura", "Facturado", "Empresa Emisora"
       ]
     });
 

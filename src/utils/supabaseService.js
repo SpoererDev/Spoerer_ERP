@@ -112,6 +112,7 @@ const mapBudgetFromDb = (dbBudget) => {
     date: dbBudget.date ? dbBudget.date.split('-').reverse().join('/') : '', // YYYY-MM-DD -> DD/MM/YYYY
     amount: parseFloat(dbBudget.total_amount) || 0,
     currency: dbBudget.currency || 'UF',
+    billingCompany: dbBudget.billing_company || 'Spoerer',
     validity: `${dbBudget.validity_days} días`,
     status: dbBudget.status,
     items: dbBudget.budget_items ? dbBudget.budget_items.map(item => ({
@@ -152,6 +153,7 @@ const mapProjectFromDb = (dbProject) => {
     status: dbProject.status,
     tipo: dbProject.tipo,
     currency: dbProject.currency || 'UF',
+    billingCompany: dbProject.billing_company || 'Spoerer',
     encargado: dbProject.encargado || ''
   };
 };
@@ -177,6 +179,7 @@ const mapInstallmentFromDb = (dbInst) => ({
   date: dbInst.scheduled_date,
   uf: parseFloat(dbInst.planned_amount_uf) || 0,
   currency: dbInst.currency || 'UF',
+  billingCompany: dbInst.billing_company || 'Spoerer',
   net_clp: dbInst.net_amount_clp ? parseFloat(dbInst.net_amount_clp) : null,
   tax_clp: dbInst.tax_amount_clp ? parseFloat(dbInst.tax_amount_clp) : null,
   total_clp: dbInst.total_amount_clp ? parseFloat(dbInst.total_amount_clp) : null,
@@ -621,6 +624,7 @@ export const supabaseService = {
         date: formattedDate,
         total_amount: totalAmount,
         currency: quote.currency || 'UF',
+        billing_company: quote.billingCompany || (oldBudget ? oldBudget.billing_company : 'Spoerer'),
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         backup_files: finalFiles
@@ -647,6 +651,7 @@ export const supabaseService = {
         date: formattedDate,
         total_amount: totalAmount,
         currency: quote.currency || 'UF',
+        billing_company: quote.billingCompany || 'Spoerer',
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         created_by: quote.createdBy || null,
@@ -709,6 +714,7 @@ export const supabaseService = {
           scheduled_date: inst.date,
           planned_amount_uf: parseFloat(inst.uf) || 0,
           currency: inst.currency || quote.currency || savedBudget.currency || 'UF',
+          billing_company: inst.billingCompany || quote.billingCompany || savedBudget.billing_company || 'Spoerer',
           comment: inst.comment || '',
           status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
           date_confirmed: inst.dateConfirmed || false,
@@ -843,6 +849,7 @@ export const supabaseService = {
       status: project.status || 'Activo',
       tipo: project.tipo || null,
       currency: project.currency || 'UF',
+      billing_company: project.billingCompany || 'Spoerer',
       encargado: project.encargado || null
     };
 
@@ -959,6 +966,7 @@ export const supabaseService = {
     if (updates.status !== undefined) dbUpdates.status = mapInstallmentStatusToDb(updates.status);
     if (updates.uf !== undefined) dbUpdates.planned_amount_uf = parseFloat(updates.uf) || 0;
     if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
+    if (updates.billingCompany !== undefined) dbUpdates.billing_company = updates.billingCompany;
     if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
     if (updates.dateConfirmed !== undefined) dbUpdates.date_confirmed = updates.dateConfirmed;
     
@@ -992,6 +1000,7 @@ export const supabaseService = {
       scheduled_date: installment.date,
       planned_amount_uf: parseFloat(installment.uf) || 0,
       currency: installment.currency || 'UF',
+      billing_company: installment.billingCompany || 'Spoerer',
       status: mapInstallmentStatusToDb(installment.status || 'Por facturar'),
       comment: installment.comment || '',
       date_confirmed: installment.dateConfirmed || false,
@@ -1039,6 +1048,7 @@ export const supabaseService = {
       status: 'Activo',
       tipo: projectForm.tipo || null,
       currency: projectForm.currency || (budgetForm ? budgetForm.currency : null) || 'UF',
+      billing_company: projectForm.billingCompany || (budgetForm ? budgetForm.billingCompany : null) || 'Spoerer',
       encargado: projectForm.encargado || null
     };
 
@@ -1121,7 +1131,7 @@ export const supabaseService = {
     // 3. Move files in storage if status changes to Aprobado, or handle budgetForm files
     const { data: currentBudget } = await supabase
       .from('budgets')
-      .select('status, budget_number, backup_files, currency')
+      .select('status, budget_number, backup_files, currency, billing_company')
       .eq('id', budgetId)
       .single();
 
@@ -1177,6 +1187,10 @@ export const supabaseService = {
       backup_files: finalFiles
     };
 
+    if (budgetForm && budgetForm.billingCompany) {
+      budgetUpdateData.billing_company = budgetForm.billingCompany;
+    }
+
     if (budgetForm && budgetForm.amount !== undefined) {
       budgetUpdateData.total_amount = budgetForm.amount;
     } else {
@@ -1209,6 +1223,7 @@ export const supabaseService = {
         scheduled_date: inst.date,
         planned_amount_uf: parseFloat(inst.uf) || 0,
         currency: inst.currency || (currentBudget ? currentBudget.currency : 'UF') || 'UF',
+        billing_company: inst.billingCompany || (budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer',
         comment: inst.comment || '',
         status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
         date_confirmed: inst.dateConfirmed || false,

@@ -91,6 +91,9 @@ export default function Facturacion({
   const [newRazonSocialContactEmail, setNewRazonSocialContactEmail] = useState('');
   const [newRazonSocialContactPhone, setNewRazonSocialContactPhone] = useState('');
 
+  // --- FILTER STATE ---
+  const [billingCompanyFilter, setBillingCompanyFilter] = useState('Todos');
+
   // --- FORM STATES ---
   const [isSaving, setIsSaving] = useState(false);
 
@@ -257,11 +260,13 @@ export default function Facturacion({
   // --- DYNAMIC CALCULATIONS FOR EMIT MODAL ---
   const plannedAmount = selectedInstallment ? parseFloat(selectedInstallment.uf) || 0 : 0;
   const instCurrency = (selectedInstallment?.currency || 'UF').toUpperCase();
+  const instBillingCompany = selectedInstallment?.billingCompany || (budgets.find(b => b.id === selectedInstallment?.origin_budget_id)?.billingCompany) || (projects.find(p => p.id === selectedInstallment?.project_id)?.billingCompany) || 'Spoerer';
+  const isExempt = instBillingCompany === 'FPF';
   const parsedUfRate = parseFloat(ufRate) || 0;
   const calculatedNet = instCurrency === 'CLP'
     ? Math.round(plannedAmount)
     : Math.round(plannedAmount * parsedUfRate);
-  const calculatedTax = Math.round(calculatedNet * 0.19);
+  const calculatedTax = isExempt ? 0 : Math.round(calculatedNet * 0.19);
   const calculatedTotal = calculatedNet + calculatedTax;
 
   // --- FILTERED INSTALLMENTS ---
@@ -288,7 +293,11 @@ export default function Facturacion({
       // 4. Encargado Filter
       if (encargadoFilter && encargadoFilter !== 'Todos' && project?.encargado !== encargadoFilter) return false;
 
-      // 5. Text Search
+      // 5. Empresa Emisora Filter
+      const instCompany = inst.billingCompany || (inst.origin_budget_id && budgets.find(b => b.id === inst.origin_budget_id)?.billingCompany) || project?.billingCompany || 'Spoerer';
+      if (billingCompanyFilter !== 'Todos' && instCompany !== billingCompanyFilter) return false;
+
+      // 6. Text Search
       if (searchTerm.trim() !== '') {
         const term = searchTerm.toLowerCase();
 
@@ -321,7 +330,7 @@ export default function Facturacion({
 
       return true;
     });
-  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, searchTerm, todayStr]);
+  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, searchTerm, todayStr]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -1090,9 +1099,16 @@ export default function Facturacion({
                 />
               </div>
             </div>
-            {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos') && (
+            {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos') && (
               <button
-                onClick={() => { setSearchTerm(''); setTemporalFilter('Todos'); setStatusFilter('Todos'); setClientFilter('Todos'); setEncargadoFilter('Todos'); }}
+                onClick={() => {
+                  setSearchTerm('');
+                  setTemporalFilter('Todos');
+                  setStatusFilter('Todos');
+                  setClientFilter('Todos');
+                  setEncargadoFilter('Todos');
+                  setBillingCompanyFilter('Todos');
+                }}
                 className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
                 title="Limpiar Filtros"
               >
@@ -1104,6 +1120,30 @@ export default function Facturacion({
 
           {/* Right Side: Filters */}
           <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
+            {/* Empresa Filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa:</span>
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                {[
+                  { value: 'Todos', label: 'Todas' },
+                  { value: 'Spoerer', label: 'Spoerer' },
+                  { value: 'FPF', label: 'FPF' }
+                ].map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setBillingCompanyFilter(c.value)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${billingCompanyFilter === c.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Temporal Filter */}
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
@@ -1232,6 +1272,17 @@ export default function Facturacion({
                       <div className="flex flex-wrap gap-x-base gap-y-1 text-body-sm text-on-surface-variant mt-1 items-center font-medium">
                         <span className="font-semibold text-on-surface-variant">
                           {project.cliente || 'Cliente no definido'}
+                        </span>
+                        <span className="text-outline-variant">•</span>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider flex items-center gap-1 ${
+                          project.billingCompany === 'FPF'
+                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-slate-100 text-slate-800 border-slate-300'
+                        }`}>
+                          <span className="material-symbols-outlined text-[13px]">
+                            {project.billingCompany === 'FPF' ? 'account_balance' : 'domain'}
+                          </span>
+                          {project.billingCompany || 'Spoerer'}
                         </span>
                         {project.anio && (
                           <>
@@ -1372,7 +1423,16 @@ export default function Facturacion({
                                   return (
                                     <tr key={inst.id} className="hover:bg-surface-container-lowest transition-colors text-body-sm">
                                       <td className={`px-md py-md font-semibold ${isOverdue ? 'text-red-600' : 'text-primary'}`}>
-                                        {inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}
+                                        <div className="flex flex-col items-start gap-0.5">
+                                          <span>{inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}</span>
+                                          <span className={`text-[9px] font-bold px-1 rounded uppercase tracking-wider ${
+                                            (inst.billingCompany || project?.billingCompany) === 'FPF'
+                                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                              : 'bg-slate-100 text-slate-700 border border-slate-300'
+                                          }`}>
+                                            {inst.billingCompany || project?.billingCompany || 'Spoerer'}
+                                          </span>
+                                        </div>
                                       </td>
                                       <td
                                         className="px-md py-md text-center cursor-pointer select-none"
@@ -1420,9 +1480,9 @@ export default function Facturacion({
                                             </span>
                                             {/* Tooltip con desglose */}
                                             <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block bg-slate-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50 whitespace-nowrap text-left border border-slate-800">
-                                              <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">Cálculo de Pesos</div>
+                                              <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">Cálculo de Pesos ({(inst.billingCompany || project?.billingCompany) === 'FPF' ? 'FPF 0% IVA' : 'Spoerer 19% IVA'})</div>
                                               <p className="flex justify-between gap-4"><span>Neto:</span> <span className="font-mono">{formatCLP(inst.net_clp)}</span></p>
-                                              <p className="flex justify-between gap-4"><span>IVA (19%):</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
+                                              <p className="flex justify-between gap-4"><span>{(inst.billingCompany || project?.billingCompany) === 'FPF' ? 'IVA (0% Exento):' : 'IVA (19%):'}</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
                                               <p className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1 font-bold text-secondary-fixed-dim"><span>Total:</span> <span className="font-mono">{formatCLP(inst.total_clp)}</span></p>
                                             </div>
                                           </div>
@@ -1571,6 +1631,14 @@ export default function Facturacion({
                   <span className="text-on-surface-variant font-medium">Monto Pactado:</span>
                   <span className="font-bold text-secondary">{formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')}</span>
                 </p>
+                <p className="flex justify-between items-center border-t border-slate-200/40 pt-1 mt-1">
+                  <span className="text-on-surface-variant font-medium">Empresa Emisora:</span>
+                  <span className={`font-bold text-xs px-2 py-0.5 rounded ${
+                    instBillingCompany === 'FPF' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
+                  }`}>
+                    {instBillingCompany} {isExempt ? '(0% IVA)' : '(19% IVA)'}
+                  </span>
+                </p>
               </div>
 
               {/* Folio Factura */}
@@ -1666,17 +1734,21 @@ export default function Facturacion({
               {/* Reactive calculated fields */}
               {(instCurrency === 'CLP' || parsedUfRate > 0) && (
                 <div className="bg-slate-50/50 border border-slate-200/60 p-md rounded-xl text-body-sm space-y-1.5">
-                  <div className="font-bold text-primary mb-2 text-[11px] uppercase tracking-wider border-b border-slate-200/40 pb-1">Cálculo Estimado CLP (19% IVA)</div>
+                  <div className="font-bold text-primary mb-2 text-[11px] uppercase tracking-wider border-b border-slate-200/40 pb-1">
+                    Cálculo Estimado CLP {isExempt ? '(0% IVA - FPF)' : '(19% IVA - Spoerer)'}
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-on-surface-variant font-medium">Neto:</span>
                     <span className="font-mono font-semibold text-primary">{formatCLP(calculatedNet)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-on-surface-variant font-medium">IVA (19%):</span>
+                    <span className="text-on-surface-variant font-medium">
+                      {isExempt ? 'IVA (0% Exento):' : 'IVA (19%):'}
+                    </span>
                     <span className="font-mono font-semibold text-primary">{formatCLP(calculatedTax)}</span>
                   </div>
                   <div className="flex justify-between border-t border-slate-200/60 pt-1.5 mt-1.5 font-bold">
-                    <span className="text-primary">Total Bruto:</span>
+                    <span className="text-primary">{isExempt ? 'Total Factura:' : 'Total Bruto:'}</span>
                     <span className="font-mono text-primary">{formatCLP(calculatedTotal)}</span>
                   </div>
                 </div>
@@ -1918,7 +1990,7 @@ export default function Facturacion({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-md border-b border-slate-200/40 pb-3">
+              <div className="grid grid-cols-3 gap-md border-b border-slate-200/40 pb-3">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Monto Planificado</span>
                   <span className="font-semibold text-primary">{formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')}</span>
@@ -1926,6 +1998,14 @@ export default function Facturacion({
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Folio Factura</span>
                   <span className="font-semibold text-primary">{selectedInstallment.invoiceNumber || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Empresa Emisora</span>
+                  <span className={`inline-flex items-center gap-1 font-bold text-xs px-2 py-0.5 rounded ${
+                    selectedInstallment.billingCompany === 'FPF' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
+                  }`}>
+                    {selectedInstallment.billingCompany || 'Spoerer'}
+                  </span>
                 </div>
               </div>
 
@@ -1936,7 +2016,9 @@ export default function Facturacion({
                   <span className="font-mono font-medium text-primary">{formatCLP(selectedInstallment.net_clp)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-on-surface-variant font-medium">IVA (19%):</span>
+                  <span className="text-on-surface-variant font-medium">
+                    {selectedInstallment.billingCompany === 'FPF' ? 'IVA (0% Exento):' : 'IVA (19%):'}
+                  </span>
                   <span className="font-mono font-medium text-primary">{formatCLP(selectedInstallment.tax_clp)}</span>
                 </div>
                 <div className="flex justify-between font-bold border-t border-slate-200/60 pt-1.5 mt-1.5">
@@ -2028,6 +2110,7 @@ export default function Facturacion({
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}
           currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
+          billingCompany={activeBudgetForInstallments?.project?.billingCompany || activeBudgetForInstallments?.budget?.billingCompany || 'Spoerer'}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
           initialInstallments={activeBudgetForInstallments.installments}
           onSave={async (updated) => {

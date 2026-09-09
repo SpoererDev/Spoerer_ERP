@@ -153,6 +153,7 @@ export default function Proyectos({
   const [editTipo, setEditTipo] = useState('');
   const [isCustomEditTipo, setIsCustomEditTipo] = useState(false);
   const [editEncargado, setEditEncargado] = useState('');
+  const [editBillingCompany, setEditBillingCompany] = useState('Spoerer');
   const [disassociatingBudgetId, setDisassociatingBudgetId] = useState(null);
 
   const adminUsers = useMemo(() => {
@@ -311,6 +312,7 @@ export default function Proyectos({
     setEditTipo(existingTipo);
     setIsCustomEditTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
     setEditEncargado(project.encargado || '');
+    setEditBillingCompany(project.billingCompany || 'Spoerer');
   };
 
   // Save project general parameters edit
@@ -351,6 +353,7 @@ export default function Proyectos({
         mainClientId: mainClientId || null,
         clientId: clientId || null,
         legalEntityId: editingProject.legalEntityId || clientId || null,
+        billingCompany: editBillingCompany || 'Spoerer',
         status: editingProject.status,
         tipo: editTipo || null,
         encargado: editEncargado || null
@@ -887,6 +890,17 @@ export default function Proyectos({
                           {project.cliente}
                         </span>
                         <span className="text-outline-variant">•</span>
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider flex items-center gap-1 ${
+                          project.billingCompany === 'FPF'
+                            ? 'bg-amber-100 text-amber-800 border-amber-300'
+                            : 'bg-slate-100 text-slate-800 border-slate-300'
+                        }`}>
+                          <span className="material-symbols-outlined text-[13px]">
+                            {project.billingCompany === 'FPF' ? 'account_balance' : 'domain'}
+                          </span>
+                          {project.billingCompany || 'Spoerer'}
+                        </span>
+                        <span className="text-outline-variant">•</span>
                         <span>Año {project.anio}</span>
                         {project.tipo && (
                           <>
@@ -1252,6 +1266,44 @@ export default function Proyectos({
                     placeholder="Ej: 0280-Mantenimiento Anual"
                     required
                   />
+                </div>
+
+                {/* Empresa de Facturación */}
+                <div className="flex flex-col gap-xs">
+                  <div className="flex items-center justify-between">
+                    <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[16px] text-secondary">domain</span>
+                      Empresa de Facturación
+                    </label>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                      editBillingCompany === 'FPF'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-slate-100 text-slate-800'
+                    }`}>
+                      {editBillingCompany === 'FPF' ? '0% IVA (Exento)' : '19% IVA'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                    {['Spoerer', 'FPF'].map((comp) => (
+                      <button
+                        key={comp}
+                        type="button"
+                        onClick={() => setEditBillingCompany(comp)}
+                        className={`py-1.5 px-3 rounded-md text-label-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          editBillingCompany === comp
+                            ? comp === 'FPF'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-[#091426] text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[16px]">
+                          {comp === 'FPF' ? 'account_balance' : 'domain'}
+                        </span>
+                        {comp}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-md">
@@ -1932,6 +1984,7 @@ export default function Proyectos({
             setActiveBudgetForInstallments(null);
           }}
           currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
+          billingCompany={activeBudgetForInstallments?.project?.billingCompany || activeBudgetForInstallments?.budget?.billingCompany || 'Spoerer'}
           projectName={`${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName}`}
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}
