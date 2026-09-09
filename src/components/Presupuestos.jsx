@@ -174,7 +174,9 @@ export default function Presupuestos({
         numQuota: nextNum,
         date: nextDate,
         uf: 0,
+        description: '',
         comment: '',
+        oc: '',
         status: 'Por facturar'
       }
     ]);
@@ -814,7 +816,9 @@ export default function Presupuestos({
           uf: U,
           currency: approvingQuote?.currency || 'UF',
           billingCompany: approvingQuote?.billingCompany || 'Spoerer',
-          comment: V,
+          description: V,
+          comment: '',
+          oc: '',
           status: 'Por facturar'
         });
         counter++;
@@ -2956,7 +2960,7 @@ export default function Presupuestos({
                                     {formatAmountWithCurrency(row.uf, row.currency || quoteCurrency || 'UF')}
                                   </td>
                                   <td className="p-2 text-on-surface-variant italic">
-                                    {row.comment || 'Facturación ordinaria'}
+                                    {row.description || row.comment || 'Facturación ordinaria'}
                                   </td>
                                 </tr>
                               ))}
@@ -3686,7 +3690,7 @@ export default function Presupuestos({
                                     <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
                                     <th className="p-2 border-b border-slate-200">Fecha</th>
                                     <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota ({approvingQuote?.currency || 'UF'})</th>
-                                    <th className="p-2 border-b border-slate-200">Comentario</th>
+                                    <th className="p-2 border-b border-slate-200">Descripción</th>
                                     <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
                                   </tr>
                                 </thead>

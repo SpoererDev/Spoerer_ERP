@@ -189,7 +189,11 @@ const mapInstallmentFromDb = (dbInst) => ({
   invoiceFileUrl: dbInst.invoice_file_url || '',
   actualPaymentDate: dbInst.actual_payment_date || null,
   paymentBackupUrl: dbInst.payment_backup_url || '',
+  description: dbInst.description || '',
   comment: dbInst.comment || '',
+  oc: dbInst.oc || '',
+  ocFileUrl: dbInst.oc_file_url || '',
+  otherFiles: Array.isArray(dbInst.other_files) ? dbInst.other_files : (typeof dbInst.other_files === 'string' ? JSON.parse(dbInst.other_files || '[]') : []),
   dateConfirmed: dbInst.date_confirmed || false
 });
 
@@ -723,6 +727,9 @@ export const supabaseService = {
           actual_invoice_date: inst.actualInvoiceDate || null,
           actual_payment_date: inst.actualPaymentDate || null,
           payment_backup_url: inst.paymentBackupUrl || null,
+          oc: inst.oc || '',
+          oc_file_url: inst.ocFileUrl || null,
+          other_files: inst.otherFiles || [],
           net_amount_clp: inst.net_clp || null,
           tax_amount_clp: inst.tax_clp || null,
           total_amount_clp: inst.total_clp || null
@@ -967,7 +974,10 @@ export const supabaseService = {
     if (updates.uf !== undefined) dbUpdates.planned_amount_uf = parseFloat(updates.uf) || 0;
     if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
     if (updates.billingCompany !== undefined) dbUpdates.billing_company = updates.billingCompany;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
+    if (updates.oc !== undefined) dbUpdates.oc = updates.oc;
+    if (updates.ocFileUrl !== undefined) dbUpdates.oc_file_url = updates.ocFileUrl;
     if (updates.dateConfirmed !== undefined) dbUpdates.date_confirmed = updates.dateConfirmed;
     
     // Financial details
@@ -976,6 +986,7 @@ export const supabaseService = {
     if (updates.invoiceFileUrl !== undefined) dbUpdates.invoice_file_url = updates.invoiceFileUrl;
     if (updates.actualPaymentDate !== undefined) dbUpdates.actual_payment_date = updates.actualPaymentDate;
     if (updates.paymentBackupUrl !== undefined) dbUpdates.payment_backup_url = updates.paymentBackupUrl;
+    if (updates.otherFiles !== undefined) dbUpdates.other_files = updates.otherFiles;
     
     // CLP Desglose calculations (when moving to Facturado)
     if (updates.net_clp !== undefined) dbUpdates.net_amount_clp = updates.net_clp;
@@ -1002,7 +1013,11 @@ export const supabaseService = {
       currency: installment.currency || 'UF',
       billing_company: installment.billingCompany || 'Spoerer',
       status: mapInstallmentStatusToDb(installment.status || 'Por facturar'),
+      description: installment.description || '',
       comment: installment.comment || '',
+      oc: installment.oc || '',
+      oc_file_url: installment.ocFileUrl || null,
+      other_files: installment.otherFiles || [],
       date_confirmed: installment.dateConfirmed || false,
       invoice_number: installment.invoiceNumber || null,
       invoice_file_url: installment.invoiceFileUrl || null,
@@ -1224,7 +1239,10 @@ export const supabaseService = {
         planned_amount_uf: parseFloat(inst.uf) || 0,
         currency: inst.currency || (currentBudget ? currentBudget.currency : 'UF') || 'UF',
         billing_company: inst.billingCompany || (budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer',
-        comment: inst.comment || '',
+        description: inst.description || inst.comment || '',
+        comment: inst.description ? (inst.comment || '') : '',
+        oc: inst.oc || '',
+        oc_file_url: inst.ocFileUrl || null,
         status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
         date_confirmed: inst.dateConfirmed || false,
         invoice_number: inst.invoiceNumber || null,
@@ -1232,6 +1250,7 @@ export const supabaseService = {
         actual_invoice_date: inst.actualInvoiceDate || null,
         actual_payment_date: inst.actualPaymentDate || null,
         payment_backup_url: inst.paymentBackupUrl || null,
+        other_files: inst.otherFiles || [],
         net_amount_clp: inst.net_clp || null,
         tax_amount_clp: inst.tax_clp || null,
         total_amount_clp: inst.total_clp || null
@@ -1438,8 +1457,9 @@ export const supabaseService = {
   async uploadInstallmentFile(folder, projectNumber, file) {
     if (!file) return '';
     const cleanName = sanitizeFileName(file.name);
-    const path = `${folder}/${projectNumber}/${Date.now()}_${cleanName}`;
-    const { data, error } = await supabase.storage.from('budgets').upload(path, file);
+    const uniqueSuffix = Math.random().toString(36).substring(2, 7);
+    const path = `${folder}/${projectNumber}/${Date.now()}_${uniqueSuffix}_${cleanName}`;
+    const { error } = await supabase.storage.from('budgets').upload(path, file);
     if (error) throw error;
     const { data: { publicUrl } } = supabase.storage.from('budgets').getPublicUrl(path);
     return publicUrl;

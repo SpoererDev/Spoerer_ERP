@@ -438,7 +438,9 @@ export default function Proyectos({
       date: new Date().toISOString().split('T')[0],
       uf: 0,
       status: 'Por facturar',
+      description: '',
       comment: '',
+      oc: '',
       isNew: true
     };
 
@@ -1151,7 +1153,9 @@ export default function Proyectos({
                                        <th className="p-2.5 border-b border-slate-200">Fecha Planificada</th>
                                        <th className="p-2.5 border-b border-slate-200 w-36 text-center">Estado</th>
                                        <th className="p-2.5 border-b border-slate-200 text-right w-28">Monto</th>
-                                       <th className="p-2.5 border-b border-slate-200">Comentario / Estado de Hito</th>
+                                       <th className="p-2.5 border-b border-slate-200 w-28 text-center">OC</th>
+                                       <th className="p-2.5 border-b border-slate-200">Descripción</th>
+                                       <th className="p-2.5 border-b border-slate-200">Comentario</th>
                                      </tr>
                                    </thead>
                                    <tbody className="text-body-sm divide-y divide-slate-100">
@@ -1182,6 +1186,12 @@ export default function Proyectos({
                                          </td>
                                          <td className="p-2.5 w-28 text-right font-bold text-primary">
                                            {formatAmountWithCurrency(row.uf, row.currency || budget.currency || 'UF')}
+                                         </td>
+                                         <td className="p-2.5 w-28 text-center font-medium text-slate-600">
+                                           {row.oc || '-'}
+                                         </td>
+                                         <td className="p-2.5 text-on-surface-variant font-medium">
+                                           {row.description || '-'}
                                          </td>
                                          <td className="p-2.5 text-on-surface-variant italic">
                                            {row.comment || '-'}

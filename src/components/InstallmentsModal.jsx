@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabaseService } from '../utils/supabaseService';
 
 // Helper: Sumar meses de forma segura considerando el fin de mes y años bisiestos
@@ -72,20 +72,99 @@ export default function InstallmentsModal({
   const [validationError, setValidationError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const modalRef = useRef(null);
+  const [modalSize, setModalSize] = useState({ width: null, height: null });
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  const toggleMaximize = () => {
+    setIsMaximized(prev => !prev);
+  };
+
+  const handleResizeStart = (e, direction) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!modalRef.current) return;
+    const rect = modalRef.current.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+
+    setIsMaximized(false);
+
+    document.body.style.userSelect = 'none';
+    if (direction === 'right' || direction === 'left') {
+      document.body.style.cursor = 'ew-resize';
+    } else if (direction === 'bottom') {
+      document.body.style.cursor = 'ns-resize';
+    } else if (direction === 'corner') {
+      document.body.style.cursor = 'nwse-resize';
+    }
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      const maxWidth = window.innerWidth - 32;
+      const maxHeight = window.innerHeight - 32;
+
+      let nextWidth = startWidth;
+      let nextHeight = startHeight;
+
+      if (direction === 'right') {
+        nextWidth = startWidth + deltaX * 2;
+      } else if (direction === 'left') {
+        nextWidth = startWidth - deltaX * 2;
+      } else if (direction === 'bottom') {
+        nextHeight = startHeight + deltaY * 2;
+      } else if (direction === 'corner') {
+        nextWidth = startWidth + deltaX * 2;
+        nextHeight = startHeight + deltaY * 2;
+      }
+
+      const clampedWidth = Math.max(800, Math.min(maxWidth, nextWidth));
+      const clampedHeight = Math.max(450, Math.min(maxHeight, nextHeight));
+
+      setModalSize({
+        width: direction === 'bottom' ? startWidth : clampedWidth,
+        height: direction === 'right' || direction === 'left' ? startHeight : clampedHeight
+      });
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   useEffect(() => {
     if (isOpen) {
       setLocalInstallments(
         initialInstallments.map(inst => ({
           ...inst,
+          description: inst.description || '',
+          comment: inst.comment || '',
+          oc: inst.oc || '',
+          ocFileUrl: inst.ocFileUrl || '',
+          otherFiles: Array.isArray(inst.otherFiles) ? inst.otherFiles : [],
           currency: inst.currency || currency || 'UF',
           billingCompany: inst.billingCompany || billingCompany || 'Spoerer',
           // Newly added local files in memory
           invoiceFileObject: null,
           paymentBackupFileObject: null,
+          ocFileObject: null,
+          otherFilesToUpload: [],
           // Mark files for deletion
           deleteInvoiceFile: false,
           deletePaymentBackup: false,
+          deleteOcFile: false,
+          otherFilesToDelete: [],
         }))
       );
       setValidationError('');
@@ -128,7 +207,7 @@ export default function InstallmentsModal({
                 date: addMonths(value, slaveIndex)
               };
             }
-            if (field === 'dateConfirmed' || field === 'uf' || field === 'comment') {
+            if (field === 'dateConfirmed' || field === 'uf' || field === 'description' || field === 'comment' || field === 'oc') {
               return {
                 ...inst,
                 [field]: newVal
@@ -171,17 +250,25 @@ export default function InstallmentsModal({
       date: nextDate,
       uf: 0,
       status: 'Por facturar',
+      description: '',
       comment: '',
+      oc: '',
       dateConfirmed: false,
       currency: currency || 'UF',
       billingCompany: initialInstallments[0]?.billingCompany || billingCompany || 'Spoerer',
       invoiceNumber: '',
       invoiceFileUrl: '',
       paymentBackupUrl: '',
+      ocFileUrl: '',
+      otherFiles: [],
       invoiceFileObject: null,
       paymentBackupFileObject: null,
+      ocFileObject: null,
+      otherFilesToUpload: [],
       deleteInvoiceFile: false,
-      deletePaymentBackup: false
+      deletePaymentBackup: false,
+      deleteOcFile: false,
+      otherFilesToDelete: []
     };
 
     setLocalInstallments(prev => [...prev, newInst]);
@@ -274,7 +361,9 @@ export default function InstallmentsModal({
               date: addMonths(masterInst.date, slaveIndex),
               uf: masterInst.uf,
               dateConfirmed: masterInst.dateConfirmed,
-              comment: masterInst.comment
+              description: masterInst.description || '',
+              comment: masterInst.comment || '',
+              oc: masterInst.oc || ''
             };
           }
         }
@@ -285,6 +374,18 @@ export default function InstallmentsModal({
     });
 
     setSelectedIds(new Set());
+  };
+
+  const handleBatchSetOc = (ocVal) => {
+    setLocalInstallments(prev => prev.map(inst => {
+      if (selectedIds.has(inst.id)) {
+        return {
+          ...inst,
+          oc: ocVal
+        };
+      }
+      return inst;
+    }));
   };
 
   const handleUngroup = () => {
@@ -327,6 +428,7 @@ export default function InstallmentsModal({
   const processFilesAndGetUrls = async (inst) => {
     let invoiceFileUrl = inst.invoiceFileUrl;
     let paymentBackupUrl = inst.paymentBackupUrl;
+    let ocFileUrl = inst.ocFileUrl;
 
     // 1. Handle invoice file deletion if marked
     if (inst.deleteInvoiceFile && inst.invoiceFileUrl) {
@@ -358,10 +460,59 @@ export default function InstallmentsModal({
       );
     }
 
+    // 5. Handle OC file deletion if marked
+    if (inst.deleteOcFile && inst.ocFileUrl) {
+      await supabaseService.deleteInstallmentFile(inst.ocFileUrl);
+      ocFileUrl = '';
+    }
+
+    // 6. Handle OC file upload
+    if (inst.ocFileObject) {
+      ocFileUrl = await supabaseService.uploadInstallmentFile(
+        'ordenes_compra',
+        projectNumber,
+        inst.ocFileObject
+      );
+    }
+
+    // 7. Handle Other Files deletion if marked
+    if (inst.otherFilesToDelete && inst.otherFilesToDelete.length > 0) {
+      for (const urlToDelete of inst.otherFilesToDelete) {
+        await supabaseService.deleteInstallmentFile(urlToDelete);
+      }
+    }
+
+    // Keep existing other files not marked for deletion
+    const remainingOtherFiles = (inst.otherFiles || []).filter(
+      f => !(inst.otherFilesToDelete || []).includes(f.url)
+    );
+
+    // 8. Handle Other Files upload (multiple)
+    const newlyUploadedOtherFiles = [];
+    if (inst.otherFilesToUpload && inst.otherFilesToUpload.length > 0) {
+      for (const fileObj of inst.otherFilesToUpload) {
+        const uploadedUrl = await supabaseService.uploadInstallmentFile(
+          'otros_documentos',
+          projectNumber,
+          fileObj
+        );
+        if (uploadedUrl) {
+          newlyUploadedOtherFiles.push({
+            name: fileObj.name,
+            url: uploadedUrl
+          });
+        }
+      }
+    }
+
+    const finalOtherFiles = [...remainingOtherFiles, ...newlyUploadedOtherFiles];
+
     return {
       ...inst,
       invoiceFileUrl,
-      paymentBackupUrl
+      paymentBackupUrl,
+      ocFileUrl,
+      otherFiles: finalOtherFiles
     };
   };
 
@@ -399,8 +550,10 @@ export default function InstallmentsModal({
         // Remove file objects before returning
         delete updatedInst.invoiceFileObject;
         delete updatedInst.paymentBackupFileObject;
+        delete updatedInst.ocFileObject;
         delete updatedInst.deleteInvoiceFile;
         delete updatedInst.deletePaymentBackup;
+        delete updatedInst.deleteOcFile;
         // Strip group property before saving
         delete updatedInst.grupo;
         processedInstallments.push(updatedInst);
@@ -421,10 +574,27 @@ export default function InstallmentsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary/40 backdrop-blur-sm p-4 text-slate-800">
-      <div className="relative bg-white w-full rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up max-w-7xl max-h-[90vh]">
+      <div
+        ref={modalRef}
+        style={
+          isMaximized
+            ? { width: '98vw', height: '96vh', maxWidth: '98vw', maxHeight: '96vh' }
+            : {
+                width: modalSize.width ? `${modalSize.width}px` : undefined,
+                height: modalSize.height ? `${modalSize.height}px` : undefined,
+                maxWidth: '98vw',
+                maxHeight: '96vh'
+              }
+        }
+        className={`relative bg-white rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up ${
+          !isMaximized && !modalSize.width ? 'w-full max-w-[95vw] 2xl:max-w-[1550px]' : ''
+        } ${
+          !isMaximized && !modalSize.height ? 'max-h-[92vh]' : ''
+        }`}
+      >
 
         {/* Cabecera */}
-        <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10 rounded-t-xl">
+        <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10 rounded-t-xl flex-shrink-0">
           <div className="text-left">
             <h3 className="font-headline-md text-headline-md text-primary font-bold">
               Cronograma de Facturación
@@ -461,42 +631,57 @@ export default function InstallmentsModal({
             </p>
           </div>
 
-          <div className="flex items-center gap-md">
+          <div className="flex items-center gap-1.5">
+            {/* Botón Maximizar / Restaurar */}
+            <button
+              type="button"
+              onClick={toggleMaximize}
+              className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all active:scale-95"
+              title={isMaximized ? "Restaurar tamaño normal" : "Maximizar pantalla completa"}
+            >
+              <span className="material-symbols-outlined text-[20px]">
+                {isMaximized ? "fullscreen_exit" : "fullscreen"}
+              </span>
+            </button>
+
             {/* Botón Cerrar */}
             <button
               type="button"
               onClick={onClose}
               className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all active:scale-95"
+              title="Cerrar"
             >
-              <span className="material-symbols-outlined">close</span>
+              <span className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
         </div>
 
         {/* Cuerpo */}
-        <div className="p-lg space-y-md overflow-y-auto flex-grow text-left">
+        <div className="p-lg space-y-md flex-1 min-h-0 flex flex-col overflow-hidden text-left">
           {validationError && (
-            <div className="p-md bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-error font-medium text-body-sm">
+            <div className="p-md bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-error font-medium text-body-sm flex-shrink-0">
               <span className="material-symbols-outlined text-[20px]">error</span>
               <span>{validationError}</span>
             </div>
           )}
 
           {/* Tabla de cuotas */}
-          <div className="border border-slate-200 rounded-lg overflow-hidden bg-white max-h-[550px] overflow-y-auto custom-scrollbar flex-grow">
-            <table className="w-full text-left border-collapse min-w-[1200px]">
-              <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 border-b border-slate-200 z-20">
+          <div className="border border-slate-200 rounded-lg bg-white overflow-auto flex-1 min-h-[320px] custom-scrollbar shadow-xs">
+            <table className="w-full text-left border-collapse min-w-[1440px]">
+              <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 border-b border-slate-200 z-20 shadow-xs">
                 <tr className="text-body-sm font-semibold">
-                  <th className="p-2 border-b border-slate-200 text-center w-14">Nº Cuota</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-36">Fecha Planificada</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-16">Conf.</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-28">Monto ({currency})</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-28">Estado</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-28">Folio Factura</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-36">Detalle Pesos (CLP)</th>
-                  <th className="p-2 border-b border-slate-200 text-center w-36">Fecha Pago</th>
-                  <th className="p-2 border-b text-center">Comentario</th>
-                  <th className="p-2 border-b text-center w-40">Acciones</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[70px] w-16">Nº Cuota</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Planificada</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[60px] w-14">Conf.</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[120px] w-28">Monto ({currency})</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Estado</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Folio Factura</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">OC</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Detalle Pesos (CLP)</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Pago</th>
+                  <th className="p-2 border-b text-center min-w-[180px] w-48">Descripción</th>
+                  <th className="p-2 border-b text-center min-w-[180px] w-48">Comentario</th>
+                  <th className="p-2 border-b text-center min-w-[110px] w-28">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-body-sm text-slate-700">
@@ -622,7 +807,7 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Folio Factura */}
-                        <td className="p-1 w-28">
+                        <td className="p-1 w-24">
                           <input
                             type="text"
                             value={row.invoiceNumber || ''}
@@ -635,8 +820,22 @@ export default function InstallmentsModal({
                           />
                         </td>
 
+                        {/* OC */}
+                        <td className="p-1 w-24">
+                          <input
+                            type="text"
+                            value={row.oc || ''}
+                            disabled={isSlave}
+                            onChange={(e) => handleFieldChange(idx, 'oc', e.target.value)}
+                            className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center font-medium ${
+                              isSlave ? 'text-slate-400 cursor-not-allowed' : ''
+                            }`}
+                            placeholder={isSlave ? "Bloqueado" : "..."}
+                          />
+                        </td>
+
                         {/* Detalle Pesos (CLP) - EDITABLE */}
-                        <td className="p-1 w-36">
+                        <td className="p-1 w-32">
                           <div className="flex items-center justify-center gap-0.5">
                             <span className={`font-bold text-body-sm ${isSlave || isMaster ? 'text-slate-400' : 'text-slate-500'}`}>$</span>
                             <input
@@ -656,7 +855,7 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Fecha Pago */}
-                        <td className="p-1">
+                        <td className="p-1 w-32">
                           <div className="relative flex items-center w-full">
                             <input
                               type="text"
@@ -682,20 +881,20 @@ export default function InstallmentsModal({
                           </div>
                         </td>
 
-                        {/* Comentario con datalist */}
-                        <td className="p-1">
+                        {/* Descripción con datalist */}
+                        <td className="p-1 w-44">
                           <input
                             type="text"
-                            list={`comments-options-${idx}`}
-                            value={row.comment || ''}
+                            list={`descriptions-options-${idx}`}
+                            value={row.description || ''}
                             disabled={isSlave}
-                            onChange={(e) => handleFieldChange(idx, 'comment', e.target.value)}
+                            onChange={(e) => handleFieldChange(idx, 'description', e.target.value)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center ${
                               isSlave ? 'text-slate-400 cursor-not-allowed' : ''
                             }`}
                             placeholder={isSlave ? "Bloqueado" : "..."}
                           />
-                          <datalist id={`comments-options-${idx}`}>
+                          <datalist id={`descriptions-options-${idx}`}>
                             <option value="Anticipo" />
                             <option value="Entrega Municipal" />
                             <option value="Integración Temprana" />
@@ -709,29 +908,54 @@ export default function InstallmentsModal({
                           </datalist>
                         </td>
 
+                        {/* Comentario (Observaciones) */}
+                        <td className="p-1 w-44">
+                          <input
+                            type="text"
+                            value={row.comment || ''}
+                            disabled={isSlave}
+                            onChange={(e) => handleFieldChange(idx, 'comment', e.target.value)}
+                            className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center ${
+                              isSlave ? 'text-slate-400 cursor-not-allowed' : ''
+                            }`}
+                            placeholder={isSlave ? "Bloqueado" : "Comentarios..."}
+                          />
+                        </td>
+
                         {/* Acciones */}
-                        <td className="p-1 text-center w-40">
+                        <td className="p-1 text-center w-28">
                           <div className="flex items-center justify-center gap-2">
 
                             {/* Editar Respaldos */}
-                            <button
-                              type="button"
-                              onClick={() => setEditingFileIdx(idx)}
-                              disabled={isSlave || isMaster}
-                              className={`p-1.5 rounded transition-all flex items-center justify-center relative ${
-                                isSlave || isMaster
-                                  ? 'text-slate-300 cursor-not-allowed bg-transparent'
-                                  : (row.invoiceFileUrl || row.invoiceFileObject || row.paymentBackupUrl || row.paymentBackupFileObject)
-                                    ? 'text-emerald-600 hover:bg-slate-105'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-105'
-                              }`}
-                              title={isSlave || isMaster ? "Acciones no disponibles en cuotas agrupadas" : "Editar respaldos de la cuota"}
-                            >
-                              <span className="material-symbols-outlined text-[18px]">attach_file</span>
-                              {(row.invoiceFileUrl || row.invoiceFileObject || row.paymentBackupUrl || row.paymentBackupFileObject) && (
-                                <span className="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
-                              )}
-                            </button>
+                            {(() => {
+                              const hasBackups = Boolean(
+                                row.invoiceFileUrl || row.invoiceFileObject ||
+                                row.paymentBackupUrl || row.paymentBackupFileObject ||
+                                row.ocFileUrl || row.ocFileObject ||
+                                (row.otherFiles && row.otherFiles.length > 0) ||
+                                (row.otherFilesToUpload && row.otherFilesToUpload.length > 0)
+                              );
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingFileIdx(idx)}
+                                  disabled={isSlave || isMaster}
+                                  className={`p-1.5 rounded transition-all flex items-center justify-center relative ${
+                                    isSlave || isMaster
+                                      ? 'text-slate-300 cursor-not-allowed bg-transparent'
+                                      : hasBackups
+                                        ? 'text-emerald-600 hover:bg-slate-105'
+                                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-105'
+                                  }`}
+                                  title={isSlave || isMaster ? "Acciones no disponibles en cuotas agrupadas" : "Editar respaldos de la cuota"}
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">attach_file</span>
+                                  {hasBackups && (
+                                    <span className="absolute top-0 right-0 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
+                                  )}
+                                </button>
+                              );
+                            })()}
 
                             {/* Eliminar Cuota */}
                             <button
@@ -755,7 +979,7 @@ export default function InstallmentsModal({
                   })
                 ) : (
                   <tr>
-                    <td colSpan="10" className="p-lg text-center text-on-surface-variant italic bg-slate-50/50">
+                    <td colSpan="12" className="p-lg text-center text-on-surface-variant italic bg-slate-50/50">
                       No hay cuotas definidas. Haz clic en "Agregar Cuota" para registrar cobros.
                     </td>
                   </tr>
@@ -766,7 +990,7 @@ export default function InstallmentsModal({
         </div>
 
         {/* Pie de modal */}
-        <div className="p-lg border-t border-outline-variant/30 sticky bottom-0 bg-white z-10 rounded-b-xl flex flex-col gap-md">
+        <div className="p-lg border-t border-outline-variant/30 sticky bottom-0 bg-white z-10 rounded-b-xl flex flex-col gap-md flex-shrink-0">
 
           {/* Fila 1: Acciones de cuotas (Agregar, Agrupar, Desagrupar) */}
           <div className="flex flex-wrap items-center gap-md">
@@ -813,6 +1037,30 @@ export default function InstallmentsModal({
               <span className="text-[12px] text-slate-500 font-medium ml-2">
                 Haz clic en el número de cuota para cambiar la selección.
               </span>
+            )}
+
+            {selectedIds.size >= 2 && (
+              <div className="flex items-center gap-1.5 pl-3 border-l border-slate-300">
+                <input
+                  type="text"
+                  placeholder="OC para seleccionadas..."
+                  id="batch-oc-input"
+                  className="px-2.5 py-1.5 text-body-sm border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none w-44"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('batch-oc-input');
+                    if (el && el.value) {
+                      handleBatchSetOc(el.value);
+                      el.value = '';
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-body-sm font-bold rounded-lg border border-slate-350 transition-all active:scale-95 shadow-xs"
+                >
+                  Aplicar OC
+                </button>
+              </div>
             )}
           </div>
 
@@ -891,12 +1139,42 @@ export default function InstallmentsModal({
           </div>
         </div>
 
+        {/* Manillas de redimensionamiento (Resize Handles) */}
+        {/* Borde derecho */}
+        <div
+          onMouseDown={(e) => handleResizeStart(e, 'right')}
+          className="absolute top-0 right-0 bottom-0 w-2.5 hover:w-3 cursor-ew-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+          title="Arrastra para cambiar el ancho"
+        />
+        {/* Borde izquierdo */}
+        <div
+          onMouseDown={(e) => handleResizeStart(e, 'left')}
+          className="absolute top-0 left-0 bottom-0 w-2.5 hover:w-3 cursor-ew-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+          title="Arrastra para cambiar el ancho"
+        />
+        {/* Borde inferior */}
+        <div
+          onMouseDown={(e) => handleResizeStart(e, 'bottom')}
+          className="absolute bottom-0 left-0 right-0 h-2.5 hover:h-3 cursor-ns-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+          title="Arrastra para cambiar el alto"
+        />
+        {/* Esquina inferior derecha */}
+        <div
+          onMouseDown={(e) => handleResizeStart(e, 'corner')}
+          className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-40 flex items-end justify-end p-1 text-slate-400 hover:text-secondary active:text-secondary-dark select-none transition-colors group"
+          title="Arrastra para cambiar tamaño del modal"
+        >
+          <svg className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M14 14H12V12H14V14ZM14 10H12V8H14V10ZM10 14H8V12H10V14ZM14 6H12V4H14V6ZM6 14H4V12H6V14ZM10 10H8V8H10V10Z" />
+          </svg>
+        </div>
+
       </div>
 
       {/* Sub-modal: Editar Respaldos (z-[60]) */}
       {editingFileIdx !== null && currentEditingRow && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4">
-          <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col border border-outline-variant p-lg space-y-md text-left animate-scale-up text-slate-800">
+          <div className="relative bg-white w-full max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar rounded-xl shadow-2xl flex flex-col border border-outline-variant p-lg space-y-md text-left animate-scale-up text-slate-800">
 
             <div className="flex justify-between items-center border-b border-outline-variant/15 pb-2">
               <h4 className="font-bold text-primary text-headline-sm flex items-center gap-1.5">
@@ -1039,6 +1317,156 @@ export default function InstallmentsModal({
                     </label>
                   </div>
                 )}
+              </div>
+
+              {/* Sección Orden de Compra (PDF / Documento) */}
+              <div className="space-y-sm">
+                <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                  Orden de Compra (PDF / Documento)
+                </span>
+
+                {/* Visualizar orden de compra existente */}
+                {currentEditingRow.ocFileUrl && !currentEditingRow.deleteOcFile ? (
+                  <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
+                    <a
+                      href={currentEditingRow.ocFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate pr-4"
+                    >
+                      <span className="material-symbols-outlined text-[18px] flex-shrink-0">assignment</span>
+                      <span className="truncate">Ver Orden de Compra Guardada</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange(editingFileIdx, 'deleteOcFile', true)}
+                      className="text-error hover:bg-red-50 p-1 rounded transition-all"
+                      title="Eliminar archivo"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                ) : currentEditingRow.ocFileObject ? (
+                  // Archivo temporal recién seleccionado
+                  <div className="flex items-center justify-between p-sm bg-emerald-50/20 border border-emerald-100 rounded-lg">
+                    <div className="flex items-center gap-1.5 text-emerald-800 font-semibold text-body-sm truncate pr-4">
+                      <span className="material-symbols-outlined text-[18px] text-emerald-600 flex-shrink-0">draft</span>
+                      <span className="truncate">{currentEditingRow.ocFileObject.name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleFieldChange(editingFileIdx, 'ocFileObject', null)}
+                      className="text-error hover:bg-red-50 p-1 rounded transition-all"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                  </div>
+                ) : (
+                  // Botón de carga
+                  <div>
+                    <label className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-lg cursor-pointer text-body-sm font-semibold text-slate-600 hover:text-slate-800 transition-all">
+                      <span className="material-symbols-outlined text-[18px]">upload</span>
+                      <span>Subir Orden de Compra</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            handleFieldChange(editingFileIdx, 'ocFileObject', e.target.files[0]);
+                            handleFieldChange(editingFileIdx, 'deleteOcFile', true);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {/* Sección Otros Documentos (Múltiples) */}
+              <div className="space-y-sm">
+                <div className="flex items-center justify-between">
+                  <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                    Otros Documentos
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-medium">
+                    {((currentEditingRow.otherFiles?.filter(f => !currentEditingRow.otherFilesToDelete?.includes(f.url))?.length || 0) +
+                      (currentEditingRow.otherFilesToUpload?.length || 0))} {((currentEditingRow.otherFiles?.filter(f => !currentEditingRow.otherFilesToDelete?.includes(f.url))?.length || 0) + (currentEditingRow.otherFilesToUpload?.length || 0)) === 1 ? 'documento' : 'documentos'}
+                  </span>
+                </div>
+
+                {/* Lista de otros documentos guardados */}
+                {currentEditingRow.otherFiles && currentEditingRow.otherFiles.filter(f => !currentEditingRow.otherFilesToDelete?.includes(f.url)).map((file, fileIdx) => (
+                  <div key={file.url || fileIdx} className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
+                    <a
+                      href={file.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate pr-4"
+                      title={`Ver documento: ${file.name}`}
+                    >
+                      <span className="material-symbols-outlined text-[18px] flex-shrink-0">
+                        {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                      </span>
+                      <span className="truncate">{file.name || 'Documento'}</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentToDelete = currentEditingRow.otherFilesToDelete || [];
+                        handleFieldChange(editingFileIdx, 'otherFilesToDelete', [...currentToDelete, file.url]);
+                      }}
+                      className="text-error hover:bg-red-50 p-1 rounded transition-all"
+                      title="Eliminar documento"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                ))}
+
+                {/* Lista de archivos temporales recién seleccionados */}
+                {currentEditingRow.otherFilesToUpload && currentEditingRow.otherFilesToUpload.map((fileObj, fIdx) => (
+                  <div key={fIdx} className="flex items-center justify-between p-sm bg-purple-50/40 border border-purple-100 rounded-lg">
+                    <div className="flex items-center gap-1.5 text-purple-900 font-semibold text-body-sm truncate pr-4">
+                      <span className="material-symbols-outlined text-[18px] text-purple-600 flex-shrink-0">draft</span>
+                      <span className="truncate">{fileObj.name}</span>
+                      <span className="text-[10px] text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded font-medium">Nuevo</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextUploads = currentEditingRow.otherFilesToUpload.filter((_, idx) => idx !== fIdx);
+                        handleFieldChange(editingFileIdx, 'otherFilesToUpload', nextUploads);
+                      }}
+                      className="text-error hover:bg-red-50 p-1 rounded transition-all"
+                      title="Quitar"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                  </div>
+                ))}
+
+                {/* Botón de carga de otros documentos (admite selección múltiple) */}
+                <div>
+                  <label className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-lg cursor-pointer text-body-sm font-semibold text-slate-600 hover:text-slate-800 transition-all">
+                    <span className="material-symbols-outlined text-[18px]">upload</span>
+                    <span>Subir Otro Documento (uno o varios)</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg,.zip,.rar,image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          const newFiles = Array.from(e.target.files);
+                          const currentUploads = currentEditingRow.otherFilesToUpload || [];
+                          handleFieldChange(editingFileIdx, 'otherFilesToUpload', [...currentUploads, ...newFiles]);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
 
             </div>

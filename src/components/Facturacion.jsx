@@ -476,6 +476,9 @@ export default function Facturacion({
         const instClientName = getInstallmentClientName(inst).toLowerCase();
 
         const invNum = inst.invoiceNumber?.toLowerCase() || '';
+        const instOc = inst.oc?.toLowerCase() || '';
+        const instDesc = inst.description?.toLowerCase() || '';
+        const instComment = inst.comment?.toLowerCase() || '';
 
         // Find associated budget
         const budget = inst.origin_budget_id && Array.isArray(budgets) ? budgets.find(b => b.id === inst.origin_budget_id) : null;
@@ -485,12 +488,12 @@ export default function Facturacion({
 
         const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
         const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term) || instClientName.includes(term);
-        const matchesInvoice = invNum.includes(term);
+        const matchesInstallment = invNum.includes(term) || instOc.includes(term) || instDesc.includes(term) || instComment.includes(term);
         const matchesBudget = budgetNum.includes(term) || 
                               budgetTitle.includes(term) || 
                               (rawDigitsTerm !== '' && budgetNum.replace(/\D/g, '').includes(rawDigitsTerm));
 
-        if (!matchesProject && !matchesClient && !matchesInvoice && !matchesBudget) return false;
+        if (!matchesProject && !matchesClient && !matchesInstallment && !matchesBudget) return false;
       }
 
       return true;
@@ -689,6 +692,8 @@ export default function Facturacion({
         "Ciudad": razonSocial ? razonSocial.ciudad || '' : '',
         "Contacto": razonSocial ? razonSocial.name || '' : '',
         "Obra": project ? project.rawProjectName || '' : '',
+        "OC": installment.oc || '',
+        "Descripción": installment.description || '',
         "Comentario": installment.comment || '',
         "Cuota": installment.numQuota || '',
         "TotCuota": totCuotas || '',
@@ -745,6 +750,8 @@ export default function Facturacion({
         "Ciudad",
         "Contacto",
         "Obra",
+        "OC",
+        "Descripción",
         "Comentario",
         "Cuota",
         "TotCuota",
@@ -1522,12 +1529,14 @@ export default function Facturacion({
 
                           {/* Nivel 3: Tabla de Cuotas */}
                           <div className="overflow-x-auto rounded-lg border border-outline-variant/30">
-                            <table className="w-full text-left border-collapse min-w-[1050px]">
+                            <table className="w-full text-left border-collapse min-w-[1250px]">
                               <thead>
                                 <tr className="bg-surface-container-low">
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 w-20">Nº Cuota</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center w-36">Fecha Confirmada</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Fecha Planificada</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center w-28">OC</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Descripción</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Comentario</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Monto</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center">Estado</th>
@@ -1572,6 +1581,12 @@ export default function Facturacion({
                                       </td>
                                       <td className={`px-md py-md ${isOverdue ? 'text-red-600 font-semibold' : 'text-on-surface-variant'}`}>
                                         {formatDate(inst.date)}
+                                      </td>
+                                      <td className="px-md py-md text-on-surface-variant text-body-sm text-center font-medium">
+                                        {inst.oc || '-'}
+                                      </td>
+                                      <td className="px-md py-md text-on-surface-variant text-body-sm max-w-[200px] truncate" title={inst.description || ''}>
+                                        {inst.description || '-'}
                                       </td>
                                       <td className="px-md py-md text-on-surface-variant text-body-sm max-w-[200px] truncate" title={inst.comment || ''}>
                                         {inst.comment || '-'}
@@ -1637,7 +1652,34 @@ export default function Facturacion({
                                               <span className="material-symbols-outlined text-[16px]">receipt</span>
                                             </a>
                                           ) : null}
-                                          {!inst.invoiceFileUrl && !inst.paymentBackupUrl ? (
+                                          {inst.ocFileUrl ? (
+                                            <a
+                                              href={inst.ocFileUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center text-amber-700 hover:text-amber-800 p-1 bg-amber-50 rounded transition-colors"
+                                              title="Ver Orden de Compra"
+                                            >
+                                              <span className="material-symbols-outlined text-[16px]">assignment</span>
+                                            </a>
+                                          ) : null}
+                                          {inst.otherFiles && inst.otherFiles.length > 0 && (
+                                            inst.otherFiles.map((file, fIdx) => (
+                                              <a
+                                                key={file.url || fIdx}
+                                                href={file.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center text-purple-700 hover:text-purple-800 p-1 bg-purple-50 rounded transition-colors"
+                                                title={`Ver otro documento: ${file.name || 'Documento'}`}
+                                              >
+                                                <span className="material-symbols-outlined text-[16px]">
+                                                  {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                                                </span>
+                                              </a>
+                                            ))
+                                          )}
+                                          {!inst.invoiceFileUrl && !inst.paymentBackupUrl && !inst.ocFileUrl && (!inst.otherFiles || inst.otherFiles.length === 0) ? (
                                             <span className="text-outline">-</span>
                                           ) : null}
                                         </div>
@@ -2122,12 +2164,8 @@ export default function Facturacion({
                   <span className="font-semibold text-primary">{selectedInstallment.invoiceNumber || '-'}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Empresa Emisora</span>
-                  <span className={`inline-flex items-center gap-1 font-bold text-xs px-2 py-0.5 rounded ${
-                    selectedInstallment.billingCompany === 'FPF' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
-                  }`}>
-                    {selectedInstallment.billingCompany || 'Spoerer'}
-                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Orden de Compra (OC)</span>
+                  <span className="font-semibold text-primary">{selectedInstallment.oc || '-'}</span>
                 </div>
               </div>
 
@@ -2191,18 +2229,58 @@ export default function Facturacion({
                       <span>Comprobante Pago</span>
                     </a>
                   ) : null}
-                  {!selectedInstallment.invoiceFileUrl && !selectedInstallment.paymentBackupUrl ? (
+                  {selectedInstallment.ocFileUrl ? (
+                    <a
+                      href={selectedInstallment.ocFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-xs px-md py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-amber-700 font-bold transition-all text-body-sm active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">assignment</span>
+                      <span>Orden de Compra</span>
+                    </a>
+                  ) : null}
+                  {selectedInstallment.otherFiles && selectedInstallment.otherFiles.length > 0 ? (
+                    selectedInstallment.otherFiles.map((file, fIdx) => (
+                      <a
+                        key={file.url || fIdx}
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-xs px-md py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-purple-700 font-bold transition-all text-body-sm active:scale-95"
+                        title={file.name || 'Otro Documento'}
+                      >
+                        <span className="material-symbols-outlined text-[18px]">
+                          {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                        </span>
+                        <span className="truncate max-w-[170px]">{file.name || 'Otro Documento'}</span>
+                      </a>
+                    ))
+                  ) : null}
+                  {!selectedInstallment.invoiceFileUrl && !selectedInstallment.paymentBackupUrl && !selectedInstallment.ocFileUrl && (!selectedInstallment.otherFiles || selectedInstallment.otherFiles.length === 0) ? (
                     <span className="text-on-surface-variant italic text-body-sm">No se subieron respaldos para esta cuota.</span>
                   ) : null}
                 </div>
               </div>
 
-              {selectedInstallment.comment && (
+              {(selectedInstallment.description || selectedInstallment.comment) && (
                 <div className="space-y-xs border-t border-slate-200/40 pt-3">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-1">Notas / Comentarios</span>
-                  <p className="bg-slate-50/50 p-sm rounded-lg border border-slate-200/40 text-on-surface-variant italic">
-                    {selectedInstallment.comment}
-                  </p>
+                  {selectedInstallment.description && (
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-1">Descripción de Hito</span>
+                      <p className="bg-slate-50/50 p-sm rounded-lg border border-slate-200/40 text-on-surface-variant font-medium">
+                        {selectedInstallment.description}
+                      </p>
+                    </div>
+                  )}
+                  {selectedInstallment.comment && (
+                    <div className="mt-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-1">Notas / Observaciones</span>
+                      <p className="bg-slate-50/50 p-sm rounded-lg border border-slate-200/40 text-on-surface-variant italic">
+                        {selectedInstallment.comment}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

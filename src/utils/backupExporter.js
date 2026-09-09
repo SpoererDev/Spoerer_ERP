@@ -93,6 +93,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Ciudad": budgetRazonSocial ? budgetRazonSocial.ciudad || '' : '',
         "Contacto": budgetRazonSocial ? budgetRazonSocial.contact_name || '' : '',
         "Obra": proj ? proj.project_name || '' : '',
+        "OC": inst.oc || '',
+        "Descripción": inst.description || '',
         "Comentario": inst.comment || '',
         "Cuota": inst.installment_number || '',
         "TotCuota": totCuotas || '',
@@ -137,7 +139,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     const wsFacturacion = XLSX.utils.json_to_sheet(facturacionRows, {
       header: [
         "Presupuesto #", "Factura #", "Fecha", "Año", "Año Proy", "RUT", "Razón Social",
-        "Giro", "Dirección", "Comuna", "Ciudad", "Contacto", "Obra", "Comentario",
+        "Giro", "Dirección", "Comuna", "Ciudad", "Contacto", "Obra", "OC", "Descripción", "Comentario",
         "Cuota", "TotCuota", "Moneda", "Monto", "UF", "$", "F-Pago", "Estado F#", "Tipo", "Cliente",
         "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total Presupuesto", "Total UF", "Empresa Emisora"
       ]
@@ -212,7 +214,11 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     const wsBudgetItems = XLSX.utils.json_to_sheet(budgetItems);
     const wsRawProjects = XLSX.utils.json_to_sheet(projects);
     const wsExtraCosts = XLSX.utils.json_to_sheet(extraCosts);
-    const wsInstallments = XLSX.utils.json_to_sheet(installments);
+    const sanitizedInstallments = installments.map(i => ({
+      ...i,
+      other_files: i.other_files ? (typeof i.other_files === 'string' ? i.other_files : JSON.stringify(i.other_files)) : ''
+    }));
+    const wsInstallments = XLSX.utils.json_to_sheet(sanitizedInstallments);
     
     // Remove sensitive password fields if present in profiles
     const sanitizedProfiles = profiles.map(p => {
