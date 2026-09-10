@@ -200,7 +200,7 @@ export default function Presupuestos({
   const [superficie, setSuperficie] = useState('');
   const [rentabilidad, setRentabilidad] = useState('');
   const [descripcion, setDescripcion] = useState('');
-  const [fechaInicio, setFechaInicio] = useState('');
+  const [ordenCompra, setOrdenCompra] = useState('');
   const [anio, setAnio] = useState('');
   const [valorProyecto, setValorProyecto] = useState(0);
   const [cliente, setCliente] = useState('');
@@ -698,10 +698,6 @@ export default function Presupuestos({
     setBillingTable(initialTable);
   };
 
-  const handleFechaInicioChange = (val) => {
-    setFechaInicio(val);
-  };
-
   const handleValorProyectoChange = (val) => {
     setValorProyecto(val);
   };
@@ -786,10 +782,6 @@ export default function Presupuestos({
       setValidationError("Por favor seleccione o ingrese el tipo de proyecto.");
       return;
     }
-    if (!fechaInicio) {
-      setValidationError("Por favor seleccione la fecha de inicio de facturación.");
-      return;
-    }
 
     // Validate that sum of cuotas equals valorProyecto
     const currentSum = billingTable.reduce((acc, row) => acc + ((parseInt(row.cuotas) || 1) * (parseFloat(row.uf) || 0)), 0);
@@ -818,7 +810,7 @@ export default function Presupuestos({
           billingCompany: approvingQuote?.billingCompany || 'Spoerer',
           description: V,
           comment: '',
-          oc: '',
+          oc: ordenCompra ? ordenCompra.trim() : '',
           status: 'Por facturar'
         });
         counter++;
@@ -896,6 +888,7 @@ export default function Presupuestos({
       setEncargado('');
       setPreviewFile(null);
       setDocxHtml('');
+      setOrdenCompra('');
     } catch (err) {
       setValidationError(err.message || 'Error al aprobar presupuesto.');
     } finally {
@@ -970,12 +963,9 @@ export default function Presupuestos({
         setDescripcion(quote.title || '');
         setValidationError('');
         setShowSuggestions(false);
+        setOrdenCompra('');
 
-        const d = new Date();
-        d.setMonth(d.getMonth() + 1);
-        const nextMonthDate = d.toISOString().split('T')[0];
-        setFechaInicio(nextMonthDate);
-
+        const todayDate = new Date().toISOString().split('T')[0];
         const currentYear = new Date().getFullYear();
         setAnio(currentYear);
         setValorProyecto(quote.amount || 0);
@@ -1001,8 +991,8 @@ export default function Presupuestos({
           setEncargado('');
         }
 
-        // Generate billing table proposal ONLY when opening approval modal
-        generateInitialBillingTable(nextMonthDate, quote.amount || 0);
+        // Generate billing table proposal starting from current date (today)
+        generateInitialBillingTable(todayDate, quote.amount || 0);
         setIsApproveModalOpen(true);
       } else {
         onAddQuote({
@@ -3300,6 +3290,7 @@ export default function Presupuestos({
                     setEncargado('');
                     setPreviewFile(null);
                     setDocxHtml('');
+                    setOrdenCompra('');
                   }}
                   className="p-2 hover:bg-slate-100 rounded-full transition-all text-slate-500 hover:text-slate-700"
                   title="Cerrar modal"
@@ -3566,26 +3557,21 @@ export default function Presupuestos({
                           />
                         </div>
 
-                        {/* Fila: Inicio Facturación */}
+                        {/* Fila: Orden de Compra (OC) */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Inicio Facturación</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                            Orden de compra (OC) <span className="text-[11px] font-normal text-slate-400 normal-case">(Opcional)</span>
+                          </label>
                           <div className="relative flex items-center">
                             <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-medium text-slate-800 placeholder:text-slate-400 pr-10"
                               type="text"
-                              readOnly
-                              value={fechaInicio ? fechaInicio.split('-').reverse().join('/') : ''}
-                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white font-medium pr-10"
-                              placeholder="dd/mm/yyyy"
-                            />
-                            <input
-                              type="date"
-                              value={fechaInicio}
-                              onChange={(e) => handleFechaInicioChange(e.target.value)}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                              required
+                              value={ordenCompra}
+                              onChange={(e) => setOrdenCompra(e.target.value)}
+                              placeholder="Ej: OC-12345 o Nº de Orden..."
                             />
                             <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
-                              calendar_month
+                              tag
                             </span>
                           </div>
                         </div>
@@ -3846,6 +3832,7 @@ export default function Presupuestos({
                         setEncargado('');
                         setPreviewFile(null);
                         setDocxHtml('');
+                        setOrdenCompra('');
                       }}
                       className={`px-lg py-2 border border-outline-variant rounded text-on-surface hover:bg-slate-50 transition-all font-bold ${isApproving ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
