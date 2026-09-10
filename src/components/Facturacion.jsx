@@ -539,50 +539,50 @@ export default function Facturacion({
     const porFacturar = { UF: 0, USD: 0, CLP: 0, count: 0 };
     const facturadoPendiente = { UF: 0, USD: 0, CLP: 0, totalClp: 0, count: 0 };
     const recaudado = { UF: 0, USD: 0, CLP: 0, totalClp: 0, count: 0 };
-    const vencido = { UF: 0, USD: 0, CLP: 0, count: 0 };
+
+    const isEligibleForPorFacturar = (status) => {
+      if (statusFilter === 'Todos') {
+        return status === 'Por aprobar' || status === 'Aprobada' || status === 'Por facturar';
+      }
+      if (statusFilter === 'Por aprobar' || statusFilter === 'Aprobada' || statusFilter === 'Por facturar') {
+        return status === statusFilter;
+      }
+      return false;
+    };
 
     filteredInstallments.forEach(inst => {
       if (inst.status === 'Anulada') return;
-      const isUnpaid = inst.status === 'Por facturar' || inst.status === 'Facturada' || inst.status === 'Factura emitida';
-      const isExpired = inst.date && inst.date < todayStr;
       const curr = (inst.currency || 'UF').toUpperCase();
       const amt = parseFloat(inst.uf) || 0;
       const clpVal = parseFloat(inst.total_clp) || 0;
+      const st = inst.status || (inst.dateConfirmed ? (inst.date && inst.date <= todayStr ? 'Por facturar' : 'Aprobada') : 'Por aprobar');
 
-      if (inst.status === 'Por facturar') {
+      if (isEligibleForPorFacturar(st)) {
         porFacturar.count++;
         if (curr === 'USD') porFacturar.USD += amt;
         else if (curr === 'CLP') porFacturar.CLP += amt;
         else porFacturar.UF += amt;
-      } else if (inst.status === 'Facturada' || inst.status === 'Factura emitida') {
+      } else if (st === 'Facturada' || st === 'Factura emitida') {
         facturadoPendiente.count++;
         facturadoPendiente.totalClp += clpVal;
         if (curr === 'USD') facturadoPendiente.USD += amt;
         else if (curr === 'CLP') facturadoPendiente.CLP += (clpVal || amt);
         else facturadoPendiente.UF += amt;
-      } else if (inst.status === 'Pagada') {
+      } else if (st === 'Pagada') {
         recaudado.count++;
         recaudado.totalClp += clpVal;
         if (curr === 'USD') recaudado.USD += amt;
         else if (curr === 'CLP') recaudado.CLP += (clpVal || amt);
         else recaudado.UF += amt;
       }
-
-      if (isUnpaid && isExpired) {
-        vencido.count++;
-        if (curr === 'USD') vencido.USD += amt;
-        else if (curr === 'CLP') vencido.CLP += amt;
-        else vencido.UF += amt;
-      }
     });
 
     return {
       porFacturar,
       facturadoPendiente,
-      recaudado,
-      vencido
+      recaudado
     };
-  }, [filteredInstallments]);
+  }, [filteredInstallments, statusFilter]);
 
   // --- HIERARCHICAL DATA GROUPING (Project > Budget > Installments) ---
   const groupedData = useMemo(() => {
@@ -1067,7 +1067,7 @@ export default function Facturacion({
   };
 
   const handleToggleDateConfirmed = async (inst) => {
-    if (!onUpdateInstallment || !inst || inst.status === 'Anulada') return;
+    if (!onUpdateInstallment || !inst) return;
     try {
       const nextConfirmed = !inst.dateConfirmed;
       const updates = { dateConfirmed: nextConfirmed };
@@ -1122,11 +1122,11 @@ export default function Facturacion({
         </div>
 
         {/* SECTION A: Dashboard de KPIs Financieros */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Por Facturar (Planificado) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* KPI 1: Por Facturar */}
           <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar (Planificado)</span>
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar</span>
               <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">calendar_today</span>
               </div>
@@ -1157,10 +1157,10 @@ export default function Facturacion({
             </div>
           </div>
 
-          {/* KPI 2: Total Facturado Pendiente */}
+          {/* KPI 2: Total Facturado Pendiente de Pago */}
           <div className="stat-card flex flex-col justify-between">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente</span>
+              <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente de Pago</span>
               <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
                 <span className="material-symbols-outlined text-[18px]">pending_actions</span>
               </div>
@@ -1222,40 +1222,6 @@ export default function Facturacion({
             <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
               <span>{stats.recaudado.count} {stats.recaudado.count === 1 ? 'cuota' : 'cuotas'}</span>
               <span className="font-bold text-emerald-700 font-mono">{formatCLP(stats.recaudado.totalClp)}</span>
-            </div>
-          </div>
-
-          {/* KPI 4: Vencimientos Atrasados */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Vencido Atrasado</span>
-              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
-              </div>
-            </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.vencido.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.vencido.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${stats.vencido.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>Registros:</span>
-              <span className="font-semibold text-slate-600">{stats.vencido.count} {stats.vencido.count === 1 ? 'cuota' : 'cuotas'}</span>
             </div>
           </div>
         </div>
@@ -1624,22 +1590,17 @@ export default function Facturacion({
                                         </div>
                                       </td>
                                       <td
-                                        className={`px-md py-md text-center select-none ${inst.status === 'Anulada' ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
-                                        onClick={() => inst.status !== 'Anulada' && handleToggleDateConfirmed(inst)}
-                                        onDoubleClick={() => inst.status !== 'Anulada' && handleToggleDateConfirmed(inst)}
-                                        title={inst.status === 'Anulada' ? "Cuota anulada" : "Clic para activar o desactivar confirmación de fecha"}
+                                        className="px-md py-md text-center select-none cursor-pointer"
+                                        onDoubleClick={() => handleToggleDateConfirmed(inst)}
+                                        title="Doble clic para confirmar o desconfirmar fecha"
                                       >
                                         <div className="flex justify-center items-center">
                                           <input
                                             type="checkbox"
-                                            disabled={inst.status === 'Anulada'}
                                             checked={Boolean(inst.dateConfirmed)}
-                                            onChange={(e) => {
-                                              e.stopPropagation();
-                                              if (inst.status !== 'Anulada') handleToggleDateConfirmed(inst);
-                                            }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            className={`w-4 h-4 text-secondary accent-secondary rounded border-slate-300 focus:ring-secondary/30 ${inst.status === 'Anulada' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                                            readOnly
+                                            tabIndex={-1}
+                                            className="w-4 h-4 text-secondary accent-secondary rounded border-slate-350 focus:ring-secondary/30 pointer-events-none cursor-pointer"
                                           />
                                         </div>
                                       </td>

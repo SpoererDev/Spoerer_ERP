@@ -190,13 +190,32 @@ export default function InstallmentsModal({
       const isMaster = groupId && metadata[groupId]?.masterId === instToChange.id;
 
       // When an installment is marked as 'Anulada', clone a replacement in 'Por aprobar'
-      if (field === 'status' && value === 'Anulada') {
+      if (field === 'status' && value === 'Anulada' && instToChange.status !== 'Anulada') {
+        const maxNum = Math.max(0, ...prev.map(i => parseInt(i.numQuota) || 0));
+        const nextNum = maxNum + 1;
+
         const replacement = {
           ...instToChange,
-          id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          id: `temp-${Date.now()}-${nextNum}`,
+          numQuota: String(nextNum).padStart(2, '0'),
           status: 'Por aprobar',
           dateConfirmed: false,
+          comment: `Reemplazo cuota ${instToChange.numQuota}, factura ${instToChange.invoiceNumber || 'S/N'} que fue anulada`,
           invoiceNumber: '',
+          invoiceFileUrl: '',
+          paymentBackupUrl: '',
+          ocFileUrl: '',
+          otherFiles: [],
+          invoiceFileObject: null,
+          paymentBackupFileObject: null,
+          ocFileObject: null,
+          otherFilesToUpload: [],
+          deleteInvoiceFile: false,
+          deletePaymentBackup: false,
+          deleteOcFile: false,
+          otherFilesToDelete: [],
+          actualInvoiceDate: null,
+          actualPaymentDate: null,
           invoiceDate: null,
           paymentDate: null,
           neto_clp: null,
@@ -826,7 +845,7 @@ export default function InstallmentsModal({
                 <tr className="text-body-sm font-semibold">
                   <th className="p-2 border-b border-slate-200 text-center min-w-[70px] w-16">Nº Cuota</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Fecha Planificada</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[60px] w-14">Conf.</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[60px] w-14" title="Fecha Confirmada (Doble clic para confirmar o desconfirmar)">Conf.</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[90px] w-24">Moneda</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Monto</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[120px] w-28">Estado</th>
@@ -907,7 +926,7 @@ export default function InstallmentsModal({
                             <input
                               type="date"
                               value={row.date || ''}
-                              disabled={isSlave || row.status === 'Anulada'}
+                              disabled={isSlave}
                               onChange={(e) => handleFieldChange(idx, 'date', e.target.value)}
                               className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
                                 isSlave ? 'cursor-not-allowed' : 'cursor-pointer'
@@ -920,17 +939,33 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Confirmada (Checkbox) */}
-                        <td className="p-1 text-center">
+                        <td
+                          className={`p-1 text-center select-none ${
+                            isSlave
+                              ? 'cursor-not-allowed opacity-50'
+                              : 'cursor-pointer'
+                          }`}
+                          onDoubleClick={() => {
+                            if (!isSlave) {
+                              handleFieldChange(idx, 'dateConfirmed', !row.dateConfirmed);
+                            }
+                          }}
+                          title={
+                            isSlave
+                              ? "Deshabilitado en cuota esclava"
+                              : "Doble clic para confirmar o desconfirmar fecha"
+                          }
+                        >
                           <div className="flex items-center justify-center">
                             <input
                               type="checkbox"
                               checked={row.dateConfirmed || false}
-                              disabled={isSlave || row.status === 'Anulada'}
-                              onChange={(e) => handleFieldChange(idx, 'dateConfirmed', e.target.checked)}
-                              className={`w-4 h-4 text-secondary border-slate-350 rounded focus:ring-secondary/20 focus:ring-1 ${
+                              disabled={isSlave}
+                              readOnly
+                              tabIndex={-1}
+                              className={`w-4 h-4 text-secondary border-slate-350 rounded focus:ring-secondary/20 focus:ring-1 pointer-events-none ${
                                 isSlave ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                               }`}
-                              title={isSlave ? "Deshabilitado en cuota esclava" : "Confirmar fecha planificada"}
                             />
                           </div>
                         </td>
@@ -939,7 +974,7 @@ export default function InstallmentsModal({
                         <td className="p-1 w-24 text-center">
                           <select
                             value={row.currency || 'UF'}
-                            disabled={isSlave || row.status === 'Anulada'}
+                            disabled={isSlave}
                             onChange={(e) => handleFieldChange(idx, 'currency', e.target.value)}
                             className={`w-full border border-slate-250 bg-white/80 py-1 px-1 text-center font-bold text-xs rounded focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all ${
                               isSlave ? 'text-slate-400 cursor-not-allowed bg-slate-100/50' : 'cursor-pointer hover:border-slate-400'
@@ -956,7 +991,7 @@ export default function InstallmentsModal({
                           <input
                             type="number"
                             value={row.uf || ''}
-                            disabled={isSlave || row.status === 'Anulada'}
+                            disabled={isSlave}
                             onChange={(e) => handleFieldChange(idx, 'uf', e.target.value)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-center ${
                               isSlave ? 'text-slate-400 cursor-not-allowed' : ''
@@ -970,7 +1005,7 @@ export default function InstallmentsModal({
                         <td className="p-1 text-center w-32">
                           <select
                             value={row.status || (row.dateConfirmed ? (row.date && row.date <= todayStr ? 'Por facturar' : 'Aprobada') : 'Por aprobar')}
-                            disabled={isSlave || row.status === 'Anulada'}
+                            disabled={isSlave}
                             onChange={(e) => handleFieldChange(idx, 'status', e.target.value)}
                             className={`w-full py-1 px-1 text-center font-bold text-xs rounded border outline-none transition-all ${
                               isSlave ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-slate-400'
@@ -1007,7 +1042,7 @@ export default function InstallmentsModal({
                           <input
                             type="text"
                             value={row.invoiceNumber || ''}
-                            disabled={isSlave || isMaster || row.status === 'Anulada'}
+                            disabled={isSlave || isMaster}
                             onChange={(e) => handleFieldChange(idx, 'invoiceNumber', e.target.value)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center ${
                               isSlave || isMaster ? 'text-slate-400 cursor-not-allowed' : ''
@@ -1196,10 +1231,9 @@ export default function InstallmentsModal({
                             <button
                               type="button"
                               onClick={() => handleDeleteRow(idx)}
-                              disabled={isSlave || isMaster || row.status === 'Anulada'}
-                              title={row.status === 'Anulada' ? "Las cuotas anuladas se conservan como registro histórico" : (isSlave || isMaster ? "Acciones no disponibles en cuotas agrupadas" : "Eliminar cuota")}
+                              disabled={isSlave || isMaster}
                               className={`p-1.5 rounded transition-all flex items-center justify-center ${
-                                isSlave || isMaster || row.status === 'Anulada'
+                                isSlave || isMaster
                                   ? 'text-slate-300 cursor-not-allowed bg-transparent'
                                   : 'hover:bg-red-50 text-error hover:text-red-700'
                               }`}

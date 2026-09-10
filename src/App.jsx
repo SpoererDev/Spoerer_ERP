@@ -457,8 +457,8 @@ export default function App() {
       // Identify deleted installments
       const deletedInsts = originalInsts.filter(orig => !installmentsList.some(curr => curr.id === orig.id));
 
-      // Identify new installments
-      const newInsts = installmentsList.filter(inst => typeof inst.id === 'string' && inst.id.startsWith('temp-'));
+      // Identify new installments (temporary IDs start with 'temp')
+      const newInsts = installmentsList.filter(inst => typeof inst.id === 'string' && inst.id.startsWith('temp'));
 
       // Identify updated installments
       const updatedInsts = installmentsList.filter(inst => !newInsts.some(ni => ni.id === inst.id));
@@ -497,8 +497,8 @@ export default function App() {
       if (newInsts.length > 0) {
         await Promise.all(newInsts.map(inst => 
           supabaseService.createInstallment({
-            project_id: inst.project_id,
-            origin_budget_id: inst.origin_budget_id,
+            project_id: inst.project_id || originalInsts[0]?.project_id || null,
+            origin_budget_id: inst.origin_budget_id || budgetId,
             numQuota: inst.numQuota,
             date: inst.date,
             uf: inst.uf,
