@@ -58,6 +58,19 @@ export default function Facturacion({
     };
   }, []);
 
+  // Auto-promote "Aprobada" installments to "Por facturar" when scheduled date arrives (date <= todayStr)
+  useEffect(() => {
+    if (!installments || installments.length === 0 || !onUpdateInstallment) return;
+    const dueInstallments = installments.filter(
+      inst => inst.status === 'Aprobada' && inst.date && inst.date <= todayStr
+    );
+    if (dueInstallments.length > 0) {
+      dueInstallments.forEach(inst => {
+        onUpdateInstallment(inst.id, { status: 'Por facturar' });
+      });
+    }
+  }, [installments, todayStr, onUpdateInstallment]);
+
   // --- MODALS STATE ---
   const [isEmitModalOpen, setIsEmitModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -192,9 +205,9 @@ export default function Facturacion({
       }
     }
 
-    // 2. Budget legal entity's main client
+    // 2. Installment or Budget legal entity's main client
     if (!realClientName) {
-      const targetLegalId = budget?.legalEntityId || budget?.clientId;
+      const targetLegalId = inst?.legalEntityId || budget?.legalEntityId || budget?.clientId;
       const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) ||
         (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null);
 
@@ -425,6 +438,21 @@ export default function Facturacion({
   const calculatedTax = isExempt ? 0 : Math.round(calculatedNet * 0.19);
   const calculatedTotal = calculatedNet + calculatedTax;
 
+  const instRazonSocial = useMemo(() => {
+    if (!selectedInstallment) return null;
+    const b = budgets.find(b => b.id === selectedInstallment.origin_budget_id);
+    const targetLegalId = selectedInstallment.legalEntityId || b?.legalEntityId || b?.clientId;
+    if (targetLegalId) {
+      const found = clients.find(c => c.id === targetLegalId && c.company);
+      if (found) return found;
+    }
+    if (b?.company) {
+      const foundByName = clients.find(c => c.company && c.company.trim().toLowerCase() === b.company.trim().toLowerCase());
+      if (foundByName) return foundByName;
+    }
+    return null;
+  }, [selectedInstallment, budgets, clients]);
+
   // --- FILTERED INSTALLMENTS ---
   const filteredInstallments = useMemo(() => {
     return installments.filter(inst => {
@@ -432,11 +460,15 @@ export default function Facturacion({
       if (!filterPeriod(inst.date, temporalFilter)) return false;
 
       // 2. Status Filter
-      if (statusFilter === 'Vencida') {
-        const isOverdue = inst.status === 'Por facturar' && inst.date && inst.date < todayStr;
-        if (!isOverdue) return false;
-      } else if (statusFilter !== 'Todos' && inst.status !== statusFilter) {
-        return false;
+      if (statusFilter !== 'Todos') {
+        if (statusFilter === 'Facturada' || statusFilter === 'Factura emitida') {
+          if (inst.status !== 'Facturada' && inst.status !== 'Factura emitida') return false;
+        } else if (statusFilter === 'Vencida') {
+          const isOverdue = inst.status === 'Por facturar' && inst.date && inst.date < todayStr;
+          if (!isOverdue) return false;
+        } else if (inst.status !== statusFilter) {
+          return false;
+        }
       }
 
       // Find associated project
@@ -510,7 +542,8 @@ export default function Facturacion({
     const vencido = { UF: 0, USD: 0, CLP: 0, count: 0 };
 
     filteredInstallments.forEach(inst => {
-      const isUnpaid = inst.status === 'Por facturar' || inst.status === 'Factura emitida';
+      if (inst.status === 'Anulada') return;
+      const isUnpaid = inst.status === 'Por facturar' || inst.status === 'Facturada' || inst.status === 'Factura emitida';
       const isExpired = inst.date && inst.date < todayStr;
       const curr = (inst.currency || 'UF').toUpperCase();
       const amt = parseFloat(inst.uf) || 0;
@@ -521,7 +554,7 @@ export default function Facturacion({
         if (curr === 'USD') porFacturar.USD += amt;
         else if (curr === 'CLP') porFacturar.CLP += amt;
         else porFacturar.UF += amt;
-      } else if (inst.status === 'Factura emitida') {
+      } else if (inst.status === 'Facturada' || inst.status === 'Factura emitida') {
         facturadoPendiente.count++;
         facturadoPendiente.totalClp += clpVal;
         if (curr === 'USD') facturadoPendiente.USD += amt;
@@ -592,6 +625,7 @@ export default function Facturacion({
         budgetInstallments.sort((a, b) => (a.numQuota || 0) - (b.numQuota || 0));
 
         budgetInstallments.forEach(inst => {
+          if (inst.status === 'Anulada') return;
           const curr = (inst.currency || budget?.currency || 'UF').toUpperCase();
           projectTotalsByCurrency[curr] = (projectTotalsByCurrency[curr] || 0) + (parseFloat(inst.uf) || 0);
         });
@@ -656,8 +690,8 @@ export default function Facturacion({
       const project = projects.find(p => p.id === installment.project_id);
       // Find associated budget
       const budget = installment.origin_budget_id ? budgets.find(b => b.id === installment.origin_budget_id) : null;
-      // Find associated Razón Social for the budget (legal entity) ONLY from the budget
-      const targetLegalId = budget?.legalEntityId || budget?.clientId;
+      // Find associated Razón Social for the installment (or fallback to budget)
+      const targetLegalId = installment.legalEntityId || budget?.legalEntityId || budget?.clientId;
       const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) ||
         (budget?.company ? clients.find(c => c.company && c.company.trim().toLowerCase() === budget.company.trim().toLowerCase()) : null);
 
@@ -674,8 +708,8 @@ export default function Facturacion({
         yearVal = installment.date.split('-')[0];
       }
 
-      // Check if invoiced (Facturada): status is 'Factura emitida' or 'Pagada'
-      const isInvoiced = installment.status === 'Factura emitida' || installment.status === 'Pagada';
+      // Check if invoiced (Facturada): status is 'Facturada' or 'Factura emitida' or 'Pagada'
+      const isInvoiced = installment.status === 'Facturada' || installment.status === 'Factura emitida' || installment.status === 'Pagada';
       const isPaid = installment.status === 'Pagada';
 
       rows.push({
@@ -713,7 +747,8 @@ export default function Facturacion({
         "Dibujante": '',
         "M2": project ? parseFloat(project.superficie) || 0 : 0,
         "Total Presupuesto": budget ? parseFloat(budget.amount) || 0 : 0,
-        "Total UF": budget ? parseFloat(budget.amount) || 0 : 0
+        "Total UF": budget ? parseFloat(budget.amount) || 0 : 0,
+        "Empresa Emisora": installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer'
       });
     });
 
@@ -771,7 +806,8 @@ export default function Facturacion({
         "Dibujante",
         "M2",
         "Total Presupuesto",
-        "Total UF"
+        "Total UF",
+        "Empresa Emisora"
       ]
     });
 
@@ -911,7 +947,8 @@ export default function Facturacion({
   const openEmitModal = (installment) => {
     const project = projects.find(p => p.id === installment.project_id);
     const budget = budgets.find(b => b.id === installment.origin_budget_id);
-    const razonSocial = getBudgetRazonSocial(budget);
+    const targetLegalId = installment.legalEntityId || budget?.legalEntityId || budget?.clientId;
+    const razonSocial = (targetLegalId ? clients.find(c => c.id === targetLegalId && c.company) : null) || getBudgetRazonSocial(budget);
 
     if (!razonSocial) {
       setTargetBudgetForRazonSocial(budget || null);
@@ -972,7 +1009,7 @@ export default function Facturacion({
       }
 
       const updates = {
-        status: 'Factura emitida',
+        status: 'Facturada',
         invoiceNumber: invoiceNumber.trim(),
         actualInvoiceDate,
         net_clp: calculatedNet,
@@ -1030,9 +1067,20 @@ export default function Facturacion({
   };
 
   const handleToggleDateConfirmed = async (inst) => {
-    if (!onUpdateInstallment || !inst) return;
+    if (!onUpdateInstallment || !inst || inst.status === 'Anulada') return;
     try {
-      await onUpdateInstallment(inst.id, { dateConfirmed: !inst.dateConfirmed });
+      const nextConfirmed = !inst.dateConfirmed;
+      const updates = { dateConfirmed: nextConfirmed };
+      if (nextConfirmed) {
+        if (inst.status === 'Por aprobar' || !inst.status) {
+          updates.status = (inst.date && inst.date <= todayStr) ? 'Por facturar' : 'Aprobada';
+        }
+      } else {
+        if (inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+          updates.status = 'Por aprobar';
+        }
+      }
+      await onUpdateInstallment(inst.id, updates);
     } catch (err) {
       console.error("Error al actualizar confirmación de fecha:", err);
     }
@@ -1304,10 +1352,12 @@ export default function Facturacion({
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                 {[
                   { value: 'Todos', label: 'Todos' },
+                  { value: 'Por aprobar', label: 'Por aprobar' },
+                  { value: 'Aprobada', label: 'Aprobada' },
                   { value: 'Por facturar', label: 'Por facturar' },
-                  { value: 'Vencida', label: 'Vencidas' },
-                  { value: 'Factura emitida', label: 'Factura emitida' },
-                  { value: 'Pagada', label: 'Pagada' }
+                  { value: 'Facturada', label: 'Facturada' },
+                  { value: 'Pagada', label: 'Pagada' },
+                  { value: 'Anulada', label: 'Anulada' }
                 ].map((s) => (
                   <button
                     key={s.value}
@@ -1549,7 +1599,7 @@ export default function Facturacion({
                               </thead>
                               <tbody className="divide-y divide-outline-variant/10 bg-white">
                                 {budgetInstallments.map((inst) => {
-                                  const totalQuotas = installments.filter(i => i.origin_budget_id === bId).length;
+                                  const totalQuotas = installments.filter(i => i.origin_budget_id === bId && i.status !== 'Anulada').length;
                                   const isOverdue = inst.status === 'Por facturar' && inst.date && inst.date < todayStr;
                                   return (
                                     <tr key={inst.id} className="hover:bg-surface-container-lowest transition-colors text-body-sm">
@@ -1557,25 +1607,39 @@ export default function Facturacion({
                                         <div className="flex flex-col items-start gap-0.5">
                                           <span>{inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}</span>
                                           <span className={`text-[9px] font-bold px-1 rounded uppercase tracking-wider ${
-                                            (inst.billingCompany || project?.billingCompany) === 'FPF'
+                                            (inst.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF'
                                               ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                               : 'bg-slate-100 text-slate-700 border border-slate-300'
                                           }`}>
-                                            {inst.billingCompany || project?.billingCompany || 'Spoerer'}
+                                            {inst.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer'}
                                           </span>
+                                          {inst.legalEntityId && inst.legalEntityId !== (budget?.legalEntityId || budget?.clientId) && (
+                                            <span 
+                                              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 max-w-[130px] truncate block"
+                                              title={`Razón Social específica: ${clients.find(c => c.id === inst.legalEntityId)?.company || 'N/A'}`}
+                                            >
+                                              {clients.find(c => c.id === inst.legalEntityId)?.company || 'R.S. Específica'}
+                                            </span>
+                                          )}
                                         </div>
                                       </td>
                                       <td
-                                        className="px-md py-md text-center cursor-pointer select-none"
-                                        onDoubleClick={() => handleToggleDateConfirmed(inst)}
-                                        title="Doble clic para activar o desactivar confirmación"
+                                        className={`px-md py-md text-center select-none ${inst.status === 'Anulada' ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                                        onClick={() => inst.status !== 'Anulada' && handleToggleDateConfirmed(inst)}
+                                        onDoubleClick={() => inst.status !== 'Anulada' && handleToggleDateConfirmed(inst)}
+                                        title={inst.status === 'Anulada' ? "Cuota anulada" : "Clic para activar o desactivar confirmación de fecha"}
                                       >
                                         <div className="flex justify-center items-center">
                                           <input
                                             type="checkbox"
+                                            disabled={inst.status === 'Anulada'}
                                             checked={Boolean(inst.dateConfirmed)}
-                                            onChange={() => {}}
-                                            className="w-4 h-4 text-secondary accent-secondary rounded border-slate-300 focus:ring-secondary/30 cursor-pointer pointer-events-none"
+                                            onChange={(e) => {
+                                              e.stopPropagation();
+                                              if (inst.status !== 'Anulada') handleToggleDateConfirmed(inst);
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className={`w-4 h-4 text-secondary accent-secondary rounded border-slate-300 focus:ring-secondary/30 ${inst.status === 'Anulada' ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                                           />
                                         </div>
                                       </td>
@@ -1595,12 +1659,19 @@ export default function Facturacion({
                                         {formatAmountWithCurrency(inst.uf, inst.currency || budget?.currency || 'UF')}
                                       </td>
                                       <td className="px-md py-md text-center">
-                                        <span className={`inline-flex items-center px-sm py-xs rounded-full text-[10px] font-bold uppercase border ${inst.status === 'Pagada'
-                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                          : inst.status === 'Factura emitida'
-                                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                            : 'bg-slate-100 text-slate-700 border-slate-200'
-                                          }`}>
+                                        <span className={`inline-flex items-center px-sm py-xs rounded-full text-[10px] font-bold uppercase border ${
+                                          inst.status === 'Pagada'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                            : (inst.status === 'Facturada' || inst.status === 'Factura emitida')
+                                              ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                              : inst.status === 'Por facturar'
+                                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                                : inst.status === 'Aprobada'
+                                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                  : inst.status === 'Anulada'
+                                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                        }`}>
                                           {inst.status}
                                         </span>
                                       </td>
@@ -1608,7 +1679,7 @@ export default function Facturacion({
                                         {inst.invoiceNumber || '-'}
                                       </td>
                                       <td className="px-md py-md text-right">
-                                        {inst.status === 'Por facturar' ? (
+                                        {(inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') ? (
                                           <span className="text-outline">-</span>
                                         ) : (
                                           <div className="relative group/tooltip inline-block">
@@ -1685,14 +1756,18 @@ export default function Facturacion({
                                         </div>
                                       </td>
                                       <td className="px-md py-md text-right">
-                                        {inst.status === 'Por facturar' && (
+                                        {(inst.status === 'Por facturar' || inst.status === 'Aprobada' || inst.status === 'Por aprobar') && (
                                           (() => {
+                                            const instRazon = inst.legalEntityId 
+                                              ? clients.find(c => c.id === inst.legalEntityId && c.company) 
+                                              : budgetRazonSocial;
                                             const isDateConfirmed = Boolean(inst.dateConfirmed);
-                                            const isReady = budgetRazonSocial && isDateConfirmed;
+                                            const hasRazonSocial = Boolean(instRazon);
+                                            const isReady = hasRazonSocial && isDateConfirmed;
                                             return (
                                               <button
                                                 onClick={() => {
-                                                  if (!budgetRazonSocial) {
+                                                  if (!hasRazonSocial) {
                                                     setTargetBudgetForRazonSocial(budget);
                                                     setTargetProjectForRazonSocial(project);
                                                     setIsNoRazonSocialModalOpen(true);
@@ -1703,8 +1778,8 @@ export default function Facturacion({
                                                   }
                                                 }}
                                                 title={
-                                                  !budgetRazonSocial
-                                                    ? "No se puede facturar sin Razón Social asignada al presupuesto. Haga clic para asignar una."
+                                                  !hasRazonSocial
+                                                    ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
                                                     : !isDateConfirmed
                                                       ? "No se puede facturar sin confirmar la fecha de la cuota."
                                                       : "Emitir Factura"
@@ -1720,7 +1795,7 @@ export default function Facturacion({
                                             );
                                           })()
                                         )}
-                                        {inst.status === 'Factura emitida' && (
+                                        {(inst.status === 'Facturada' || inst.status === 'Factura emitida') && (
                                           <button
                                             onClick={() => openPaymentModal(inst)}
                                             className="inline-flex items-center gap-xs px-2 py-1 bg-secondary text-white rounded hover:bg-secondary/90 font-semibold transition-all active:scale-95 text-[11px]"
@@ -1729,7 +1804,7 @@ export default function Facturacion({
                                             <span>Registrar Pago</span>
                                           </button>
                                         )}
-                                        {inst.status === 'Pagada' && (
+                                        {(inst.status === 'Pagada' || inst.status === 'Anulada') && (
                                           <button
                                             onClick={() => openDetailsModal(inst)}
                                             className="inline-flex items-center gap-xs px-2 py-1 border border-outline text-on-surface-variant rounded hover:bg-surface-container-low font-semibold transition-all active:scale-95 text-[11px]"
@@ -1801,6 +1876,12 @@ export default function Facturacion({
                     instBillingCompany === 'FPF' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
                   }`}>
                     {instBillingCompany} {isExempt ? '(0% IVA)' : '(19% IVA)'}
+                  </span>
+                </p>
+                <p className="flex justify-between items-center border-t border-slate-200/40 pt-1 mt-1">
+                  <span className="text-on-surface-variant font-medium">Razón Social:</span>
+                  <span className="font-bold text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-800 text-right max-w-[220px] truncate" title={instRazonSocial?.company || 'Sin Razón Social'}>
+                    {instRazonSocial?.company || 'Sin Razón Social'} {instRazonSocial?.rut ? `(${instRazonSocial.rut})` : ''}
                   </span>
                 </p>
               </div>
@@ -2154,10 +2235,22 @@ export default function Facturacion({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-md border-b border-slate-200/40 pb-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-md border-b border-slate-200/40 pb-3">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Monto Planificado</span>
                   <span className="font-semibold text-primary">{formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Empresa</span>
+                  <div>
+                    <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                      (selectedInstallment.billingCompany || 'Spoerer') === 'FPF'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-slate-100 text-slate-800'
+                    }`}>
+                      {selectedInstallment.billingCompany || 'Spoerer'}
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Folio Factura</span>
@@ -2167,6 +2260,19 @@ export default function Facturacion({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Orden de Compra (OC)</span>
                   <span className="font-semibold text-primary">{selectedInstallment.oc || '-'}</span>
                 </div>
+              </div>
+
+              {/* Razón Social */}
+              <div className="border-b border-slate-200/40 pb-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-outline-variant block mb-0.5">Razón Social Facturada</span>
+                <span className="font-semibold text-primary">
+                  {(() => {
+                    const b = budgets.find(b => b.id === selectedInstallment.origin_budget_id);
+                    const targetLegalId = selectedInstallment.legalEntityId || b?.legalEntityId || b?.clientId;
+                    const rs = targetLegalId ? clients.find(c => c.id === targetLegalId) : null;
+                    return rs ? `${rs.company} (${rs.rut || 'Sin RUT'})` : (b?.company || 'No especificada');
+                  })()}
+                </span>
               </div>
 
               <div className="bg-slate-50/50 border border-slate-200/60 p-md rounded-xl space-y-1.5">
@@ -2313,6 +2419,8 @@ export default function Facturacion({
           billingCompany={activeBudgetForInstallments?.project?.billingCompany || activeBudgetForInstallments?.budget?.billingCompany || 'Spoerer'}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
           initialInstallments={activeBudgetForInstallments.installments}
+          clients={clients}
+          legalEntityId={activeBudgetForInstallments?.budget?.legalEntityId || activeBudgetForInstallments?.budget?.clientId || null}
           onSave={async (updated) => {
             await onSaveInstallments(activeBudgetForInstallments.budget.id, updated);
           }}

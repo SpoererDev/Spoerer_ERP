@@ -240,7 +240,7 @@ export default function App() {
   const hasInvoicedOrPaidInstallments = (budgetId) => {
     if (!budgetId) return false;
     return installments.some(
-      i => i.origin_budget_id === budgetId && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+      i => i.origin_budget_id === budgetId && (i.status === 'Facturada' || i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
     );
   };
 
@@ -365,20 +365,11 @@ export default function App() {
     try {
       const updatedBudget = await supabaseService.updateBudgetLegalEntity(budgetId, legalEntityId);
       setQuotes(prev => prev.map(q => q.id === budgetId ? updatedBudget : q));
+      setInstallments(prev => prev.map(i => i.origin_budget_id === budgetId ? { ...i, legalEntityId: legalEntityId || null } : i));
       return updatedBudget;
     } catch (err) {
       console.error("Error al actualizar razón social del presupuesto:", err);
       throw err;
-    }
-  };
-
-  // INSTALLMENTS (CUOTAS) ACTIONS
-  const handleUpdateInstallment = async (id, updates) => {
-    try {
-      const updatedInst = await supabaseService.updateInstallment(id, updates);
-      setInstallments(prev => prev.map(i => i.id === id ? updatedInst : i));
-    } catch (err) {
-      alert("Error al actualizar la cuota: " + err.message);
     }
   };
 
@@ -410,6 +401,39 @@ export default function App() {
     } catch (err) {
       console.error("Error al eliminar proyecto:", err);
       throw err;
+    }
+  };
+
+  // INSTALLMENTS (CUOTAS) ACTIONS
+  const handleUpdateInstallment = async (id, updates) => {
+    try {
+      const updatedInst = await supabaseService.updateInstallment(id, updates);
+      setInstallments(prev => prev.map(i => i.id === id ? updatedInst : i));
+    } catch (err) {
+      console.error("Error al actualizar cuota:", err);
+      alert("Error al actualizar cuota.");
+    }
+  };
+
+  const handleCreateInstallment = async (installmentData) => {
+    try {
+      const newInst = await supabaseService.createInstallment(installmentData);
+      setInstallments(prev => [...prev, newInst]);
+      return newInst;
+    } catch (err) {
+      console.error("Error al crear cuota:", err);
+      alert("Error al crear cuota.");
+      throw err;
+    }
+  };
+
+  const handleDeleteInstallment = async (id) => {
+    try {
+      await supabaseService.deleteInstallment(id);
+      setInstallments(prev => prev.filter(i => i.id !== id));
+    } catch (err) {
+      console.error("Error al eliminar cuota:", err);
+      alert("Error al eliminar cuota.");
     }
   };
 
@@ -454,6 +478,7 @@ export default function App() {
             uf: inst.uf,
             currency: inst.currency || 'UF',
             billingCompany: inst.billingCompany || 'Spoerer',
+            legalEntityId: inst.legalEntityId || null,
             description: inst.description,
             comment: inst.comment,
             oc: inst.oc,
@@ -479,6 +504,7 @@ export default function App() {
             uf: inst.uf,
             currency: inst.currency || 'UF',
             billingCompany: inst.billingCompany || 'Spoerer',
+            legalEntityId: inst.legalEntityId || null,
             status: inst.status,
             description: inst.description,
             comment: inst.comment,

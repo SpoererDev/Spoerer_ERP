@@ -437,7 +437,8 @@ export default function Proyectos({
       numQuota: numStr,
       date: new Date().toISOString().split('T')[0],
       uf: 0,
-      status: 'Por facturar',
+      status: 'Por aprobar',
+      dateConfirmed: false,
       description: '',
       comment: '',
       oc: '',
@@ -462,7 +463,7 @@ export default function Proyectos({
   // Disassociate budget
   const handleDisassociateBudgetLocal = (budgetId) => {
     const hasInvoicedOrPaid = localInstallments.some(
-      i => i.origin_budget_id === budgetId && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+      i => i.origin_budget_id === budgetId && (i.status === 'Facturada' || i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
     );
     if (hasInvoicedOrPaid) {
       setNotification({
@@ -531,7 +532,7 @@ export default function Proyectos({
     // Verificar si el proyecto tiene cuotas facturadas o pagadas
     const projectInstallments = (installments || []).filter(inst => inst.project_id === id);
     const hasInvoicedInstallments = projectInstallments.some(
-      inst => inst.status === 'Factura emitida' || inst.status === 'Pagada'
+      inst => inst.status === 'Facturada' || inst.status === 'Factura emitida' || inst.status === 'Pagada'
     );
 
     if (hasInvoicedInstallments) {
@@ -1118,7 +1119,7 @@ export default function Proyectos({
 
                             {(() => {
                               const hasInvoicedOrPaid = localInstallments.some(
-                                i => i.origin_budget_id === budget.id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+                                i => i.origin_budget_id === budget.id && (i.status === 'Facturada' || i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
                               );
                               return (
                                 <button
@@ -1174,16 +1175,23 @@ export default function Proyectos({
                                              )}
                                            </div>
                                          </td>
-                                         <td className="p-2.5 w-36 text-center">
-                                           <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset ${(row.status || 'Por facturar') === 'Pagada'
-                                             ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
-                                             : (row.status || 'Por facturar') === 'Factura emitida'
-                                               ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
-                                               : 'bg-amber-50 text-amber-800 ring-amber-600/20'
-                                             }`}>
-                                             {row.status || 'Por facturar'}
-                                           </span>
-                                         </td>
+                                          <td className="p-2.5 w-36 text-center">
+                                            <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset ${
+                                              (row.status || 'Por aprobar') === 'Pagada'
+                                                ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
+                                                : (row.status === 'Facturada' || row.status === 'Factura emitida')
+                                                  ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
+                                                  : row.status === 'Por facturar'
+                                                    ? 'bg-amber-50 text-amber-800 ring-amber-600/20'
+                                                    : row.status === 'Aprobada'
+                                                      ? 'bg-blue-50 text-blue-700 ring-blue-600/20'
+                                                      : row.status === 'Anulada'
+                                                        ? 'bg-red-50 text-red-700 ring-red-600/20'
+                                                        : 'bg-slate-100 text-slate-700 ring-slate-500/20'
+                                            }`}>
+                                              {row.status || 'Por aprobar'}
+                                            </span>
+                                          </td>
                                          <td className="p-2.5 w-28 text-right font-bold text-primary">
                                            {formatAmountWithCurrency(row.uf, row.currency || budget.currency || 'UF')}
                                          </td>
@@ -2000,6 +2008,8 @@ export default function Proyectos({
           budgetAmount={activeBudgetForInstallments.budget.amount}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
           initialInstallments={activeBudgetForInstallments.installments}
+          clients={clients}
+          legalEntityId={activeBudgetForInstallments?.budget?.legalEntityId || activeBudgetForInstallments?.budget?.clientId || activeBudgetForInstallments?.project?.legalEntityId || null}
           onSave={async (updated) => {
             await onSaveInstallments(activeBudgetForInstallments.budget.id, updated);
           }}

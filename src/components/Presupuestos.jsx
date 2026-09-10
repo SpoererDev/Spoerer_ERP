@@ -177,7 +177,8 @@ export default function Presupuestos({
         description: '',
         comment: '',
         oc: '',
-        status: 'Por facturar'
+        status: 'Por aprobar',
+        dateConfirmed: false
       }
     ]);
   };
@@ -549,7 +550,7 @@ export default function Presupuestos({
 
   const handleDeleteQuote = (id) => {
     const hasInvoicedOrPaid = installments && installments.some(
-      i => i.origin_budget_id === id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+      i => i.origin_budget_id === id && (i.status === 'Facturada' || i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
     );
     if (hasInvoicedOrPaid) {
       const quoteObj = quotes.find(q => q.id === id);
@@ -806,12 +807,14 @@ export default function Presupuestos({
           numQuota: numStr,
           date: dateVal,
           uf: U,
-          currency: approvingQuote?.currency || 'UF',
-          billingCompany: approvingQuote?.billingCompany || 'Spoerer',
+          currency: approvingQuote?.currency || '',
+          billingCompany: approvingQuote?.billingCompany || '',
+          legalEntityId: approvingQuote?.legalEntityId || approvingQuote?.clientId || null,
           description: V,
           comment: '',
           oc: ordenCompra ? ordenCompra.trim() : '',
-          status: 'Por facturar'
+          status: 'Por aprobar',
+          dateConfirmed: false
         });
         counter++;
       }
@@ -934,7 +937,7 @@ export default function Presupuestos({
       if (quote.status === newStatus) return;
 
       const hasInvoicedOrPaid = installments && installments.some(
-        i => i.origin_budget_id === id && (i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
+        i => i.origin_budget_id === id && (i.status === 'Facturada' || i.status === 'Factura emitida' || i.status === 'Pagada' || i.status === 'Facturado' || i.status === 'Pagado')
       );
       if (hasInvoicedOrPaid) {
         setNotification({
@@ -2294,11 +2297,17 @@ export default function Presupuestos({
                                   <td className="p-md">
                                     <span className={`inline-block px-2.5 py-0.5 rounded-full text-label-sm font-bold border ${cuota.status === 'Pagada'
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : cuota.status === 'Factura emitida'
-                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                        : 'bg-slate-100 text-slate-700 border-slate-350'
+                                      : (cuota.status === 'Facturada' || cuota.status === 'Factura emitida')
+                                        ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                        : cuota.status === 'Por facturar'
+                                          ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                          : cuota.status === 'Aprobada'
+                                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                            : cuota.status === 'Anulada'
+                                              ? 'bg-red-50 text-red-700 border-red-200'
+                                              : 'bg-slate-100 text-slate-700 border-slate-350'
                                       }`}>
-                                      {cuota.status || 'Por facturar'}
+                                      {cuota.status || 'Por aprobar'}
                                     </span>
                                   </td>
                                   <td className="p-md text-right font-bold text-on-surface">
@@ -2937,13 +2946,20 @@ export default function Presupuestos({
                                     </div>
                                   </td>
                                   <td className="p-2 text-center">
-                                    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${(row.status || 'Por facturar') === 'Pagada'
-                                      ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
-                                      : (row.status || 'Por facturar') === 'Factura emitida'
-                                        ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
-                                        : 'bg-amber-50 text-amber-800 ring-amber-600/20'
-                                      }`}>
-                                      {row.status || 'Por facturar'}
+                                    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${
+                                      (row.status || 'Por aprobar') === 'Pagada'
+                                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
+                                        : (row.status === 'Facturada' || row.status === 'Factura emitida')
+                                          ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
+                                          : row.status === 'Por facturar'
+                                            ? 'bg-amber-50 text-amber-800 ring-amber-600/20'
+                                            : row.status === 'Aprobada'
+                                              ? 'bg-blue-50 text-blue-700 ring-blue-600/20'
+                                              : row.status === 'Anulada'
+                                                ? 'bg-red-50 text-red-700 ring-red-600/20'
+                                                : 'bg-slate-100 text-slate-700 ring-slate-500/20'
+                                    }`}>
+                                      {row.status || 'Por aprobar'}
                                     </span>
                                   </td>
                                   <td className="p-2 text-right font-semibold text-primary">
@@ -4241,6 +4257,8 @@ export default function Presupuestos({
           onClose={() => setIsInstallmentsModalOpen(false)}
           currency={quoteCurrency}
           billingCompany={billingCompany || 'Spoerer'}
+          clients={clients}
+          legalEntityId={selectedLegalEntity || existingQuoteObj?.legalEntityId || existingQuoteObj?.clientId || null}
           projectName={existingQuoteObj?.projectId ? (() => {
             const assoc = projects.find(p => p.id === existingQuoteObj.projectId);
             return assoc ? `${assoc.projectNumber} - ${assoc.rawProjectName}` : quoteTitle;

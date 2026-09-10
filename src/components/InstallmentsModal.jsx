@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabaseService } from '../utils/supabaseService';
 
 // Helper: Sumar meses de forma segura considerando el fin de mes y años bisiestos
@@ -65,7 +65,9 @@ export default function InstallmentsModal({
   projectNumber = 'SPR',
   isDeferredSave = false,
   currency = 'UF',
-  billingCompany = 'Spoerer'
+  billingCompany = 'Spoerer',
+  clients = [],
+  legalEntityId = null
 }) {
   const [localInstallments, setLocalInstallments] = useState([]);
   const [editingFileIdx, setEditingFileIdx] = useState(null);
@@ -73,6 +75,13 @@ export default function InstallmentsModal({
   const [isSaving, setIsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const modalRef = useRef(null);
+
+  const sortedClients = useMemo(() => {
+    return [...(clients || [])]
+      .filter(c => c && (c.company || c.company_name))
+      .sort((a, b) => (a.company || a.company_name || '').localeCompare(b.company || b.company_name || ''));
+  }, [clients]);
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [modalSize, setModalSize] = useState({ width: null, height: null });
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -112,23 +121,19 @@ export default function InstallmentsModal({
       let nextWidth = startWidth;
       let nextHeight = startHeight;
 
-      if (direction === 'right') {
-        nextWidth = startWidth + deltaX * 2;
-      } else if (direction === 'left') {
-        nextWidth = startWidth - deltaX * 2;
-      } else if (direction === 'bottom') {
-        nextHeight = startHeight + deltaY * 2;
-      } else if (direction === 'corner') {
-        nextWidth = startWidth + deltaX * 2;
-        nextHeight = startHeight + deltaY * 2;
+      if (direction === 'right' || direction === 'corner') {
+        nextWidth = Math.min(Math.max(startWidth + deltaX * 2, 700), maxWidth);
+      }
+      if (direction === 'left') {
+        nextWidth = Math.min(Math.max(startWidth - deltaX * 2, 700), maxWidth);
+      }
+      if (direction === 'bottom' || direction === 'corner') {
+        nextHeight = Math.min(Math.max(startHeight + deltaY * 2, 450), maxHeight);
       }
 
-      const clampedWidth = Math.max(800, Math.min(maxWidth, nextWidth));
-      const clampedHeight = Math.max(450, Math.min(maxHeight, nextHeight));
-
       setModalSize({
-        width: direction === 'bottom' ? startWidth : clampedWidth,
-        height: direction === 'right' || direction === 'left' ? startHeight : clampedHeight
+        width: Math.round(nextWidth),
+        height: Math.round(nextHeight)
       });
     };
 
@@ -153,8 +158,10 @@ export default function InstallmentsModal({
           oc: inst.oc || '',
           ocFileUrl: inst.ocFileUrl || '',
           otherFiles: Array.isArray(inst.otherFiles) ? inst.otherFiles : [],
-          currency: inst.currency || currency || 'UF',
-          billingCompany: inst.billingCompany || billingCompany || 'Spoerer',
+          status: inst.status === 'Factura emitida' ? 'Facturada' : (inst.status || (inst.dateConfirmed ? (inst.date && inst.date <= todayStr ? 'Por facturar' : 'Aprobada') : 'Por aprobar')),
+          currency: inst.currency !== undefined && inst.currency !== null && inst.currency !== '' ? inst.currency : (currency || 'UF'),
+          billingCompany: inst.billingCompany !== undefined && inst.billingCompany !== null && inst.billingCompany !== '' ? inst.billingCompany : (billingCompany || 'Spoerer'),
+          legalEntityId: inst.legalEntityId !== undefined && inst.legalEntityId !== null ? inst.legalEntityId : (legalEntityId || null),
           // Newly added local files in memory
           invoiceFileObject: null,
           paymentBackupFileObject: null,
@@ -171,7 +178,7 @@ export default function InstallmentsModal({
       setIsSaving(false);
       setSelectedIds(new Set());
     }
-  }, [isOpen, initialInstallments, currency, billingCompany]);
+  }, [isOpen, initialInstallments, currency, billingCompany, legalEntityId, todayStr]);
 
   if (!isOpen) return null;
 
@@ -182,6 +189,39 @@ export default function InstallmentsModal({
       const groupId = instToChange.grupo;
       const isMaster = groupId && metadata[groupId]?.masterId === instToChange.id;
 
+      // When an installment is marked as 'Anulada', clone a replacement in 'Por aprobar'
+      if (field === 'status' && value === 'Anulada') {
+        const replacement = {
+          ...instToChange,
+          id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          status: 'Por aprobar',
+          dateConfirmed: false,
+          invoiceNumber: '',
+          invoiceDate: null,
+          paymentDate: null,
+          neto_clp: null,
+          iva_clp: null,
+          total_clp: null,
+          backupFiles: [],
+          grupo: null,
+        };
+
+        const updatedList = [];
+        prev.forEach((inst, idx) => {
+          if (idx === index) {
+            updatedList.push({
+              ...inst,
+              status: 'Anulada',
+              grupo: null,
+            });
+            updatedList.push(replacement);
+          } else {
+            updatedList.push(inst);
+          }
+        });
+        return updatedList;
+      }
+
       return prev.map((inst, idx) => {
         let newVal = value;
         if (field === 'uf' || field === 'total_clp') {
@@ -189,10 +229,39 @@ export default function InstallmentsModal({
         }
 
         if (idx === index) {
-          return {
+          const updated = {
             ...inst,
             [field]: newVal
           };
+
+          // Automatic synchronization between dateConfirmed, date, and status
+          if (field === 'dateConfirmed') {
+            if (newVal === true) {
+              if (inst.status === 'Por aprobar' || !inst.status) {
+                updated.status = (inst.date && inst.date <= todayStr) ? 'Por facturar' : 'Aprobada';
+              }
+            } else {
+              if (inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+                updated.status = 'Por aprobar';
+              }
+            }
+          } else if (field === 'date') {
+            if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+              if (newVal && newVal <= todayStr) {
+                updated.status = 'Por facturar';
+              } else if (newVal && newVal > todayStr) {
+                updated.status = 'Aprobada';
+              }
+            }
+          } else if (field === 'status') {
+            if (newVal === 'Por aprobar') {
+              updated.dateConfirmed = false;
+            } else if (newVal !== 'Anulada') {
+              updated.dateConfirmed = true;
+            }
+          }
+
+          return updated;
         }
 
         // Propagate to slaves if editing the master row
@@ -202,12 +271,40 @@ export default function InstallmentsModal({
           
           if (slaveIndex > 0) { // It's a slave
             if (field === 'date') {
+              const newSlaveDate = addMonths(value, slaveIndex);
+              const updatedSlave = {
+                ...inst,
+                date: newSlaveDate
+              };
+              if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+                updatedSlave.status = (newSlaveDate && newSlaveDate <= todayStr) ? 'Por facturar' : 'Aprobada';
+              }
+              return updatedSlave;
+            }
+            if (field === 'dateConfirmed') {
+              const updatedSlave = {
+                ...inst,
+                dateConfirmed: newVal
+              };
+              if (newVal === true) {
+                if (inst.status === 'Por aprobar' || !inst.status) {
+                  updatedSlave.status = (inst.date && inst.date <= todayStr) ? 'Por facturar' : 'Aprobada';
+                }
+              } else {
+                if (inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+                  updatedSlave.status = 'Por aprobar';
+                }
+              }
+              return updatedSlave;
+            }
+            if (field === 'status') {
               return {
                 ...inst,
-                date: addMonths(value, slaveIndex)
+                status: newVal,
+                dateConfirmed: newVal !== 'Por aprobar'
               };
             }
-            if (field === 'dateConfirmed' || field === 'uf' || field === 'description' || field === 'comment' || field === 'oc') {
+            if (field === 'uf' || field === 'description' || field === 'comment' || field === 'oc' || field === 'currency' || field === 'billingCompany' || field === 'legalEntityId') {
               return {
                 ...inst,
                 [field]: newVal
@@ -222,7 +319,6 @@ export default function InstallmentsModal({
   };
 
   const handleAddRow = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
     let nextDate = '';
     let nextNum = 1;
 
@@ -249,13 +345,14 @@ export default function InstallmentsModal({
       numQuota: String(nextNum).padStart(2, '0'),
       date: nextDate,
       uf: 0,
-      status: 'Por facturar',
+      status: 'Por aprobar',
       description: '',
       comment: '',
-      oc: '',
+      oc: initialInstallments[0]?.oc || '',
       dateConfirmed: false,
-      currency: currency || 'UF',
+      currency: initialInstallments[0]?.currency || currency || 'UF',
       billingCompany: initialInstallments[0]?.billingCompany || billingCompany || 'Spoerer',
+      legalEntityId: initialInstallments[0]?.legalEntityId || legalEntityId || null,
       invoiceNumber: '',
       invoiceFileUrl: '',
       paymentBackupUrl: '',
@@ -363,7 +460,10 @@ export default function InstallmentsModal({
               dateConfirmed: masterInst.dateConfirmed,
               description: masterInst.description || '',
               comment: masterInst.comment || '',
-              oc: masterInst.oc || ''
+              oc: masterInst.oc || '',
+              currency: masterInst.currency || 'UF',
+              billingCompany: masterInst.billingCompany || 'Spoerer',
+              legalEntityId: masterInst.legalEntityId || null
             };
           }
         }
@@ -382,6 +482,56 @@ export default function InstallmentsModal({
         return {
           ...inst,
           oc: ocVal
+        };
+      }
+      return inst;
+    }));
+  };
+
+  const handleBatchSetCurrency = (val) => {
+    setLocalInstallments(prev => prev.map(inst => {
+      if (selectedIds.has(inst.id)) {
+        return {
+          ...inst,
+          currency: val
+        };
+      }
+      return inst;
+    }));
+  };
+
+  const handleBatchSetBillingCompany = (val) => {
+    setLocalInstallments(prev => prev.map(inst => {
+      if (selectedIds.has(inst.id)) {
+        return {
+          ...inst,
+          billingCompany: val
+        };
+      }
+      return inst;
+    }));
+  };
+
+  const handleBatchSetRazonSocial = (val) => {
+    setLocalInstallments(prev => prev.map(inst => {
+      if (selectedIds.has(inst.id)) {
+        return {
+          ...inst,
+          legalEntityId: val || null
+        };
+      }
+      return inst;
+    }));
+  };
+
+  const handleBatchSetStatus = (val) => {
+    if (!val) return;
+    setLocalInstallments(prev => prev.map(inst => {
+      if (selectedIds.has(inst.id)) {
+        return {
+          ...inst,
+          status: val,
+          dateConfirmed: val !== 'Por aprobar'
         };
       }
       return inst;
@@ -519,22 +669,26 @@ export default function InstallmentsModal({
   const handleSave = async () => {
     setValidationError('');
 
-    // Verification 7: total sum of planned UF must equal budget amount
-    const totalUF = localInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
-    const roundedTotal = Math.round(totalUF * 100) / 100;
-    const expectedTotal = Math.round((parseFloat(budgetAmount) || 0) * 100) / 100;
+    // Verification: sum of planned amounts must equal budget amount if all installments match budget currency
+    const activeInstallments = localInstallments.filter(inst => inst.status !== 'Anulada');
+    const hasMixedCurrencies = activeInstallments.some(inst => inst.currency && inst.currency !== currency);
+    if (!hasMixedCurrencies) {
+      const totalUF = activeInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
+      const roundedTotal = Math.round(totalUF * 100) / 100;
+      const expectedTotal = Math.round((parseFloat(budgetAmount) || 0) * 100) / 100;
 
-    if (Math.abs(roundedTotal - expectedTotal) >= 0.02) {
-      setValidationError(
-        `La suma de las cuotas (${roundedTotal.toFixed(2)} ${currency}) no coincide con el total del presupuesto (${expectedTotal.toFixed(2)} ${currency}). Diferencia: ${(expectedTotal - roundedTotal).toFixed(2)} ${currency}.`
-      );
-      return;
+      if (Math.abs(roundedTotal - expectedTotal) >= 0.02) {
+        setValidationError(
+          `La suma de las cuotas activas (${roundedTotal.toFixed(2)} ${currency}) no coincide con el total del presupuesto (${expectedTotal.toFixed(2)} ${currency}). Diferencia: ${(expectedTotal - roundedTotal).toFixed(2)} ${currency}.`
+        );
+        return;
+      }
     }
 
-    // Verificar que todas las cuotas tengan fecha planificada asignada
+    // Verificar que todas las cuotas activas tengan fecha planificada asignada
     for (let i = 0; i < localInstallments.length; i++) {
       const curr = localInstallments[i];
-      if (!curr.date) {
+      if (curr.status !== 'Anulada' && !curr.date) {
         setValidationError(`La cuota ${curr.numQuota} no tiene una fecha planificada asignada.`);
         return;
       }
@@ -667,21 +821,24 @@ export default function InstallmentsModal({
 
           {/* Tabla de cuotas */}
           <div className="border border-slate-200 rounded-lg bg-white overflow-auto flex-1 min-h-[320px] custom-scrollbar shadow-xs">
-            <table className="w-full text-left border-collapse min-w-[1440px]">
+            <table className="w-full text-left border-collapse min-w-[1720px]">
               <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 border-b border-slate-200 z-20 shadow-xs">
                 <tr className="text-body-sm font-semibold">
                   <th className="p-2 border-b border-slate-200 text-center min-w-[70px] w-16">Nº Cuota</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Planificada</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Fecha Planificada</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[60px] w-14">Conf.</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[120px] w-28">Monto ({currency})</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Estado</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Folio Factura</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">OC</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Detalle Pesos (CLP)</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Pago</th>
-                  <th className="p-2 border-b text-center min-w-[180px] w-48">Descripción</th>
-                  <th className="p-2 border-b text-center min-w-[180px] w-48">Comentario</th>
-                  <th className="p-2 border-b text-center min-w-[110px] w-28">Acciones</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[90px] w-24">Moneda</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Monto</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[120px] w-28">Estado</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">Folio Factura</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">OC</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Detalle Pesos (CLP)</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Fecha Pago</th>
+                  <th className="p-2 border-b text-center min-w-[160px] w-40">Descripción</th>
+                  <th className="p-2 border-b text-center min-w-[160px] w-40">Comentario</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Empresa Fact.</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[190px] w-52">Razón Social</th>
+                  <th className="p-2 border-b text-center min-w-[100px] w-24">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-body-sm text-slate-700">
@@ -694,11 +851,13 @@ export default function InstallmentsModal({
                       <tr
                         key={row.id || idx}
                         className={`transition-colors ${
-                          isSlave
-                            ? 'bg-slate-100/40 text-slate-400 opacity-70'
-                            : isMaster
-                              ? 'bg-emerald-50/10 hover:bg-emerald-50/20'
-                              : 'hover:bg-slate-50/50'
+                          row.status === 'Anulada'
+                            ? 'bg-red-50/30 text-slate-500'
+                            : isSlave
+                              ? 'bg-slate-100/40 text-slate-400 opacity-70'
+                              : isMaster
+                                ? 'bg-emerald-50/10 hover:bg-emerald-50/20'
+                                : 'hover:bg-slate-50/50'
                         }`}
                       >
                         {/* Nº Cuota */}
@@ -748,7 +907,7 @@ export default function InstallmentsModal({
                             <input
                               type="date"
                               value={row.date || ''}
-                              disabled={isSlave}
+                              disabled={isSlave || row.status === 'Anulada'}
                               onChange={(e) => handleFieldChange(idx, 'date', e.target.value)}
                               className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
                                 isSlave ? 'cursor-not-allowed' : 'cursor-pointer'
@@ -766,7 +925,7 @@ export default function InstallmentsModal({
                             <input
                               type="checkbox"
                               checked={row.dateConfirmed || false}
-                              disabled={isSlave}
+                              disabled={isSlave || row.status === 'Anulada'}
                               onChange={(e) => handleFieldChange(idx, 'dateConfirmed', e.target.checked)}
                               className={`w-4 h-4 text-secondary border-slate-350 rounded focus:ring-secondary/20 focus:ring-1 ${
                                 isSlave ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
@@ -776,12 +935,28 @@ export default function InstallmentsModal({
                           </div>
                         </td>
 
-                        {/* Monto UF */}
+                        {/* Moneda */}
+                        <td className="p-1 w-24 text-center">
+                          <select
+                            value={row.currency || 'UF'}
+                            disabled={isSlave || row.status === 'Anulada'}
+                            onChange={(e) => handleFieldChange(idx, 'currency', e.target.value)}
+                            className={`w-full border border-slate-250 bg-white/80 py-1 px-1 text-center font-bold text-xs rounded focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all ${
+                              isSlave ? 'text-slate-400 cursor-not-allowed bg-slate-100/50' : 'cursor-pointer hover:border-slate-400'
+                            }`}
+                          >
+                            <option value="UF">UF</option>
+                            <option value="CLP">CLP</option>
+                            <option value="USD">USD</option>
+                          </select>
+                        </td>
+
+                        {/* Monto */}
                         <td className="p-1 w-28">
                           <input
                             type="number"
                             value={row.uf || ''}
-                            disabled={isSlave}
+                            disabled={isSlave || row.status === 'Anulada'}
                             onChange={(e) => handleFieldChange(idx, 'uf', e.target.value)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-center ${
                               isSlave ? 'text-slate-400 cursor-not-allowed' : ''
@@ -792,18 +967,39 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Estado */}
-                        <td className="p-1 text-center w-28">
-                          <div className="flex items-center justify-center">
-                            <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset ${
+                        <td className="p-1 text-center w-32">
+                          <select
+                            value={row.status || (row.dateConfirmed ? (row.date && row.date <= todayStr ? 'Por facturar' : 'Aprobada') : 'Por aprobar')}
+                            disabled={isSlave || row.status === 'Anulada'}
+                            onChange={(e) => handleFieldChange(idx, 'status', e.target.value)}
+                            className={`w-full py-1 px-1 text-center font-bold text-xs rounded border outline-none transition-all ${
+                              isSlave ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-slate-400'
+                            } ${
                               row.status === 'Pagada'
-                                ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/10'
-                                : row.status === 'Factura emitida'
-                                  ? 'bg-sky-50 text-sky-700 ring-sky-600/10'
-                                  : 'bg-amber-50 text-amber-800 ring-amber-600/20'
-                            }`}>
-                              {row.status || 'Por facturar'}
-                            </span>
-                          </div>
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                : row.status === 'Facturada' || row.status === 'Factura emitida'
+                                  ? 'bg-sky-50 text-sky-700 border-sky-300'
+                                  : row.status === 'Por facturar'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                    : row.status === 'Aprobada'
+                                      ? 'bg-blue-50 text-blue-700 border-blue-300'
+                                      : row.status === 'Anulada'
+                                        ? 'bg-red-50 text-red-700 border-red-300'
+                                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            <option value="Por aprobar">Por aprobar</option>
+                            <option value="Aprobada">Aprobada</option>
+                            <option value="Por facturar">Por facturar</option>
+                            <option value="Facturada">Facturada</option>
+                            <option value="Pagada">Pagada</option>
+                            <option 
+                              value="Anulada" 
+                              disabled={row.status !== 'Facturada' && row.status !== 'Factura emitida' && row.status !== 'Anulada'}
+                            >
+                              Anulada
+                            </option>
+                          </select>
                         </td>
 
                         {/* Folio Factura */}
@@ -811,7 +1007,7 @@ export default function InstallmentsModal({
                           <input
                             type="text"
                             value={row.invoiceNumber || ''}
-                            disabled={isSlave || isMaster}
+                            disabled={isSlave || isMaster || row.status === 'Anulada'}
                             onChange={(e) => handleFieldChange(idx, 'invoiceNumber', e.target.value)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center ${
                               isSlave || isMaster ? 'text-slate-400 cursor-not-allowed' : ''
@@ -909,7 +1105,7 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Comentario (Observaciones) */}
-                        <td className="p-1 w-44">
+                        <td className="p-1 w-40">
                           <input
                             type="text"
                             value={row.comment || ''}
@@ -920,6 +1116,45 @@ export default function InstallmentsModal({
                             }`}
                             placeholder={isSlave ? "Bloqueado" : "Comentarios..."}
                           />
+                        </td>
+
+                        {/* Empresa Facturación */}
+                        <td className="p-1 w-28 text-center">
+                          <select
+                            value={row.billingCompany || 'Spoerer'}
+                            disabled={isSlave}
+                            onChange={(e) => handleFieldChange(idx, 'billingCompany', e.target.value)}
+                            className={`w-full border border-slate-250 bg-white/80 py-1 px-1 text-center font-semibold text-xs rounded focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all ${
+                              isSlave ? 'text-slate-400 cursor-not-allowed bg-slate-100/50' : 'cursor-pointer hover:border-slate-400'
+                            }`}
+                          >
+                            <option value="Spoerer">Spoerer</option>
+                            <option value="FPF">FPF</option>
+                          </select>
+                        </td>
+
+                        {/* Razón Social */}
+                        <td className="p-1 w-52 text-left">
+                          <select
+                            value={row.legalEntityId || ''}
+                            disabled={isSlave}
+                            onChange={(e) => handleFieldChange(idx, 'legalEntityId', e.target.value)}
+                            className={`w-full border border-slate-250 bg-white/80 py-1 px-1.5 text-left text-xs rounded focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all truncate ${
+                              isSlave ? 'text-slate-400 cursor-not-allowed bg-slate-100/50' : 'cursor-pointer hover:border-slate-400'
+                            }`}
+                            title={
+                              row.legalEntityId
+                                ? (sortedClients.find(c => c.id === row.legalEntityId)?.company || 'Razón Social')
+                                : 'Sin Razón Social asignada'
+                            }
+                          >
+                            <option value="">-- Sin Razón Social --</option>
+                            {sortedClients.map(c => (
+                              <option key={c.id} value={c.id}>
+                                {c.company || c.company_name} {c.rut ? `(${c.rut})` : ''}
+                              </option>
+                            ))}
+                          </select>
                         </td>
 
                         {/* Acciones */}
@@ -961,9 +1196,10 @@ export default function InstallmentsModal({
                             <button
                               type="button"
                               onClick={() => handleDeleteRow(idx)}
-                              disabled={isSlave || isMaster}
+                              disabled={isSlave || isMaster || row.status === 'Anulada'}
+                              title={row.status === 'Anulada' ? "Las cuotas anuladas se conservan como registro histórico" : (isSlave || isMaster ? "Acciones no disponibles en cuotas agrupadas" : "Eliminar cuota")}
                               className={`p-1.5 rounded transition-all flex items-center justify-center ${
-                                isSlave || isMaster
+                                isSlave || isMaster || row.status === 'Anulada'
                                   ? 'text-slate-300 cursor-not-allowed bg-transparent'
                                   : 'hover:bg-red-50 text-error hover:text-red-700'
                               }`}
@@ -979,7 +1215,7 @@ export default function InstallmentsModal({
                   })
                 ) : (
                   <tr>
-                    <td colSpan="12" className="p-lg text-center text-on-surface-variant italic bg-slate-50/50">
+                    <td colSpan="15" className="p-lg text-center text-on-surface-variant italic bg-slate-50/50">
                       No hay cuotas definidas. Haz clic en "Agregar Cuota" para registrar cobros.
                     </td>
                   </tr>
@@ -1040,26 +1276,119 @@ export default function InstallmentsModal({
             )}
 
             {selectedIds.size >= 2 && (
-              <div className="flex items-center gap-1.5 pl-3 border-l border-slate-300">
-                <input
-                  type="text"
-                  placeholder="OC para seleccionadas..."
-                  id="batch-oc-input"
-                  className="px-2.5 py-1.5 text-body-sm border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none w-44"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById('batch-oc-input');
-                    if (el && el.value) {
-                      handleBatchSetOc(el.value);
-                      el.value = '';
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-body-sm font-bold rounded-lg border border-slate-350 transition-all active:scale-95 shadow-xs"
-                >
-                  Aplicar OC
-                </button>
+              <div className="flex items-center gap-2 pl-3 border-l border-slate-300 flex-wrap">
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    placeholder="OC en lote..."
+                    id="batch-oc-input"
+                    className="px-2 py-1 text-xs border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none w-28"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('batch-oc-input');
+                      if (el && el.value) {
+                        handleBatchSetOc(el.value);
+                        el.value = '';
+                      }
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-350 transition-all active:scale-95"
+                    title="Aplicar OC a las cuotas seleccionadas"
+                  >
+                    OC
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <select
+                    id="batch-currency-select"
+                    className="px-2 py-1 text-xs border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none bg-white"
+                  >
+                    <option value="UF">UF</option>
+                    <option value="CLP">CLP</option>
+                    <option value="USD">USD</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('batch-currency-select');
+                      if (el && el.value) handleBatchSetCurrency(el.value);
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-350 transition-all active:scale-95"
+                    title="Aplicar Moneda a las cuotas seleccionadas"
+                  >
+                    Moneda
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <select
+                    id="batch-company-select"
+                    className="px-2 py-1 text-xs border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none bg-white"
+                  >
+                    <option value="Spoerer">Spoerer</option>
+                    <option value="FPF">FPF</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('batch-company-select');
+                      if (el && el.value) handleBatchSetBillingCompany(el.value);
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-350 transition-all active:scale-95"
+                    title="Aplicar Empresa a las cuotas seleccionadas"
+                  >
+                    Empresa
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <select
+                    id="batch-razon-select"
+                    className="px-2 py-1 text-xs border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none bg-white max-w-[140px] truncate"
+                  >
+                    <option value="">-- Sin Razón Social --</option>
+                    {sortedClients.map(c => (
+                      <option key={c.id} value={c.id}>{c.company || c.company_name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('batch-razon-select');
+                      if (el) handleBatchSetRazonSocial(el.value);
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-350 transition-all active:scale-95"
+                    title="Aplicar Razón Social a las cuotas seleccionadas"
+                  >
+                    Razón Social
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <select
+                    id="batch-status-select"
+                    className="px-2 py-1 text-xs border border-slate-350 rounded-lg focus:ring-1 focus:ring-secondary outline-none bg-white"
+                  >
+                    <option value="Por aprobar">Por aprobar</option>
+                    <option value="Aprobada">Aprobada</option>
+                    <option value="Por facturar">Por facturar</option>
+                    <option value="Facturada">Facturada</option>
+                    <option value="Pagada">Pagada</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('batch-status-select');
+                      if (el && el.value) handleBatchSetStatus(el.value);
+                    }}
+                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-350 transition-all active:scale-95"
+                    title="Aplicar Estado a las cuotas seleccionadas"
+                  >
+                    Estado
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1069,10 +1398,35 @@ export default function InstallmentsModal({
 
             {/* Contenedor de validación de suma */}
             {(() => {
-              const totalUF = localInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
+              const activeInstallments = localInstallments.filter(inst => inst.status !== 'Anulada');
+              const hasMixed = activeInstallments.some(inst => inst.currency && inst.currency !== currency);
+              const totalUF = activeInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
               const roundedTotal = Math.round(totalUF * 100) / 100;
               const expectedTotal = Math.round((parseFloat(budgetAmount) || 0) * 100) / 100;
               const isMatch = Math.abs(roundedTotal - expectedTotal) < 0.02;
+
+              if (hasMixed) {
+                const currencyTotals = {};
+                activeInstallments.forEach(i => {
+                  const c = i.currency || 'UF';
+                  currencyTotals[c] = (currencyTotals[c] || 0) + (parseFloat(i.uf) || 0);
+                });
+                return (
+                  <div className="px-md py-sm rounded-lg flex items-center gap-sm font-bold text-body-sm border w-full sm:w-auto text-left justify-between sm:justify-start bg-sky-50 text-sky-800 border-sky-200">
+                    <div className="flex flex-wrap gap-x-base items-center text-slate-700">
+                      <span>Cuotas activas: {activeInstallments.length}</span>
+                      <span className="text-slate-350">|</span>
+                      <span>Total Presupuesto: {expectedTotal.toFixed(2)} {currency}</span>
+                      <span className="text-slate-350">|</span>
+                      <span>Desglose: {Object.entries(currencyTotals).map(([cur, tot]) => `${tot.toLocaleString('es-CL', { minimumFractionDigits: cur === 'CLP' ? 0 : 2, maximumFractionDigits: 2 })} ${cur}`).join(' + ')}</span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-xs text-sky-700 font-semibold bg-sky-100 px-2 py-0.5 rounded">
+                      <span className="material-symbols-outlined text-[16px]">info</span>
+                      Monedas independientes
+                    </span>
+                  </div>
+                );
+              }
 
               return (
                 <div className={`px-md py-sm rounded-lg flex items-center gap-sm font-bold text-body-sm border w-full sm:w-auto text-left justify-between sm:justify-start ${isMatch
@@ -1080,7 +1434,7 @@ export default function InstallmentsModal({
                   : 'bg-amber-50 text-amber-800 border-amber-200'
                   }`}>
                   <div className="flex flex-wrap gap-x-base items-center text-slate-700">
-                    <span>Cuotas: {localInstallments.length}</span>
+                    <span>Cuotas activas: {activeInstallments.length}</span>
                     <span className="text-slate-350">|</span>
                     <span>Suma Planificada: {roundedTotal.toFixed(2)} {currency}</span>
                     <span className="text-slate-350">/</span>

@@ -159,15 +159,17 @@ const mapProjectFromDb = (dbProject) => {
 };
 
 const mapInstallmentStatusToDb = (status) => {
-  if (status === 'Factura emitida') return 'Facturado';
-  if (status === 'Pagada') return 'Pagado';
-  return status;
+  if (status === 'Anulada') return 'Anulada';
+  if (status === 'Facturado' || status === 'Factura emitida') return 'Facturada';
+  if (status === 'Pagado') return 'Pagada';
+  return status || 'Por aprobar';
 };
 
 const mapInstallmentStatusFromDb = (status) => {
-  if (status === 'Facturado') return 'Factura emitida';
+  if (status === 'Anulada') return 'Anulada';
+  if (status === 'Facturado' || status === 'Factura emitida') return 'Facturada';
   if (status === 'Pagado') return 'Pagada';
-  return status;
+  return status || 'Por aprobar';
 };
 
 // Helper: Map installment fields
@@ -175,6 +177,7 @@ const mapInstallmentFromDb = (dbInst) => ({
   id: dbInst.id,
   project_id: dbInst.project_id,
   origin_budget_id: dbInst.origin_budget_id,
+  legalEntityId: dbInst.legal_entity_id || null,
   numQuota: dbInst.installment_number,
   date: dbInst.scheduled_date,
   uf: parseFloat(dbInst.planned_amount_uf) || 0,
@@ -719,8 +722,9 @@ export const supabaseService = {
           planned_amount_uf: parseFloat(inst.uf) || 0,
           currency: inst.currency || quote.currency || savedBudget.currency || 'UF',
           billing_company: inst.billingCompany || quote.billingCompany || savedBudget.billing_company || 'Spoerer',
+          legal_entity_id: inst.legalEntityId || quote.legalEntityId || quote.clientId || savedBudget.legal_entity_id || savedBudget.client_id || null,
           comment: inst.comment || '',
-          status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
+          status: mapInstallmentStatusToDb(inst.status || 'Por aprobar'),
           date_confirmed: inst.dateConfirmed || false,
           invoice_number: inst.invoiceNumber || null,
           invoice_file_url: inst.invoiceFileUrl || null,
@@ -822,6 +826,13 @@ export const supabaseService = {
       .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
     
     if (error) throw error;
+
+    // Update all billing installments for this budget as required
+    await supabase
+      .from('billing_installments')
+      .update({ legal_entity_id: legalEntityId || null })
+      .eq('origin_budget_id', budgetId);
+
     return mapBudgetFromDb(data[0]);
   },
 
@@ -888,7 +899,7 @@ export const supabaseService = {
       .from('billing_installments')
       .select('id, status')
       .eq('project_id', id)
-      .in('status', ['Factura emitida', 'Pagada']);
+      .in('status', ['Facturada', 'Factura emitida', 'Pagada']);
 
     if (checkError) throw checkError;
     if (invoicedInst && invoicedInst.length > 0) {
@@ -974,6 +985,7 @@ export const supabaseService = {
     if (updates.uf !== undefined) dbUpdates.planned_amount_uf = parseFloat(updates.uf) || 0;
     if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
     if (updates.billingCompany !== undefined) dbUpdates.billing_company = updates.billingCompany;
+    if (updates.legalEntityId !== undefined) dbUpdates.legal_entity_id = updates.legalEntityId;
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
     if (updates.oc !== undefined) dbUpdates.oc = updates.oc;
@@ -1012,7 +1024,8 @@ export const supabaseService = {
       planned_amount_uf: parseFloat(installment.uf) || 0,
       currency: installment.currency || 'UF',
       billing_company: installment.billingCompany || 'Spoerer',
-      status: mapInstallmentStatusToDb(installment.status || 'Por facturar'),
+      legal_entity_id: installment.legalEntityId || null,
+      status: mapInstallmentStatusToDb(installment.status || 'Por aprobar'),
       description: installment.description || '',
       comment: installment.comment || '',
       oc: installment.oc || '',
@@ -1237,13 +1250,14 @@ export const supabaseService = {
         installment_number: inst.numQuota,
         scheduled_date: inst.date,
         planned_amount_uf: parseFloat(inst.uf) || 0,
-        currency: inst.currency || (currentBudget ? currentBudget.currency : 'UF') || 'UF',
-        billing_company: inst.billingCompany || (budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer',
+        currency: inst.currency !== undefined ? inst.currency : ((currentBudget ? currentBudget.currency : null) || 'UF'),
+        billing_company: inst.billingCompany !== undefined ? inst.billingCompany : ((budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer'),
+        legal_entity_id: inst.legalEntityId !== undefined ? inst.legalEntityId : (projectForm.legalEntityId || (currentBudget ? (currentBudget.legal_entity_id || currentBudget.client_id) : null) || null),
         description: inst.description || inst.comment || '',
         comment: inst.description ? (inst.comment || '') : '',
         oc: inst.oc || '',
         oc_file_url: inst.ocFileUrl || null,
-        status: mapInstallmentStatusToDb(inst.status || 'Por facturar'),
+        status: mapInstallmentStatusToDb(inst.status || 'Por aprobar'),
         date_confirmed: inst.dateConfirmed || false,
         invoice_number: inst.invoiceNumber || null,
         invoice_file_url: inst.invoiceFileUrl || null,

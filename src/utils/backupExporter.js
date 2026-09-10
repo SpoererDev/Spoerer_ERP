@@ -41,8 +41,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       const budg = inst.origin_budget_id ? budgetMap.get(inst.origin_budget_id) : null;
       const proj = inst.project_id ? projectMap.get(inst.project_id) : (budg?.project_id ? projectMap.get(budg.project_id) : null);
       
-      // Razón Social asociada específicamente a cada presupuesto
-      const budgetLegalEntityId = budg ? (budg.legal_entity_id || budg.client_id) : null;
+      // Razón Social asociada específicamente a cada cuota (o presupuesto de origen como fallback)
+      const budgetLegalEntityId = inst.legal_entity_id || (budg ? (budg.legal_entity_id || budg.client_id) : null);
       const budgetRazonSocial = budgetLegalEntityId ? clientMap.get(budgetLegalEntityId) : null;
 
       // Nombre del cliente real (priorizando entidad unificada / Cliente Real)
@@ -74,10 +74,10 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
 
       const totCuotas = budg ? installments.filter(i => i.origin_budget_id === budg.id).length : 0;
       const yearVal = inst.scheduled_date ? inst.scheduled_date.split('-')[0] : '';
-      const isInvoiced = inst.status === 'Facturado' || inst.status === 'Pagado' || inst.status === 'Factura emitida' || inst.status === 'Pagada';
+      const isInvoiced = inst.status === 'Facturado' || inst.status === 'Pagado' || inst.status === 'Facturada' || inst.status === 'Factura emitida' || inst.status === 'Pagada';
       const isPaid = inst.status === 'Pagado' || inst.status === 'Pagada';
 
-      const statusUI = inst.status === 'Facturado' ? 'Factura emitida' : (inst.status === 'Pagado' ? 'Pagada' : (inst.status || ''));
+      const statusUI = (inst.status === 'Facturado' || inst.status === 'Factura emitida') ? 'Facturada' : (inst.status === 'Pagado' ? 'Pagada' : (inst.status || ''));
 
       facturacionRows.push({
         "Presupuesto #": budg ? budg.budget_number || '' : '',
