@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
+import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -632,21 +633,21 @@ export default function Proyectos({
   };
 
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-3 pt-3 pb-2 space-y-2 border-b border-slate-200/80 shadow-xs">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Proyectos</h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Supervisa el estado físico, rentabilidad y cronograma de facturación de los proyectos activos.
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={handleExportBudgets}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
             >
               <span className="material-symbols-outlined text-[18px]">file_download</span>
               <span>Exportar Presupuestos</span>
@@ -654,85 +655,116 @@ export default function Proyectos({
           </div>
         </div>
 
-        {/* KPI Dashboard */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Proyectos Activos */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Proyectos Activos</span>
-              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">folder</span>
+        {/* KPI Dashboard con Contenedor Expandible (Contraído por defecto en formato banner) */}
+        <CollapsibleKpiBanner
+          items={[
+            {
+              label: 'Activos',
+              value: totalProjects,
+              icon: 'folder',
+              color: 'blue'
+            },
+            {
+              label: 'Monto Total',
+              value: totalProjectsUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              unit: 'UF',
+              icon: 'payments',
+              color: 'emerald'
+            },
+            {
+              label: 'Rentabilidad',
+              value: `${avgProfitability}%`,
+              icon: 'monitoring',
+              color: 'indigo'
+            },
+            {
+              label: 'Superficie',
+              value: totalSurface.toLocaleString('es-CL'),
+              unit: 'm²',
+              icon: 'architecture',
+              color: 'teal'
+            }
+          ]}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* KPI 1: Proyectos Activos */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Proyectos Activos</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">folder</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{totalProjects}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Proyectos</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{totalProjects}</span>
-              <span className="text-[11px] text-slate-400 font-medium">Proyectos</span>
-            </div>
-          </div>
 
-          {/* KPI 2: Monto Total Presupuestos */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">payments</span>
+            {/* KPI 2: Monto Total Presupuestos */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Monto Total</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">payments</span>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalProjectsUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalProjectsUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${totalProjectsCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalProjectsUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalProjectsUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${totalProjectsCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-          </div>
 
-          {/* KPI 3: Rentabilidad Promedio */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Rentabilidad Prom.</span>
-              <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">monitoring</span>
+            {/* KPI 3: Rentabilidad Promedio */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Rentabilidad Prom.</span>
+                <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">monitoring</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{avgProfitability}%</span>
+                <span className="text-[11px] text-slate-400 font-medium">Margen global</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{avgProfitability}%</span>
-              <span className="text-[11px] text-slate-400 font-medium">Margen global</span>
-            </div>
-          </div>
 
-          {/* KPI 4: Superficie Total */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">Superficie Total</span>
-              <div className="w-8 h-8 rounded-lg bg-teal-100/60 text-teal-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">architecture</span>
+            {/* KPI 4: Superficie Total */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-teal-700 uppercase tracking-wider">Superficie Total</span>
+                <div className="w-8 h-8 rounded-lg bg-teal-100/60 text-teal-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">architecture</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">
+                  {totalSurface.toLocaleString('es-CL')}
+                </span>
+                <span className="text-xs font-bold text-teal-700">m²</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">
-                {totalSurface.toLocaleString('es-CL')}
-              </span>
-              <span className="text-xs font-bold text-teal-700">m²</span>
-            </div>
           </div>
-        </div>
+        </CollapsibleKpiBanner>
 
         {/* Search and Filters */}
-        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
           {/* Left Side: Buscar and Limpiar */}
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
             <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">

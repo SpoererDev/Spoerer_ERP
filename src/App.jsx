@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import CRM from './components/CRM';
@@ -6,8 +6,6 @@ import Presupuestos from './components/Presupuestos';
 import Facturacion from './components/Facturacion';
 import Usuarios from './components/Usuarios';
 import Proyectos from './components/Proyectos';
-import DailyBackupModal from './components/DailyBackupModal';
-import DailyBackupBanner from './components/DailyBackupBanner';
 import BackupHistoryModal from './components/BackupHistoryModal';
 import { generateConsolidatedBackup } from './utils/backupExporter';
 import { supabaseService } from './utils/supabaseService';
@@ -20,9 +18,8 @@ export default function App() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // Backup states
-  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
-  const [isBackupBannerVisible, setIsBackupBannerVisible] = useState(false);
+  // Backup states (global synchronized parameter)
+  const [latestBackupLog, setLatestBackupLog] = useState(null);
   const [backupHistoryModalOpen, setBackupHistoryModalOpen] = useState(false);
 
 
@@ -75,27 +72,53 @@ export default function App() {
     return `${year}-${month}-${day}`;
   };
 
-  // Check if today's backup is pending for Admin users
-  useEffect(() => {
-    async function checkDailyBackup() {
-      if (!user || !isAdmin) return;
-      try {
-        const latestLog = await supabaseService.getLatestBackupLog();
-        const today = getTodayLocalDate();
-        if (!latestLog || latestLog.backup_date !== today) {
-          setIsBackupModalOpen(true);
-          setIsBackupBannerVisible(true);
-        } else {
-          setIsBackupModalOpen(false);
-          setIsBackupBannerVisible(false);
-        }
-      } catch (err) {
-        console.warn('Error verificando respaldo diario:', err);
-      }
+  // Fetch and synchronize latest backup log across all users (application parameter)
+  const fetchLatestBackup = useCallback(async () => {
+    try {
+      const latest = await supabaseService.getLatestBackupLog();
+      setLatestBackupLog(latest);
+    } catch (err) {
+      console.warn('Error verificando último respaldo:', err);
     }
-    checkDailyBackup();
-  }, [user, isAdmin]);
+  }, []);
 
+  useEffect(() => {
+    if (!user) return;
+
+    // 1. Initial fetch
+    fetchLatestBackup();
+
+    // 2. Realtime listener: any backup inserted by any user updates everyone instantly
+    const channel = supabase
+      .channel('public_backup_logs_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'backup_logs' },
+        (payload) => {
+          if (payload.new) {
+            setLatestBackupLog(payload.new);
+          } else {
+            fetchLatestBackup();
+          }
+        }
+      )
+      .subscribe();
+
+    // 3. Re-check on window focus (e.g. returning to tab)
+    const handleFocus = () => {
+      fetchLatestBackup();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // 4. Periodic fallback poll every 5 minutes
+    const interval = setInterval(fetchLatestBackup, 5 * 60 * 1000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
+  }, [user, fetchLatestBackup]);
 
   const handleExecuteBackup = async (backupType = 'daily') => {
     try {
@@ -104,8 +127,7 @@ export default function App() {
         backupType
       });
       if (res?.cancelled) return;
-      setIsBackupModalOpen(false);
-      setIsBackupBannerVisible(false);
+      await fetchLatestBackup();
     } catch (err) {
       console.error("Error al ejecutar respaldo:", err);
       alert("Ocurrió un error al generar el archivo de respaldo.");
@@ -652,13 +674,8 @@ export default function App() {
       user={user} 
       onLogout={handleLogout}
       onOpenBackupHistory={() => setBackupHistoryModalOpen(true)}
+      latestBackupLog={latestBackupLog}
     >
-      {isBackupBannerVisible && isAdmin && (
-        <DailyBackupBanner 
-          onDownloadBackup={() => handleExecuteBackup('daily')}
-          onDismiss={() => setIsBackupBannerVisible(false)}
-        />
-      )}
 
       {loading && (
         <div className="fixed inset-0 z-[999] bg-primary/20 backdrop-blur-[2px] flex flex-col items-center justify-center gap-md">
@@ -775,18 +792,12 @@ export default function App() {
         </>
       )}
 
-      {/* Backup Modals */}
-      <DailyBackupModal
-        isOpen={isBackupModalOpen}
-        onClose={() => setIsBackupModalOpen(false)}
-        onDownloadBackup={() => handleExecuteBackup('daily')}
-        userName={user?.name}
-      />
-
+      {/* Backup Modal */}
       <BackupHistoryModal
         isOpen={backupHistoryModalOpen}
         onClose={() => setBackupHistoryModalOpen(false)}
         onDownloadBackup={(type) => handleExecuteBackup(type)}
+        latestBackupLog={latestBackupLog}
       />
     </Sidebar>
   );

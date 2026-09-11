@@ -1,10 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { supabaseService } from '../utils/supabaseService';
 
-export default function BackupHistoryModal({ isOpen, onClose, onDownloadBackup }) {
+export default function BackupHistoryModal({ isOpen, onClose, onDownloadBackup, latestBackupLog }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const effectiveLatestLog = latestBackupLog || (logs && logs.length > 0 ? logs[0] : null);
+
+  const daysSinceBackup = React.useMemo(() => {
+    if (!effectiveLatestLog) return null;
+    const dateStr = effectiveLatestLog.backup_date || (effectiveLatestLog.created_at ? effectiveLatestLog.created_at.substring(0, 10) : null);
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const backupDate = new Date(year, month - 1, day);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffTime = today.getTime() - backupDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+  }, [effectiveLatestLog]);
+
+  const hasWarning = daysSinceBackup === null || daysSinceBackup > 2;
+
+  const subtitleText = React.useMemo(() => {
+    if (daysSinceBackup === null) {
+      return 'Sin respaldos registrados';
+    }
+    return `Último respaldo hace ${daysSinceBackup} ${daysSinceBackup === 1 ? 'día' : 'días'}`;
+  }, [daysSinceBackup]);
 
   useEffect(() => {
     if (isOpen) {
@@ -65,8 +90,20 @@ export default function BackupHistoryModal({ isOpen, onClose, onDownloadBackup }
         {/* Action Bar */}
         <div className="bg-surface-container-low px-6 py-4 border-b border-outline-variant/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shrink-0">
           <div>
-            <p className="text-xs font-semibold text-slate-700">Respaldos Diarios y Manuales</p>
-            <p className="text-[11px] text-slate-500">Puedes generar una nueva copia de seguridad en cualquier momento.</p>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <p className="text-xs font-semibold text-slate-700">Respaldos Diarios y Manuales</p>
+              {subtitleText && (
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                  hasWarning
+                    ? 'text-amber-800 bg-amber-100/90 border-amber-300'
+                    : 'text-emerald-800 bg-emerald-100/90 border-emerald-300'
+                }`}>
+                  {hasWarning && <span className="material-symbols-outlined text-[13px] text-amber-700">warning</span>}
+                  <span>{subtitleText}</span>
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">Puedes generar una nueva copia de seguridad en cualquier momento.</p>
           </div>
 
           <button

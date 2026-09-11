@@ -67,14 +67,34 @@ const mapClientToDb = (client) => ({
 
 // Helper: Format amount with currency symbol/unit
 export const formatAmountWithCurrency = (val, currency = 'UF', decimals = 2) => {
-  if (val === null || val === undefined || isNaN(val)) {
+  if (val === null || val === undefined) {
     return `0 ${currency || 'UF'}`;
   }
-  const num = typeof val === 'number' ? val : parseFloat(val) || 0;
+  let num = 0;
+  if (typeof val === 'number') {
+    num = isNaN(val) ? 0 : val;
+  } else {
+    const str = String(val).trim();
+    if (!str) return `0 ${currency || 'UF'}`;
+    const currUpper = (currency || 'UF').toUpperCase();
+    if (currUpper === 'CLP') {
+      num = parseFloat(str.replace(/\D/g, '')) || 0;
+    } else if (str.includes('.') && str.includes(',')) {
+      num = str.lastIndexOf(',') > str.lastIndexOf('.')
+        ? parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
+        : parseFloat(str.replace(/,/g, '')) || 0;
+    } else if (str.includes(',')) {
+      num = parseFloat(str.replace(',', '.')) || 0;
+    } else if ((str.match(/\./g) || []).length > 1) {
+      num = parseFloat(str.replace(/\./g, '')) || 0;
+    } else {
+      num = parseFloat(str) || 0;
+    }
+  }
   const curr = (currency || 'UF').toUpperCase();
 
   if (curr === 'CLP') {
-    return `$${num.toLocaleString('es-CL', {
+    return `$${Math.round(num).toLocaleString('es-CL', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     })} CLP`;

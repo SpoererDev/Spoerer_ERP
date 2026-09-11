@@ -1,13 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import logoSpr from '../assets/logo SPR.PNG';
 
-export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout, onOpenBackupHistory }) {
+export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout, onOpenBackupHistory, latestBackupLog }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || 
                   user?.role?.toLowerCase() === 'administrador' || 
                   user?.role?.toLowerCase() === 'system administrator';
+
+  const daysSinceBackup = useMemo(() => {
+    if (!latestBackupLog) return null;
+    const dateStr = latestBackupLog.backup_date || (latestBackupLog.created_at ? latestBackupLog.created_at.substring(0, 10) : null);
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+    const backupDate = new Date(year, month - 1, day);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffTime = today.getTime() - backupDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+  }, [latestBackupLog]);
+
+  const hasWarning = daysSinceBackup === null || daysSinceBackup > 2;
+
+  const subtitleText = useMemo(() => {
+    if (daysSinceBackup === null) {
+      return 'Sin respaldos registrados';
+    }
+    return `Último respaldo hace ${daysSinceBackup} ${daysSinceBackup === 1 ? 'día' : 'días'}`;
+  }, [daysSinceBackup]);
 
   const navItems = [
     { id: 'crm', label: 'Clientes', icon: 'groups', category: 'CRM & Datos' },
@@ -83,11 +106,34 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
           {isAdmin && (
             <button
               onClick={onOpenBackupHistory}
-              className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left text-slate-300 hover:text-white hover:bg-slate-800/40 border-t border-slate-800/80 pt-3 mt-3 active:scale-[0.98]"
-              title="Respaldos e Historial"
+              className={`flex ${isCollapsed ? 'items-center justify-center px-0' : 'items-start px-3.5'} gap-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left hover:bg-slate-800/50 border-t border-slate-800/80 pt-3 mt-3 active:scale-[0.98] ${
+                hasWarning ? 'text-slate-200 hover:text-white' : 'text-slate-300 hover:text-white'
+              }`}
+              title={`Respaldos e Historial - ${subtitleText}`}
             >
-              <span className="material-symbols-outlined text-[22px] text-slate-400">cloud_download</span>
-              {!isCollapsed && <span className="text-sm font-medium whitespace-nowrap">Respaldos e Historial</span>}
+              <div className="relative shrink-0 mt-0.5">
+                <span className={`material-symbols-outlined text-[22px] transition-colors ${
+                  hasWarning ? 'text-amber-400' : 'text-slate-400'
+                }`}>
+                  cloud_download
+                </span>
+                {hasWarning && isCollapsed && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 border-2 border-[#091426] rounded-full animate-pulse" />
+                )}
+              </div>
+              {!isCollapsed && (
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium whitespace-nowrap leading-tight text-slate-100">Respaldos e Historial</span>
+                  <span className={`text-[11px] mt-1 flex items-center gap-1 leading-tight ${
+                    hasWarning ? 'text-amber-400 font-semibold' : 'text-slate-400 font-normal'
+                  }`}>
+                    {hasWarning && (
+                      <span className="material-symbols-outlined text-[13px] text-amber-400 shrink-0">warning</span>
+                    )}
+                    <span className="truncate">{subtitleText}</span>
+                  </span>
+                </div>
+              )}
             </button>
           )}
         </nav>
@@ -128,10 +174,13 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
               {isAdmin && (
                 <button
                   onClick={onOpenBackupHistory}
-                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
-                  title="Historial de Respaldos"
+                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-slate-900 transition-colors cursor-pointer relative"
+                  title={`Historial de Respaldos - ${subtitleText}`}
                 >
-                  <span className="material-symbols-outlined text-[20px]">cloud_download</span>
+                  <span className={`material-symbols-outlined text-[20px] ${hasWarning ? 'text-amber-500' : ''}`}>cloud_download</span>
+                  {hasWarning && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
+                  )}
                 </button>
               )}
               <button
@@ -184,10 +233,15 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
                           onOpenBackupHistory();
                           setShowUserMenu(false);
                         }}
-                        className="w-full px-4 py-2 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2.5 cursor-pointer"
+                        className="w-full px-4 py-2 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center justify-between cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[18px] text-slate-500">history</span>
-                        Historial de Respaldos
+                        <div className="flex items-center gap-2.5">
+                          <span className="material-symbols-outlined text-[18px] text-slate-500">history</span>
+                          <span>Respaldos e Historial</span>
+                        </div>
+                        {hasWarning && (
+                          <span className="material-symbols-outlined text-[15px] text-amber-500 shrink-0" title={subtitleText}>warning</span>
+                        )}
                       </button>
                     </>
                   )}

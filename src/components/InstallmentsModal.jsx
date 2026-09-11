@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { supabaseService } from '../utils/supabaseService';
+import { supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
 
 // Helper: Sumar meses de forma segura considerando el fin de mes y años bisiestos
 function addMonths(dateStr, monthsToAdd) {
@@ -692,13 +692,17 @@ export default function InstallmentsModal({
     const activeInstallments = localInstallments.filter(inst => inst.status !== 'Anulada');
     const hasMixedCurrencies = activeInstallments.some(inst => inst.currency && inst.currency !== currency);
     if (!hasMixedCurrencies) {
+      const isCLP = currency === 'CLP';
       const totalUF = activeInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
-      const roundedTotal = Math.round(totalUF * 100) / 100;
-      const expectedTotal = Math.round((parseFloat(budgetAmount) || 0) * 100) / 100;
+      const roundedTotal = isCLP ? Math.round(totalUF) : Math.round(totalUF * 100) / 100;
+      const parsedBudget = typeof budgetAmount === 'number'
+        ? budgetAmount
+        : (isCLP ? parseFloat(String(budgetAmount).replace(/\D/g, '')) : parseFloat(String(budgetAmount).replace(/\./g, '').replace(',', '.'))) || 0;
+      const expectedTotal = isCLP ? Math.round(parsedBudget) : Math.round(parsedBudget * 100) / 100;
 
-      if (Math.abs(roundedTotal - expectedTotal) >= 0.02) {
+      if (Math.abs(roundedTotal - expectedTotal) >= (isCLP ? 1 : 0.02)) {
         setValidationError(
-          `La suma de las cuotas activas (${roundedTotal.toFixed(2)} ${currency}) no coincide con el total del presupuesto (${expectedTotal.toFixed(2)} ${currency}). Diferencia: ${(expectedTotal - roundedTotal).toFixed(2)} ${currency}.`
+          `La suma de las cuotas activas (${formatAmountWithCurrency(roundedTotal, currency)}) no coincide con el total del presupuesto (${formatAmountWithCurrency(expectedTotal, currency)}). Diferencia: ${formatAmountWithCurrency(expectedTotal - roundedTotal, currency)}.`
         );
         return;
       }
@@ -1434,10 +1438,14 @@ export default function InstallmentsModal({
             {(() => {
               const activeInstallments = localInstallments.filter(inst => inst.status !== 'Anulada');
               const hasMixed = activeInstallments.some(inst => inst.currency && inst.currency !== currency);
+              const isCLP = currency === 'CLP';
               const totalUF = activeInstallments.reduce((sum, inst) => sum + (parseFloat(inst.uf) || 0), 0);
-              const roundedTotal = Math.round(totalUF * 100) / 100;
-              const expectedTotal = Math.round((parseFloat(budgetAmount) || 0) * 100) / 100;
-              const isMatch = Math.abs(roundedTotal - expectedTotal) < 0.02;
+              const roundedTotal = isCLP ? Math.round(totalUF) : Math.round(totalUF * 100) / 100;
+              const parsedBudget = typeof budgetAmount === 'number'
+                ? budgetAmount
+                : (isCLP ? parseFloat(String(budgetAmount).replace(/\D/g, '')) : parseFloat(String(budgetAmount).replace(/\./g, '').replace(',', '.'))) || 0;
+              const expectedTotal = isCLP ? Math.round(parsedBudget) : Math.round(parsedBudget * 100) / 100;
+              const isMatch = Math.abs(roundedTotal - expectedTotal) < (isCLP ? 1 : 0.02);
 
               if (hasMixed) {
                 const currencyTotals = {};
@@ -1450,7 +1458,7 @@ export default function InstallmentsModal({
                     <div className="flex flex-wrap gap-x-base items-center text-slate-700">
                       <span>Cuotas activas: {activeInstallments.length}</span>
                       <span className="text-slate-350">|</span>
-                      <span>Total Presupuesto: {expectedTotal.toFixed(2)} {currency}</span>
+                      <span>Total Presupuesto: {formatAmountWithCurrency(expectedTotal, currency)}</span>
                       <span className="text-slate-350">|</span>
                       <span>Desglose: {Object.entries(currencyTotals).map(([cur, tot]) => `${tot.toLocaleString('es-CL', { minimumFractionDigits: cur === 'CLP' ? 0 : 2, maximumFractionDigits: 2 })} ${cur}`).join(' + ')}</span>
                     </div>
@@ -1470,9 +1478,9 @@ export default function InstallmentsModal({
                   <div className="flex flex-wrap gap-x-base items-center text-slate-700">
                     <span>Cuotas activas: {activeInstallments.length}</span>
                     <span className="text-slate-350">|</span>
-                    <span>Suma Planificada: {roundedTotal.toFixed(2)} {currency}</span>
+                    <span>Suma Planificada: {formatAmountWithCurrency(roundedTotal, currency)}</span>
                     <span className="text-slate-350">/</span>
-                    <span>Requerido: {expectedTotal.toFixed(2)} {currency}</span>
+                    <span>Requerido: {formatAmountWithCurrency(expectedTotal, currency)}</span>
                   </div>
                   <div className="flex items-center">
                     {isMatch ? (
@@ -1483,7 +1491,7 @@ export default function InstallmentsModal({
                     ) : (
                       <span className="flex items-center gap-0.5 text-amber-600">
                         <span className="material-symbols-outlined text-[18px]">warning</span>
-                        <span>Diferencia: {(expectedTotal - roundedTotal).toFixed(2)} {currency}</span>
+                        <span>Diferencia: {formatAmountWithCurrency(expectedTotal - roundedTotal, currency)}</span>
                       </span>
                     )}
                   </div>

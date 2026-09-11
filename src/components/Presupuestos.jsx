@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { sanitizeFileName, supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
+import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -72,23 +73,71 @@ const ensureDDMMYYYY = (dateStr) => {
 };
 
 // Helper to parse subtotal numbers/strings into a valid float
-const parseSubtotal = (val) => {
+const parseSubtotal = (val, currency = null) => {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
   const str = String(val).trim();
+  if (!str) return 0;
+
+  const isCLP = (currency && String(currency).toUpperCase() === 'CLP');
+
+  // Case 1: Both '.' and ',' present (e.g. "1.234.567,89" or "1,234,567.89")
   if (str.includes('.') && str.includes(',')) {
-    return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+    const lastDot = str.lastIndexOf('.');
+    const lastComma = str.lastIndexOf(',');
+    if (lastComma > lastDot) {
+      // Chilean / European format: dots are thousands, comma is decimal
+      return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0;
+    } else {
+      // US / English format: commas are thousands, dot is decimal
+      return parseFloat(str.replace(/,/g, '')) || 0;
+    }
   }
+
+  // Case 2: Only ',' present (e.g. "1200,50" or multiple commas like "1,000,000")
   if (str.includes(',')) {
+    const commaCount = (str.match(/,/g) || []).length;
+    if (commaCount > 1) {
+      return parseFloat(str.replace(/,/g, '')) || 0;
+    }
+    if (isCLP) {
+      return parseFloat(str.replace(/,/g, '')) || 0;
+    }
     return parseFloat(str.replace(',', '.')) || 0;
   }
+
+  // Case 3: Only '.' present (e.g. "38.000.000" or "1.200" or "12.5")
+  if (str.includes('.')) {
+    const dotCount = (str.match(/\./g) || []).length;
+    // Multiple dots (e.g. "38.000.000"): MUST be thousands separators
+    if (dotCount > 1) {
+      return parseFloat(str.replace(/\./g, '')) || 0;
+    }
+
+    // Single dot
+    if (isCLP) {
+      // CLP has no decimals; dot is always thousands separator (e.g. "38.000" or "1.200")
+      return parseFloat(str.replace(/\./g, '')) || 0;
+    }
+
+    // If 1-3 digits before dot and exactly 3 digits after dot (e.g. "1.000", "38.000"),
+    // in Chilean locale this represents thousands.
+    if (/^\d{1,3}\.\d{3}$/.test(str)) {
+      return parseFloat(str.replace(/\./g, '')) || 0;
+    }
+
+    // Otherwise (e.g. "12.5", "12.50", "0.75"), treat dot as decimal point
+    return parseFloat(str) || 0;
+  }
+
+  // Case 4: Pure digits
   return parseFloat(str) || 0;
 };
 
 // Helper to format float to Chilean number string with comma as decimal separator
 const formatToChileanNumber = (val, decimals = 2) => {
-  const num = typeof val === 'number' ? val : parseSubtotal(val);
-  if (isNaN(num)) return '0,00';
+  const num = typeof val === 'number' ? val : parseSubtotal(val, decimals === 0 ? 'CLP' : null);
+  if (isNaN(num)) return decimals === 0 ? '0' : '0,00';
   return num.toLocaleString('es-CL', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
@@ -430,22 +479,42 @@ export default function Presupuestos({
 
   // Calculate totals
   useEffect(() => {
-    const roundedSub = Math.round((parseSubtotal(subtotal)) * 100) / 100;
+    const numSub = parseSubtotal(subtotal, quoteCurrency);
+    const roundedSub = quoteCurrency === 'CLP'
+      ? Math.round(numSub)
+      : Math.round(numSub * 100) / 100;
     const taxRate = billingCompany === 'FPF' ? 0 : 0.19;
-    const tx = Math.round((roundedSub * taxRate) * 100) / 100; // 0% tax for FPF, 19% tax (IVA) for Spoerer
-    const roundedTotal = Math.round((roundedSub + tx) * 100) / 100;
+    const tx = quoteCurrency === 'CLP'
+      ? Math.round(roundedSub * taxRate)
+      : Math.round((roundedSub * taxRate) * 100) / 100; // 0% tax for FPF, 19% tax (IVA) for Spoerer
+    const roundedTotal = quoteCurrency === 'CLP'
+      ? roundedSub + tx
+      : Math.round((roundedSub + tx) * 100) / 100;
 
     setTax(tx);
     setTotal(roundedTotal);
-  }, [subtotal, billingCompany]);
+  }, [subtotal, billingCompany, quoteCurrency]);
 
   const handleSubtotalChange = (e) => {
     let val = e.target.value;
-    if (val.includes('.') && val.includes(',')) {
-      val = val.replace(/\./g, '');
-    } else {
-      val = val.replace(/\./g, ',');
+    if (quoteCurrency === 'CLP') {
+      // In CLP only whole digits are allowed (no centavos in CLP)
+      val = val.replace(/\D/g, '');
+      setSubtotal(val);
+      return;
     }
+
+    // For UF / USD:
+    // If it has multiple dots (pasted thousands separators), remove them
+    if ((val.match(/\./g) || []).length > 1) {
+      val = val.replace(/\./g, '');
+    } else if (val.includes('.') && val.includes(',')) {
+      val = val.replace(/\./g, '');
+    } else if (val.includes('.')) {
+      // Single dot typed (e.g. from numeric keypad) -> convert to decimal comma
+      val = val.replace('.', ',');
+    }
+
     const parts = val.split(',');
     if (parts.length > 2) {
       val = parts[0] + ',' + parts.slice(1).join('');
@@ -460,7 +529,7 @@ export default function Presupuestos({
       setSubtotal(quoteCurrency === 'CLP' ? '0' : '0,00');
       return;
     }
-    const num = parseSubtotal(val);
+    const num = parseSubtotal(val, quoteCurrency);
     setSubtotal(formatToChileanNumber(num, quoteCurrency === 'CLP' ? 0 : 2));
   };
 
@@ -1413,14 +1482,16 @@ export default function Presupuestos({
 
     // If approved, validate sum of installments
     if (finalStatus === 'Aprobado' || finalStatus === 'Aprovado') {
+      const isCLP = quoteCurrency === 'CLP';
       const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
-      const roundedSum = Math.round(currentSum * 100) / 100;
-      const expectedTotal = Math.round(parseSubtotal(subtotal) * 100) / 100;
+      const roundedSum = isCLP ? Math.round(currentSum) : Math.round(currentSum * 100) / 100;
+      const parsedSub = parseSubtotal(subtotal, quoteCurrency);
+      const expectedTotal = isCLP ? Math.round(parsedSub) : Math.round(parsedSub * 100) / 100;
       if (Math.abs(roundedSum - expectedTotal) >= 0.02) {
         setNotification({
           type: 'error',
           title: 'Error de Cuotas',
-          message: `La suma de las cuotas (${roundedSum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${quoteCurrency}) no coincide con el subtotal del presupuesto (${expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${quoteCurrency}).`
+          message: `La suma de las cuotas (${roundedSum.toLocaleString('es-CL', { minimumFractionDigits: isCLP ? 0 : 2, maximumFractionDigits: isCLP ? 0 : 2 })} ${quoteCurrency}) no coincide con el subtotal del presupuesto (${expectedTotal.toLocaleString('es-CL', { minimumFractionDigits: isCLP ? 0 : 2, maximumFractionDigits: isCLP ? 0 : 2 })} ${quoteCurrency}).`
         });
         return;
       }
@@ -1479,13 +1550,13 @@ export default function Presupuestos({
       company: companyName,
       title: quoteTitle,
       date: ensureDDMMYYYY(issueDate),
-      amount: parseSubtotal(subtotal),
+      amount: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency),
       currency: quoteCurrency,
       billingCompany: billingCompany || 'Spoerer',
       validity: `${validity} días`,
       status: finalStatus,
       items: [
-        { id: 1, description: quoteTitle || 'Servicios ERP', qty: 1, price: parseSubtotal(subtotal) }
+        { id: 1, description: quoteTitle || 'Servicios ERP', qty: 1, price: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency) }
       ],
       backupFiles: backupFiles,
       projectId: projectIdToLink
@@ -1651,19 +1722,19 @@ export default function Presupuestos({
   }, [filteredQuotes, sortField, sortDirection]);
 
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-3 pt-3 pb-2 space-y-2 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Gestión de Presupuestos</h2>
             <p className="text-xs text-slate-500 mt-0.5">Crea, edita y haz seguimiento de cotizaciones para tus clientes.</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <button
               onClick={handleOpenNewQuoteModal}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
             >
               <span className="material-symbols-outlined text-[18px]">add</span>
               <span>Nuevo Presupuesto</span>
@@ -1671,113 +1742,139 @@ export default function Presupuestos({
           </div>
         </div>
 
-        {/* Tarjetas KPI Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Tarjeta Aprobados */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+        {/* Tarjetas KPI con Contenedor Expandible (Contraído por defecto en formato banner) */}
+        <CollapsibleKpiBanner
+          items={[
+            {
+              label: 'Aprobados',
+              value: totalApprovedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              unit: 'UF',
+              icon: 'check_circle',
+              color: 'emerald'
+            },
+            {
+              label: 'Enviados',
+              value: totalSentUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              unit: 'UF',
+              icon: 'send',
+              color: 'blue'
+            },
+            {
+              label: 'Rechazados',
+              value: totalRejectedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+              unit: 'UF',
+              icon: 'cancel',
+              color: 'rose'
+            }
+          ]}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Tarjeta Aprobados */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Presupuestos Aprobados</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalApprovedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalApprovedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${totalApprovedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>Registros:</span>
+                <span className="font-semibold text-slate-600">{approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
               </div>
             </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalApprovedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalApprovedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${totalApprovedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>Registros:</span>
-              <span className="font-semibold text-slate-600">{approvedQuotesCount} {approvedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
-            </div>
-          </div>
 
-          {/* Tarjeta Enviados */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
-              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">send</span>
+            {/* Tarjeta Enviados */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Presupuestos Enviados</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">send</span>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalSentUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalSentUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${totalSentCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>Registros:</span>
+                <span className="font-semibold text-slate-600">{sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
               </div>
             </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalSentUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalSentUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${totalSentCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>Registros:</span>
-              <span className="font-semibold text-slate-600">{sentQuotesCount} {sentQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
-            </div>
-          </div>
 
-          {/* Tarjeta Rechazados */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
-              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">cancel</span>
+            {/* Tarjeta Rechazados */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Presupuestos Rechazados</span>
+                <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">cancel</span>
+                </div>
               </div>
-            </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalRejectedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalRejectedUF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {totalRejectedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${totalRejectedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {totalRejectedUSD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>Registros:</span>
+                <span className="font-semibold text-slate-600">{rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${totalRejectedCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>Registros:</span>
-              <span className="font-semibold text-slate-600">{rejectedQuotesCount} {rejectedQuotesCount === 1 ? 'cotización' : 'cotizaciones'}</span>
             </div>
           </div>
-        </div>
+        </CollapsibleKpiBanner>
 
         {/* Filter and Summary Bar */}
-        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
           {/* Left Side: Buscar and Limpiar */}
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
             <div className="flex-grow max-w-lg min-w-[240px]">
@@ -2715,7 +2812,12 @@ export default function Presupuestos({
                                 key={curr}
                                 type="button"
                                 disabled={!isClientSelected}
-                                onClick={() => setQuoteCurrency(curr)}
+                                onClick={() => {
+                                  if (curr === quoteCurrency) return;
+                                  const currentNum = parseSubtotal(subtotal, quoteCurrency);
+                                  setQuoteCurrency(curr);
+                                  setSubtotal(formatToChileanNumber(currentNum, curr === 'CLP' ? 0 : 2));
+                                }}
                                 className={`px-2.5 py-0.5 rounded-md text-label-xs font-bold transition-all ${quoteCurrency === curr
                                   ? 'bg-[#091426] text-white shadow-xs'
                                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -2899,12 +3001,14 @@ export default function Presupuestos({
 
                       {/* Advertencia si la suma no coincide con el total */}
                       {(() => {
+                        const isCLP = quoteCurrency === 'CLP';
                         const currentSum = editBillingTable.reduce((acc, row) => acc + (parseFloat(row.uf) || 0), 0);
-                        const roundedSum = Math.round(currentSum * 100) / 100;
-                        const expectedTotal = Math.round(parseSubtotal(subtotal) * 100) / 100;
+                        const roundedSum = isCLP ? Math.round(currentSum) : Math.round(currentSum * 100) / 100;
+                        const parsedSub = parseSubtotal(subtotal, quoteCurrency);
+                        const expectedTotal = isCLP ? Math.round(parsedSub) : Math.round(parsedSub * 100) / 100;
                         const diff = expectedTotal - roundedSum;
 
-                        if (Math.abs(diff) >= 0.02) {
+                        if (Math.abs(diff) >= (isCLP ? 1 : 0.02)) {
                           return (
                             <div className="p-md bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm">
                               <span className="material-symbols-outlined text-[20px]">warning</span>
@@ -4264,7 +4368,7 @@ export default function Presupuestos({
             return assoc ? `${assoc.projectNumber} - ${assoc.rawProjectName}` : quoteTitle;
           })() : quoteTitle}
           budgetNumber={quoteId}
-          budgetAmount={parseSubtotal(subtotal)}
+          budgetAmount={quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency)}
           budgetBackupFiles={backupFiles}
           initialInstallments={editBillingTable}
           onSave={async (updated) => {

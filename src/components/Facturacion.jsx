@@ -3,6 +3,7 @@ import { supabase } from '../utils/supabaseClient';
 import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
+import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { validateRut, formatRut } from '../utils/validation';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
 
@@ -1087,11 +1088,11 @@ export default function Facturacion({
   };
 
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div ref={filterHeaderRef} className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-3 pt-3 pb-2 space-y-2 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Centro de Cobranzas</h2>
             <p className="text-xs text-slate-500 mt-0.5">Gestión de cuotas de facturación y conciliación de pagos.</p>
@@ -1122,112 +1123,136 @@ export default function Facturacion({
         </div>
 
         {/* SECTION A: Dashboard de KPIs Financieros */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* KPI 1: Por Facturar */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar</span>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">calendar_today</span>
+        <CollapsibleKpiBanner
+          storageKey="spr_erp_kpi_facturacion"
+          items={[
+            {
+              title: 'Por Facturar',
+              value: `${stats.porFacturar.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} UF`,
+              color: 'slate',
+              icon: 'calendar_today',
+            },
+            {
+              title: 'Facturado Pendiente',
+              value: `${stats.facturadoPendiente.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} UF`,
+              color: 'amber',
+              icon: 'pending_actions',
+            },
+            {
+              title: 'Total Recaudado',
+              value: `${stats.recaudado.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} UF`,
+              color: 'emerald',
+              icon: 'payments',
+            },
+          ]}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* KPI 1: Por Facturar */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Por Facturar</span>
+                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">calendar_today</span>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.porFacturar.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.porFacturar.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${stats.porFacturar.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>Registros:</span>
+                <span className="font-semibold text-slate-600">{stats.porFacturar.count} {stats.porFacturar.count === 1 ? 'cuota' : 'cuotas'}</span>
               </div>
             </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.porFacturar.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.porFacturar.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${stats.porFacturar.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>Registros:</span>
-              <span className="font-semibold text-slate-600">{stats.porFacturar.count} {stats.porFacturar.count === 1 ? 'cuota' : 'cuotas'}</span>
-            </div>
-          </div>
 
-          {/* KPI 2: Total Facturado Pendiente de Pago */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente de Pago</span>
-              <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">pending_actions</span>
+            {/* KPI 2: Total Facturado Pendiente de Pago */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Facturado Pendiente de Pago</span>
+                <div className="w-8 h-8 rounded-lg bg-amber-100/60 text-amber-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">pending_actions</span>
+                </div>
+              </div>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.facturadoPendiente.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.facturadoPendiente.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${stats.facturadoPendiente.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
+              </div>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>{stats.facturadoPendiente.count} {stats.facturadoPendiente.count === 1 ? 'cuota' : 'cuotas'}</span>
+                <span className="font-bold text-amber-700 font-mono">{formatCLP(stats.facturadoPendiente.totalClp)}</span>
               </div>
             </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.facturadoPendiente.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.facturadoPendiente.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
-              </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${stats.facturadoPendiente.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>{stats.facturadoPendiente.count} {stats.facturadoPendiente.count === 1 ? 'cuota' : 'cuotas'}</span>
-              <span className="font-bold text-amber-700 font-mono">{formatCLP(stats.facturadoPendiente.totalClp)}</span>
-            </div>
-          </div>
 
-          {/* KPI 3: Total Recaudado */}
-          <div className="stat-card flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">payments</span>
+            {/* KPI 3: Total Recaudado */}
+            <div className="stat-card flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Total Recaudado</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[18px]">payments</span>
+                </div>
               </div>
-            </div>
-            <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">UF:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.recaudado.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
-                </span>
+              <div className="mt-2.5 space-y-1 border-t border-slate-100 pt-2 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">UF:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.recaudado.UF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-emerald-700">UF</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">USD:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    {stats.recaudado.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-bold text-slate-500">CLP:</span>
+                  <span className="font-bold text-slate-900 font-mono text-sm">
+                    ${stats.recaudado.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
+                  </span>
+                </div>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">USD:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  {stats.recaudado.USD.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} <span className="text-[10px] font-bold text-blue-700">USD</span>
-                </span>
+              <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                <span>{stats.recaudado.count} {stats.recaudado.count === 1 ? 'cuota' : 'cuotas'}</span>
+                <span className="font-bold text-emerald-700 font-mono">{formatCLP(stats.recaudado.totalClp)}</span>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-[11px] font-bold text-slate-500">CLP:</span>
-                <span className="font-bold text-slate-900 font-mono text-sm">
-                  ${stats.recaudado.CLP.toLocaleString('es-CL', { maximumFractionDigits: 0 })} <span className="text-[10px] font-bold text-teal-700">CLP</span>
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 pt-1 border-t border-slate-100/80 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-              <span>{stats.recaudado.count} {stats.recaudado.count === 1 ? 'cuota' : 'cuotas'}</span>
-              <span className="font-bold text-emerald-700 font-mono">{formatCLP(stats.recaudado.totalClp)}</span>
             </div>
           </div>
-        </div>
+        </CollapsibleKpiBanner>
 
         {/* SECTION B: Barra de Filtros y Búsqueda */}
-        <div className="card-modern p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-4 justify-between">
+        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
           {/* Left Side: Buscar and Limpiar */}
           <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
             <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">

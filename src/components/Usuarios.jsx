@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 
 export default function Usuarios({ users, currentUser, onAddUser, onToggleUserStatus, onEditUser, onDeleteUser, searchTerm, setSearchTerm }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -134,11 +135,11 @@ export default function Usuarios({ users, currentUser, onAddUser, onToggleUserSt
   });
 
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
-      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-6 pt-6 pb-4 space-y-4 border-b border-slate-200/80 shadow-xs">
+      <div className="sticky top-16 z-30 bg-[#f8fafc]/95 backdrop-blur-md -mx-6 px-6 -mt-3 pt-3 pb-2 space-y-2 border-b border-slate-200/80 shadow-xs">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-0.5">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-sans tracking-tight">Control de Usuarios y Accesos</h2>
             <p className="text-xs text-slate-500 mt-0.5">Administra el personal, sus roles y permisos de seguridad granulares.</p>
@@ -155,66 +156,96 @@ export default function Usuarios({ users, currentUser, onAddUser, onToggleUserSt
         </div>
 
         {/* KPI Stats Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          {/* KPI 1: Usuarios Totales */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Usuarios Totales</span>
-              <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">person</span>
+        <CollapsibleKpiBanner
+          storageKey="spr_erp_kpi_usuarios"
+          items={[
+            {
+              title: 'Total Usuarios',
+              value: totalUsers,
+              color: 'blue',
+              icon: 'person',
+            },
+            {
+              title: 'Activos',
+              value: activeUsers,
+              color: 'emerald',
+              icon: 'verified_user',
+            },
+            {
+              title: 'Administradores',
+              value: adminRoles,
+              color: 'indigo',
+              icon: 'security',
+            },
+            {
+              title: 'Inactivas',
+              value: lockedAccounts,
+              color: 'rose',
+              icon: 'block',
+            },
+          ]}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            {/* KPI 1: Usuarios Totales */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-700 uppercase tracking-wider">Usuarios Totales</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-100/60 text-blue-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">person</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{totalUsers}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Registrados</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{totalUsers}</span>
-              <span className="text-[11px] text-slate-400 font-medium">Registrados</span>
-            </div>
-          </div>
 
-          {/* KPI 2: Activos Ahora */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Activos Ahora</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">verified_user</span>
+            {/* KPI 2: Activos Ahora */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Activos Ahora</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-100/60 text-emerald-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{activeUsers}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Cuentas habilitadas</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{activeUsers}</span>
-              <span className="text-[11px] text-slate-400 font-medium">Cuentas habilitadas</span>
-            </div>
-          </div>
 
-          {/* KPI 3: Administradores */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Administradores</span>
-              <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">security</span>
+            {/* KPI 3: Administradores */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-indigo-700 uppercase tracking-wider">Administradores</span>
+                <div className="w-8 h-8 rounded-lg bg-indigo-100/60 text-indigo-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">security</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{adminRoles}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Acceso total</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{adminRoles}</span>
-              <span className="text-[11px] text-slate-400 font-medium">Acceso total</span>
-            </div>
-          </div>
 
-          {/* KPI 4: Cuentas Inactivas */}
-          <div className="stat-card">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Cuentas Inactivas</span>
-              <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">block</span>
+            {/* KPI 4: Cuentas Inactivas */}
+            <div className="stat-card">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">Cuentas Inactivas</span>
+                <div className="w-8 h-8 rounded-lg bg-rose-100/60 text-rose-600 flex items-center justify-center">
+                  <span className="material-symbols-outlined text-[20px]">block</span>
+                </div>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-slate-900 font-mono">{lockedAccounts}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Bloqueadas</span>
               </div>
             </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900 font-mono">{lockedAccounts}</span>
-              <span className="text-[11px] text-slate-400 font-medium">Bloqueadas</span>
-            </div>
           </div>
-        </div>
+        </CollapsibleKpiBanner>
 
         {/* Filter and Search Bar */}
-        <div className="card-modern p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="card-modern py-2.5 px-4 flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex-grow max-w-lg min-w-[240px]">
             <div className="relative w-full">
               <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
