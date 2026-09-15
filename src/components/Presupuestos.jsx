@@ -3556,10 +3556,10 @@ export default function Presupuestos({
 
                         {/* Fila: Año y Encargado del Proyecto */}
                         <div className="grid grid-cols-12 gap-md">
-                          <div className="col-span-4 sm:col-span-3 flex flex-col gap-xs">
+                          <div className="col-span-5 sm:col-span-4 flex flex-col gap-xs">
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Año</label>
                             <input
-                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                              className="w-full min-w-[85px] border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                               type="number"
                               value={anio}
                               onChange={(e) => setAnio(e.target.value)}
@@ -3567,7 +3567,7 @@ export default function Presupuestos({
                               required
                             />
                           </div>
-                          <div className="col-span-8 sm:col-span-9 flex flex-col gap-xs">
+                          <div className="col-span-7 sm:col-span-8 flex flex-col gap-xs">
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
                               Encargado del Proyecto
                             </label>
