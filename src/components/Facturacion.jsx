@@ -6,6 +6,7 @@ import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { validateRut, formatRut } from '../utils/validation';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
+import { printFilteredBillingInstallments } from '../utils/billingPrintHelper';
 
 export default function Facturacion({
   projects,
@@ -675,6 +676,24 @@ export default function Facturacion({
     setExpandedProjects({});
   };
 
+  // Print Filtered Billing Installments
+  const handlePrintBilling = () => {
+    printFilteredBillingInstallments({
+      filteredInstallments,
+      projects,
+      budgets,
+      clients,
+      activeFilters: {
+        temporal: temporalFilter,
+        status: statusFilter,
+        client: clientFilter,
+        encargado: encargadoFilter,
+        company: billingCompanyFilter,
+        search: searchTerm
+      }
+    });
+  };
+
   // Export Billing Installments to Excel
   const handleExportBilling = async () => {
     const rows = [];
@@ -1111,6 +1130,14 @@ export default function Facturacion({
             >
               <span className="material-symbols-outlined text-[16px]">unfold_less</span>
               <span>Colapsar Todo</span>
+            </button>
+            <button
+              onClick={handlePrintBilling}
+              className="px-3 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-xl text-xs transition-all cursor-pointer active:scale-95 flex items-center gap-1.5 shadow-2xs"
+              title="Imprimir lista filtrada de cuotas"
+            >
+              <span className="material-symbols-outlined text-[18px] text-slate-600">print</span>
+              <span>Imprimir</span>
             </button>
             <button
               onClick={handleExportBilling}
