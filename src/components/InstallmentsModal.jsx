@@ -218,6 +218,8 @@ export default function InstallmentsModal({
           actualPaymentDate: null,
           invoiceDate: null,
           paymentDate: null,
+          net_clp: null,
+          tax_clp: null,
           neto_clp: null,
           iva_clp: null,
           total_clp: null,
@@ -243,8 +245,10 @@ export default function InstallmentsModal({
 
       return prev.map((inst, idx) => {
         let newVal = value;
-        if (field === 'uf' || field === 'total_clp') {
+        if (field === 'uf') {
           newVal = parseFloat(value) || 0;
+        } else if (field === 'total_clp') {
+          newVal = (value === '' || value === null || value === undefined) ? null : (parseFloat(value) || 0);
         }
 
         if (idx === index) {
@@ -252,6 +256,36 @@ export default function InstallmentsModal({
             ...inst,
             [field]: newVal
           };
+
+          // Synchronize net_clp and tax_clp when total_clp changes
+          if (field === 'total_clp') {
+            if (newVal === null) {
+              updated.total_clp = null;
+              updated.net_clp = null;
+              updated.tax_clp = null;
+            } else {
+              updated.total_clp = newVal;
+              const isExempt = (inst.billingCompany || 'Spoerer') === 'FPF';
+              if (isExempt) {
+                updated.net_clp = newVal;
+                updated.tax_clp = 0;
+              } else {
+                updated.net_clp = Math.round(newVal / 1.19);
+                updated.tax_clp = newVal - updated.net_clp;
+              }
+            }
+          } else if (field === 'billingCompany') {
+            if (updated.total_clp !== null && updated.total_clp !== undefined) {
+              const isExempt = newVal === 'FPF';
+              if (isExempt) {
+                updated.net_clp = updated.total_clp;
+                updated.tax_clp = 0;
+              } else {
+                updated.net_clp = Math.round(updated.total_clp / 1.19);
+                updated.tax_clp = updated.total_clp - updated.net_clp;
+              }
+            }
+          }
 
           // Automatic synchronization between dateConfirmed, date, and status
           if (field === 'dateConfirmed') {
@@ -372,6 +406,11 @@ export default function InstallmentsModal({
       currency: initialInstallments[0]?.currency || currency || 'UF',
       billingCompany: initialInstallments[0]?.billingCompany || billingCompany || 'Spoerer',
       legalEntityId: initialInstallments[0]?.legalEntityId || legalEntityId || null,
+      total_clp: null,
+      net_clp: null,
+      tax_clp: null,
+      actualInvoiceDate: null,
+      actualPaymentDate: null,
       invoiceNumber: '',
       invoiceFileUrl: '',
       paymentBackupUrl: '',
@@ -522,9 +561,24 @@ export default function InstallmentsModal({
   const handleBatchSetBillingCompany = (val) => {
     setLocalInstallments(prev => prev.map(inst => {
       if (selectedIds.has(inst.id)) {
+        const isExempt = val === 'FPF';
+        const total = inst.total_clp;
+        let net = inst.net_clp;
+        let tax = inst.tax_clp;
+        if (total !== null && total !== undefined) {
+          if (isExempt) {
+            net = total;
+            tax = 0;
+          } else {
+            net = Math.round(total / 1.19);
+            tax = total - net;
+          }
+        }
         return {
           ...inst,
-          billingCompany: val
+          billingCompany: val,
+          net_clp: net,
+          tax_clp: tax
         };
       }
       return inst;

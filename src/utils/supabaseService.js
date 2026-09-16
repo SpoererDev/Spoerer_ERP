@@ -754,9 +754,9 @@ export const supabaseService = {
           oc: inst.oc || '',
           oc_file_url: inst.ocFileUrl || null,
           other_files: inst.otherFiles || [],
-          net_amount_clp: inst.net_clp || null,
-          tax_amount_clp: inst.tax_clp || null,
-          total_amount_clp: inst.total_clp || null
+          net_amount_clp: inst.net_clp !== undefined ? inst.net_clp : null,
+          tax_amount_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
+          total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
         }));
 
         const { error: insError } = await supabase
@@ -1057,9 +1057,9 @@ export const supabaseService = {
       actual_invoice_date: installment.actualInvoiceDate || null,
       actual_payment_date: installment.actualPaymentDate || null,
       payment_backup_url: installment.paymentBackupUrl || null,
-      net_amount_clp: installment.net_clp || null,
-      tax_amount_clp: installment.tax_clp || null,
-      total_amount_clp: installment.total_clp || null
+      net_amount_clp: installment.net_clp !== undefined ? installment.net_clp : null,
+      tax_amount_clp: installment.tax_clp !== undefined ? installment.tax_clp : null,
+      total_amount_clp: installment.total_clp !== undefined ? installment.total_clp : null
     };
 
     const { data, error } = await supabase
@@ -1285,9 +1285,9 @@ export const supabaseService = {
         actual_payment_date: inst.actualPaymentDate || null,
         payment_backup_url: inst.paymentBackupUrl || null,
         other_files: inst.otherFiles || [],
-        net_amount_clp: inst.net_clp || null,
-        tax_amount_clp: inst.tax_clp || null,
-        total_amount_clp: inst.total_clp || null
+        net_amount_clp: inst.net_clp !== undefined ? inst.net_clp : null,
+        tax_amount_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
+        total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
       }));
 
       const { error: instError } = await supabase

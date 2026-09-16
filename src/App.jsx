@@ -510,7 +510,11 @@ export default function App() {
             invoiceFileUrl: inst.invoiceFileUrl,
             paymentBackupUrl: inst.paymentBackupUrl,
             invoiceNumber: inst.invoiceNumber,
-            actualPaymentDate: inst.actualPaymentDate
+            actualInvoiceDate: inst.actualInvoiceDate || null,
+            actualPaymentDate: inst.actualPaymentDate || null,
+            net_clp: inst.net_clp !== undefined ? inst.net_clp : null,
+            tax_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
+            total_clp: inst.total_clp !== undefined ? inst.total_clp : null
           })
         ));
       }
@@ -537,7 +541,11 @@ export default function App() {
             invoiceFileUrl: inst.invoiceFileUrl,
             paymentBackupUrl: inst.paymentBackupUrl,
             invoiceNumber: inst.invoiceNumber,
-            actualPaymentDate: inst.actualPaymentDate
+            actualInvoiceDate: inst.actualInvoiceDate || null,
+            actualPaymentDate: inst.actualPaymentDate || null,
+            net_clp: inst.net_clp !== undefined ? inst.net_clp : null,
+            tax_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
+            total_clp: inst.total_clp !== undefined ? inst.total_clp : null
           })
         ));
       }

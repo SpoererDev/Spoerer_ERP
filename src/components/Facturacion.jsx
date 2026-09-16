@@ -1692,7 +1692,7 @@ export default function Facturacion({
                                         {inst.invoiceNumber || '-'}
                                       </td>
                                       <td className="px-md py-md text-right">
-                                        {(inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') ? (
+                                        {(inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') && (inst.total_clp === null || inst.total_clp === undefined) ? (
                                           <span className="text-outline">-</span>
                                         ) : (
                                           <div className="relative group/tooltip inline-block">
