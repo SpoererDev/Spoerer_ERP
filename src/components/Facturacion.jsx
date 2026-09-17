@@ -7,6 +7,7 @@ import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { validateRut, formatRut } from '../utils/validation';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
 import { printFilteredBillingInstallments } from '../utils/billingPrintHelper';
+import { compareNumQuota } from '../utils/billingHelpers';
 
 export default function Facturacion({
   projects,
@@ -624,7 +625,7 @@ export default function Facturacion({
         const budgetInstallments = budgetGroups[bId];
 
         // Sort installments by numQuota or date
-        budgetInstallments.sort((a, b) => (a.numQuota || 0) - (b.numQuota || 0));
+        budgetInstallments.sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
 
         budgetInstallments.forEach(inst => {
           if (inst.status === 'Anulada') return;
@@ -1578,7 +1579,7 @@ export default function Facturacion({
                                 onClick={() => {
                                   const allBudgetInstallments = installments
                                     .filter(i => i.origin_budget_id === bId)
-                                    .sort((a, b) => (a.numQuota || 0) - (b.numQuota || 0));
+                                    .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
 
                                   setActiveBudgetForInstallments({
                                     budget: budget || { id: bId, quoteId: title, amount: amount },

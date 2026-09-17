@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
+import { getNextSubQuotaNumber, compareNumQuota } from '../utils/billingHelpers';
 
 // Helper: Sumar meses de forma segura considerando el fin de mes y años bisiestos
 function addMonths(dateStr, monthsToAdd) {
@@ -150,8 +151,9 @@ export default function InstallmentsModal({
 
   useEffect(() => {
     if (isOpen) {
+      const sorted = [...(initialInstallments || [])].sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
       setLocalInstallments(
-        initialInstallments.map(inst => ({
+        sorted.map(inst => ({
           ...inst,
           description: inst.description || '',
           comment: inst.comment || '',
@@ -191,13 +193,12 @@ export default function InstallmentsModal({
 
       // When an installment is marked as 'Anulada', clone a replacement in 'Por aprobar'
       if (field === 'status' && value === 'Anulada' && instToChange.status !== 'Anulada') {
-        const maxNum = Math.max(0, ...prev.map(i => parseInt(i.numQuota) || 0));
-        const nextNum = maxNum + 1;
+        const nextQuotaNum = getNextSubQuotaNumber(instToChange.numQuota, prev);
 
         const replacement = {
           ...instToChange,
-          id: `temp-${Date.now()}-${nextNum}`,
-          numQuota: String(nextNum).padStart(2, '0'),
+          id: `temp-${Date.now()}-${nextQuotaNum}`,
+          numQuota: nextQuotaNum,
           status: 'Por aprobar',
           dateConfirmed: false,
           comment: `Reemplazo cuota ${instToChange.numQuota}, factura ${instToChange.invoiceNumber || 'S/N'} que fue anulada`,
@@ -388,7 +389,11 @@ export default function InstallmentsModal({
       const dateObj = new Date(prevDateStr + 'T00:00:00');
       dateObj.setMonth(dateObj.getMonth() + 1);
       nextDate = dateObj.toISOString().split('T')[0];
-      nextNum = localInstallments.length + 1;
+      const maxNum = localInstallments.reduce((max, inst) => {
+        const parsed = parseInt(inst.numQuota, 10);
+        return !isNaN(parsed) && parsed > max ? parsed : max;
+      }, 0);
+      nextNum = maxNum + 1;
     }
 
     const newInst = {
@@ -440,12 +445,25 @@ export default function InstallmentsModal({
     }
     setLocalInstallments(prev => {
       const filtered = prev.filter((_, idx) => idx !== index);
-      // Recalculate sequential installment numbers
-      let count = 1;
-      return filtered.map(inst => ({
-        ...inst,
-        numQuota: String(count++).padStart(2, '0')
-      }));
+      // Smart sequential renumbering preserving sub-quota suffixes (e.g. 04a, 04b)
+      let currentBaseNum = 0;
+      let lastSeenOldBase = null;
+      return filtered.map(inst => {
+        const match = String(inst.numQuota || '').trim().match(/^(\d+)([a-zA-Z]*)$/);
+        if (!match) return inst;
+        const oldBase = parseInt(match[1], 10);
+        const suffix = match[2] || '';
+
+        if (oldBase !== lastSeenOldBase) {
+          currentBaseNum++;
+          lastSeenOldBase = oldBase;
+        }
+
+        return {
+          ...inst,
+          numQuota: `${String(currentBaseNum).padStart(2, '0')}${suffix}`
+        };
+      });
     });
   };
 
@@ -1088,7 +1106,7 @@ export default function InstallmentsModal({
                             <option value="Pagada">Pagada</option>
                             <option 
                               value="Anulada" 
-                              disabled={row.status !== 'Facturada' && row.status !== 'Factura emitida' && row.status !== 'Anulada'}
+                              disabled={row.status !== 'Facturada' && row.status !== 'Factura emitida' && row.status !== 'Pagada' && row.status !== 'Pagado' && row.status !== 'Anulada'}
                             >
                               Anulada
                             </option>

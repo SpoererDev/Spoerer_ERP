@@ -1,4 +1,5 @@
 import { formatRut } from './validation';
+import { compareNumQuota } from './billingHelpers';
 
 /**
  * Resolves the appropriate legal entity (Razón Social) for an installment,
@@ -128,7 +129,7 @@ export const printFilteredBillingInstallments = ({
       const quoteB = String(budgetB?.quoteId || '');
       const quoteComp = quoteA.localeCompare(quoteB, undefined, { numeric: true, sensitivity: 'base' });
       if (quoteComp !== 0) return quoteComp;
-      return (a.numQuota || 0) - (b.numQuota || 0);
+      return compareNumQuota(a.numQuota, b.numQuota);
     });
   });
 

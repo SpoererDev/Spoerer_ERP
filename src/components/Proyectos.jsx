@@ -5,6 +5,7 @@ import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
+import { compareNumQuota } from '../utils/billingHelpers';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -410,16 +411,25 @@ export default function Proyectos({
   const handleDeleteRowLocal = (installmentId, budgetId) => {
     setLocalInstallments(prev => {
       const filtered = prev.filter(inst => inst.id !== installmentId);
-      // Auto-recalculate numQuota sequentially
-      let count = 1;
+      // Smart sequential renumbering preserving sub-quota suffixes (e.g. 04a, 04b)
+      let currentBaseNum = 0;
+      let lastSeenOldBase = null;
       return filtered.map(inst => {
         if (inst.origin_budget_id === budgetId) {
-          const updated = {
+          const match = String(inst.numQuota || '').trim().match(/^(\d+)([a-zA-Z]*)$/);
+          if (!match) return inst;
+          const oldBase = parseInt(match[1], 10);
+          const suffix = match[2] || '';
+
+          if (oldBase !== lastSeenOldBase) {
+            currentBaseNum++;
+            lastSeenOldBase = oldBase;
+          }
+
+          return {
             ...inst,
-            numQuota: String(count).padStart(2, '0')
+            numQuota: `${String(currentBaseNum).padStart(2, '0')}${suffix}`
           };
-          count++;
-          return updated;
         }
         return inst;
       });
@@ -428,7 +438,11 @@ export default function Proyectos({
 
   const handleAddRowLocal = (projectId, budgetId) => {
     const budgetInsts = localInstallments.filter(i => i.origin_budget_id === budgetId);
-    const nextNum = budgetInsts.length + 1;
+    const maxNum = budgetInsts.reduce((max, inst) => {
+      const parsed = parseInt(inst.numQuota, 10);
+      return !isNaN(parsed) && parsed > max ? parsed : max;
+    }, 0);
+    const nextNum = maxNum + 1;
     const numStr = String(nextNum).padStart(2, '0');
 
     const newInst = {
@@ -1089,9 +1103,9 @@ export default function Proyectos({
                     )}
 
                     {projectBudgets.map((budget) => {
-                      const budgetInstallments = localInstallments.filter(
-                        i => i.project_id === project.id && i.origin_budget_id === budget.id
-                      );
+                      const budgetInstallments = localInstallments
+                        .filter(i => i.project_id === project.id && i.origin_budget_id === budget.id)
+                        .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
 
                       return (
                         <div key={budget.id} className="border border-slate-200 rounded-xl p-md space-y-md shadow-sm bg-slate-50/20">
