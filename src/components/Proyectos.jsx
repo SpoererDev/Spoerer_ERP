@@ -1682,8 +1682,11 @@ export default function Proyectos({
 
       {/* Modal: Document Preview */}
       {previewFile && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-md z-55 animate-fade-in text-left">
-          <div className="bg-white rounded-2xl max-w-4xl w-full p-lg shadow-xl border border-outline-variant/30 flex flex-col max-h-[90vh]">
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setPreviewFile(null); }}
+          className="fixed inset-0 bg-primary/40 backdrop-blur-sm flex items-center justify-center p-md z-[60] animate-fade-in text-left"
+        >
+          <div className="relative bg-white rounded-xl max-w-4xl w-full p-lg shadow-2xl border border-outline-variant flex flex-col max-h-[90vh] animate-scale-up">
             <div className="flex justify-between items-center mb-md flex-shrink-0">
               <div>
                 <h3 className="font-headline-sm text-headline-sm text-primary font-bold truncate max-w-xl" title={previewFile.name}>
@@ -1691,8 +1694,10 @@ export default function Proyectos({
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setPreviewFile(null)}
-                className="p-1 hover:bg-slate-100 rounded-full transition-all text-secondary"
+                className="p-2 hover:bg-slate-100 rounded-full transition-all text-on-surface-variant flex items-center justify-center cursor-pointer"
+                title="Cerrar vista previa"
               >
                 <span className="material-symbols-outlined text-[24px]">close</span>
               </button>
@@ -1740,8 +1745,9 @@ export default function Proyectos({
 
             <div className="flex justify-end pt-sm border-t mt-md flex-shrink-0">
               <button
+                type="button"
                 onClick={() => setPreviewFile(null)}
-                className="px-lg py-sm bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg transition-all text-body-md shadow-xs"
+                className="px-lg py-sm bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg active:scale-95 transition-all text-body-md shadow-xs cursor-pointer"
               >
                 Cerrar Vista Previa
               </button>
