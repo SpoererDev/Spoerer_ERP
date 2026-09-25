@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { sanitizeFileName, supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
+import { isValidDateDDMMYYYY, formatToDDMMYYYY, formatToIsoDate, addMonthsSafely } from '../utils/validation';
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
@@ -266,6 +267,156 @@ export default function Presupuestos({
   const [isApproving, setIsApproving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const suggestionsRef = useRef(null);
+
+  // Approval Modal Resizing & Split States
+  const approveModalRef = useRef(null);
+  const [approveModalSize, setApproveModalSize] = useState({ width: null, height: null });
+  const splitContainerRef = useRef(null);
+  const [splitWidthPercent, setSplitWidthPercent] = useState(58);
+  const [isDesktop, setIsDesktop] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
+  const [billingColWidths, setBillingColWidths] = useState({
+    cuotas: 80,
+    date: 145,
+    uf: 135,
+    comment: 220,
+    action: 60
+  });
+
+  useEffect(() => {
+    const handleWindowResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, []);
+
+  const handleApproveResizeStart = (e, direction) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!approveModalRef.current) return;
+    const rect = approveModalRef.current.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startWidth = rect.width;
+    const startHeight = rect.height;
+
+    document.body.style.userSelect = 'none';
+    if (direction === 'right' || direction === 'left') {
+      document.body.style.cursor = 'ew-resize';
+    } else if (direction === 'bottom') {
+      document.body.style.cursor = 'ns-resize';
+    } else if (direction === 'corner') {
+      document.body.style.cursor = 'nwse-resize';
+    }
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+
+      const maxWidth = window.innerWidth - 32;
+      const maxHeight = window.innerHeight - 32;
+
+      let nextWidth = startWidth;
+      let nextHeight = startHeight;
+
+      if (direction === 'right' || direction === 'corner') {
+        nextWidth = Math.min(Math.max(startWidth + deltaX * 2, 700), maxWidth);
+      }
+      if (direction === 'left') {
+        nextWidth = Math.min(Math.max(startWidth - deltaX * 2, 700), maxWidth);
+      }
+      if (direction === 'bottom' || direction === 'corner') {
+        nextHeight = Math.min(Math.max(startHeight + deltaY * 2, 450), maxHeight);
+      }
+
+      setApproveModalSize({
+        width: Math.round(nextWidth),
+        height: Math.round(nextHeight)
+      });
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleSplitResizeStart = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!splitContainerRef.current) return;
+    const containerRect = splitContainerRef.current.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+    const startX = e.clientX;
+    const startPercent = splitWidthPercent;
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaPercent = (deltaX / containerWidth) * 100;
+      const nextPercent = Math.min(Math.max(startPercent + deltaPercent, 25), 80);
+      setSplitWidthPercent(Math.round(nextPercent * 10) / 10);
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleBillingColResizeStart = (e, colKey) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = billingColWidths[colKey] || 100;
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    const minWidths = {
+      cuotas: 60,
+      date: 120,
+      uf: 90,
+      comment: 100,
+      action: 45
+    };
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const minW = minWidths[colKey] || 50;
+      const nextWidth = Math.max(startWidth + deltaX, minW);
+
+      setBillingColWidths(prev => ({
+        ...prev,
+        [colKey]: Math.round(nextWidth)
+      }));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   const adminUsers = useMemo(() => {
     if (!users || !Array.isArray(users)) return [];
@@ -732,13 +883,7 @@ export default function Presupuestos({
     }
   };
 
-  const addMonthsToDateString = (dateStr, monthsToAdd) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr + 'T00:00:00');
-    if (isNaN(date.getTime())) return dateStr;
-    date.setMonth(date.getMonth() + monthsToAdd);
-    return date.toISOString().split('T')[0];
-  };
+  const addMonthsToDateString = (dateStr, monthsToAdd) => addMonthsSafely(dateStr, monthsToAdd);
 
   const generateInitialBillingTable = (startDate, totalVal) => {
     const parsedTotalVal = parseFloat(totalVal) || 0;
@@ -747,22 +892,14 @@ export default function Presupuestos({
       return;
     }
 
-    const firstRowUf = parseFloat((parsedTotalVal * 0.25).toFixed(2));
-    const secondRowUf = parseFloat(((parsedTotalVal * 0.75) / 10).toFixed(2));
-    const secondRowDate = addMonthsToDateString(startDate, 1);
-
     const initialTable = [
       {
         cuotas: 1,
         date: startDate,
-        uf: firstRowUf,
-        comment: 'Anticipo'
-      },
-      {
-        cuotas: 10,
-        date: secondRowDate,
-        uf: secondRowUf,
-        comment: 'Mensualidades'
+        rawDate: formatToDDMMYYYY(startDate),
+        uf: parsedTotalVal,
+        comment: '',
+        dateError: false
       }
     ];
     setBillingTable(initialTable);
@@ -788,21 +925,106 @@ export default function Presupuestos({
     }));
   };
 
+  const handleRowDateTextChange = (index, value) => {
+    setBillingTable(prev => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      const isValid = isValidDateDDMMYYYY(value);
+      return {
+        ...row,
+        rawDate: value,
+        date: isValid ? formatToIsoDate(value) : row.date,
+        dateError: !isValid
+      };
+    }));
+  };
+
+  const handleRowDateBlur = (index, value) => {
+    setBillingTable(prev => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      const isValid = isValidDateDDMMYYYY(value);
+      if (isValid) {
+        const iso = formatToIsoDate(value);
+        return {
+          ...row,
+          rawDate: formatToDDMMYYYY(iso),
+          date: iso,
+          dateError: false
+        };
+      } else {
+        return {
+          ...row,
+          dateError: true
+        };
+      }
+    }));
+  };
+
+  const handleRowDatePickerChange = (index, isoDate) => {
+    if (!isoDate) return;
+    setBillingTable(prev => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      return {
+        ...row,
+        date: isoDate,
+        rawDate: formatToDDMMYYYY(isoDate),
+        dateError: false
+      };
+    }));
+  };
+
   const handleAddRow = () => {
-    const lastRow = billingTable[billingTable.length - 1];
     let nextDate = new Date().toISOString().split('T')[0];
-    if (lastRow && lastRow.date) {
-      nextDate = addMonthsToDateString(lastRow.date, 1);
+    if (billingTable.length > 0) {
+      const lastRow = billingTable[billingTable.length - 1];
+      if (lastRow && (lastRow.date || lastRow.rawDate)) {
+        const baseDate = lastRow.date || (isValidDateDDMMYYYY(lastRow.rawDate) ? formatToIsoDate(lastRow.rawDate) : nextDate);
+        const lastCuotas = parseInt(lastRow.cuotas, 10) || 1;
+        nextDate = addMonthsSafely(baseDate, lastCuotas);
+      }
     }
     setBillingTable(prev => [
       ...prev,
       {
         cuotas: 1,
         date: nextDate,
+        rawDate: formatToDDMMYYYY(nextDate),
         uf: 0,
-        comment: ''
+        comment: '',
+        dateError: false
       }
     ]);
+  };
+
+  const handleAdjustDates = () => {
+    if (billingTable.length <= 1) return;
+    const firstRow = billingTable[0];
+    const firstRowDate = firstRow.date || (isValidDateDDMMYYYY(firstRow.rawDate) ? formatToIsoDate(firstRow.rawDate) : null);
+    if (!firstRowDate || firstRow.dateError) {
+      alert('La fecha de la primera cuota debe ser válida para ajustar las fechas correlativas.');
+      return;
+    }
+
+    let currentDate = firstRowDate;
+    const updated = billingTable.map((row, idx) => {
+      if (idx === 0) {
+        return {
+          ...row,
+          date: firstRowDate,
+          rawDate: formatToDDMMYYYY(firstRowDate),
+          dateError: false
+        };
+      }
+      const prevRow = billingTable[idx - 1];
+      const prevCuotas = parseInt(prevRow.cuotas, 10) || 1;
+      currentDate = addMonthsSafely(currentDate, prevCuotas);
+      return {
+        ...row,
+        date: currentDate,
+        rawDate: formatToDDMMYYYY(currentDate),
+        dateError: false
+      };
+    });
+    setBillingTable(updated);
   };
 
   const handleRemoveRow = (index) => {
@@ -850,6 +1072,17 @@ export default function Presupuestos({
     }
     if (!tipo || !tipo.trim()) {
       setValidationError("Por favor seleccione o ingrese el tipo de proyecto.");
+      return;
+    }
+
+    if (billingTable.length === 0) {
+      setValidationError("El cronograma de facturación debe contener al menos una cuota.");
+      return;
+    }
+
+    const hasInvalidDate = billingTable.some(r => r.dateError || !r.date || !isValidDateDDMMYYYY(r.rawDate || formatToDDMMYYYY(r.date)));
+    if (hasInvalidDate) {
+      setValidationError("Por favor ingrese fechas válidas en formato DD/MM/AAAA para todas las cuotas del cronograma.");
       return;
     }
 
@@ -950,6 +1183,8 @@ export default function Presupuestos({
       // Reset approval modal states
       setIsApproveModalOpen(false);
       setApprovingQuote(null);
+      setApproveModalSize({ width: null, height: null });
+      setSplitWidthPercent(58);
       setApprovingQuoteBackupFiles([]);
       setValidationError('');
       setMatchedProjectId(null);
@@ -1030,6 +1265,10 @@ export default function Presupuestos({
         }
       }
       if (newStatus === 'Aprobado') {
+        setApproveModalSize({ width: null, height: null });
+        setSplitWidthPercent(58);
+        setPreviewFile(null);
+        setDocxHtml('');
         setApprovingQuote(quote);
         setApprovingQuoteBackupFiles(quote.backupFiles || []);
         setDescripcion(quote.title || '');
@@ -3372,7 +3611,24 @@ export default function Presupuestos({
       {/* Modal: Aprobar Presupuesto y Crear Proyecto */}
       {isApproveModalOpen && approvingQuote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-xs md:p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
-          <div className={`relative bg-white w-full ${previewFile ? 'max-w-[1550px]' : 'max-w-6xl'} max-h-[92vh] rounded-xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out border border-outline-variant/30 overflow-hidden animate-scale-up`}>
+          <div
+            ref={approveModalRef}
+            style={
+              (approveModalSize.width || approveModalSize.height)
+                ? {
+                    width: approveModalSize.width ? `${approveModalSize.width}px` : undefined,
+                    height: approveModalSize.height ? `${approveModalSize.height}px` : undefined,
+                    maxWidth: '98vw',
+                    maxHeight: '96vh'
+                  }
+                : undefined
+            }
+            className={`relative bg-white w-full ${
+              !approveModalSize.width ? (previewFile ? 'max-w-[1550px]' : 'max-w-6xl') : ''
+            } ${
+              !approveModalSize.height ? 'max-h-[92vh]' : ''
+            } rounded-xl shadow-2xl flex flex-col ${(approveModalSize.width || approveModalSize.height) ? '' : 'transition-all duration-300 ease-in-out'} border border-outline-variant/30 overflow-hidden animate-scale-up`}
+          >
             {/* Header */}
             <div className="p-md md:p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
               <div>
@@ -3402,6 +3658,9 @@ export default function Presupuestos({
                   onClick={() => {
                     setIsApproveModalOpen(false);
                     setApprovingQuote(null);
+                    setApproveModalSize({ width: null, height: null });
+                    setSplitWidthPercent(58);
+                    setApprovingQuoteBackupFiles([]);
                     setMatchedProjectId(null);
                     setPrefilledFromProjectId(null);
                     setShowSuggestions(false);
@@ -3421,9 +3680,17 @@ export default function Presupuestos({
             </div>
 
             {/* Split Screen Body */}
-            <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
+            <div ref={splitContainerRef} className="flex flex-col lg:flex-row flex-1 overflow-hidden" style={{ minHeight: '300px' }}>
               {/* Form Side */}
-              <div className={`w-full ${previewFile ? 'lg:w-1/2 xl:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200' : 'w-full'} overflow-y-auto max-h-[calc(92vh-80px)]`}>
+              <div
+                className={`w-full overflow-y-auto flex-shrink-0 ${
+                  previewFile ? 'border-b lg:border-b-0 border-slate-200' : ''
+                }`}
+                style={{
+                  width: previewFile && isDesktop ? `${splitWidthPercent}%` : '100%',
+                  maxHeight: approveModalSize.height ? 'calc(100% - 2px)' : 'calc(92vh - 80px)'
+                }}
+              >
                 <form onSubmit={handleApproveSubmit} className="p-lg space-y-lg text-left">
                   {validationError && (
                     <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-md text-body-sm flex items-start gap-2 animate-fade-in mb-md">
@@ -3787,100 +4054,215 @@ export default function Presupuestos({
                           Cronograma de Facturación
                         </h3>
 
-                        {billingTable.length > 0 ? (
-                          <>
-                            <div className="flex-grow overflow-y-auto max-h-[380px] custom-scrollbar border border-slate-200/60 rounded-lg bg-white">
-                              <table className="w-full text-left border-collapse">
-                                <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0">
+                            <div className="flex-grow overflow-y-auto overflow-x-auto max-h-[380px] custom-scrollbar border border-slate-200/60 rounded-lg bg-white">
+                              <table
+                                className="w-full text-left border-collapse table-fixed"
+                                style={{
+                                  minWidth: `${billingColWidths.cuotas + billingColWidths.date + billingColWidths.uf + billingColWidths.comment + billingColWidths.action}px`
+                                }}
+                              >
+                                <colgroup>
+                                  <col style={{ width: `${billingColWidths.cuotas}px` }} />
+                                  <col style={{ width: `${billingColWidths.date}px` }} />
+                                  <col style={{ width: `${billingColWidths.uf}px` }} />
+                                  <col style={{ width: `${billingColWidths.comment}px` }} />
+                                  <col style={{ width: `${billingColWidths.action}px` }} />
+                                </colgroup>
+                                <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 z-10 select-none">
                                   <tr>
-                                    <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuotas</th>
-                                    <th className="p-2 border-b border-slate-200">Fecha</th>
-                                    <th className="p-2 border-b border-slate-200 text-right w-36">Valor Cuota ({approvingQuote?.currency || 'UF'})</th>
-                                    <th className="p-2 border-b border-slate-200">Descripción</th>
-                                    <th className="p-2 border-b border-slate-200 text-center w-12">Acción</th>
+                                    <th className="p-2 border-b border-slate-200 text-center relative" style={{ width: `${billingColWidths.cuotas}px` }}>
+                                      <span>N° Cuotas</span>
+                                      <div
+                                        onMouseDown={(e) => handleBillingColResizeStart(e, 'cuotas')}
+                                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-secondary/40 active:bg-secondary group z-20 flex items-center justify-end"
+                                        title="Arrastra para cambiar ancho de columna"
+                                      >
+                                        <div className="h-full w-[1px] bg-slate-300 group-hover:bg-secondary" />
+                                      </div>
+                                    </th>
+
+                                    <th className="p-2 border-b border-slate-200 text-left relative" style={{ width: `${billingColWidths.date}px` }}>
+                                      <span>Fecha</span>
+                                      <div
+                                        onMouseDown={(e) => handleBillingColResizeStart(e, 'date')}
+                                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-secondary/40 active:bg-secondary group z-20 flex items-center justify-end"
+                                        title="Arrastra para cambiar ancho de columna"
+                                      >
+                                        <div className="h-full w-[1px] bg-slate-300 group-hover:bg-secondary" />
+                                      </div>
+                                    </th>
+
+                                    <th className="p-2 border-b border-slate-200 text-right relative" style={{ width: `${billingColWidths.uf}px` }}>
+                                      <span>Valor ({approvingQuote?.currency || 'UF'})</span>
+                                      <div
+                                        onMouseDown={(e) => handleBillingColResizeStart(e, 'uf')}
+                                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-secondary/40 active:bg-secondary group z-20 flex items-center justify-end"
+                                        title="Arrastra para cambiar ancho de columna"
+                                      >
+                                        <div className="h-full w-[1px] bg-slate-300 group-hover:bg-secondary" />
+                                      </div>
+                                    </th>
+
+                                    <th className="p-2 border-b border-slate-200 text-left relative" style={{ width: `${billingColWidths.comment}px` }}>
+                                      <span>Descripción</span>
+                                      <div
+                                        onMouseDown={(e) => handleBillingColResizeStart(e, 'comment')}
+                                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-secondary/40 active:bg-secondary group z-20 flex items-center justify-end"
+                                        title="Arrastra para cambiar ancho de columna"
+                                      >
+                                        <div className="h-full w-[1px] bg-slate-300 group-hover:bg-secondary" />
+                                      </div>
+                                    </th>
+
+                                    <th className="p-2 border-b border-slate-200 text-center relative" style={{ width: `${billingColWidths.action}px` }}>
+                                      <span>Acción</span>
+                                      <div
+                                        onMouseDown={(e) => handleBillingColResizeStart(e, 'action')}
+                                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-secondary/40 active:bg-secondary group z-20 flex items-center justify-end"
+                                        title="Arrastra para cambiar ancho de columna"
+                                      >
+                                        <div className="h-full w-[1px] bg-slate-300 group-hover:bg-secondary" />
+                                      </div>
+                                    </th>
                                   </tr>
                                 </thead>
                                 <tbody className="text-body-sm divide-y divide-slate-100">
-                                  {billingTable.map((row, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50/50">
-                                      <td className="p-1 w-20 text-center">
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          value={row.cuotas}
-                                          onChange={(e) => handleRowChange(idx, 'cuotas', e.target.value)}
-                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center font-bold"
-                                        />
-                                      </td>
-                                      <td className="p-1">
-                                        <div className="relative flex items-center w-full">
+                                  {billingTable.length > 0 ? (
+                                    billingTable.map((row, idx) => (
+                                      <tr key={idx} className="hover:bg-slate-50/50">
+                                        <td className="p-1 text-center" style={{ width: `${billingColWidths.cuotas}px` }}>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            value={row.cuotas}
+                                            onChange={(e) => handleRowChange(idx, 'cuotas', e.target.value)}
+                                            className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm text-center font-bold"
+                                          />
+                                        </td>
+                                        <td className="p-1" style={{ width: `${billingColWidths.date}px` }}>
+                                          <div className="relative flex items-center w-full">
+                                            <input
+                                              type="text"
+                                              value={row.rawDate !== undefined ? row.rawDate : (row.date ? formatToDDMMYYYY(row.date) : '')}
+                                              onChange={(e) => handleRowDateTextChange(idx, e.target.value)}
+                                              onBlur={(e) => handleRowDateBlur(idx, e.target.value)}
+                                              placeholder="dd/mm/aaaa"
+                                              title={row.dateError ? "Fecha inválida. Use formato dd/mm/aaaa (ej: 25/09/2026)" : ""}
+                                              className={`w-full p-1 text-body-sm rounded outline-none pr-7 transition-all ${
+                                                row.dateError
+                                                  ? 'border border-error bg-red-50/60 text-error focus:ring-1 focus:ring-error'
+                                                  : 'border-0 bg-transparent focus:bg-white focus:ring-1 focus:ring-secondary'
+                                              }`}
+                                            />
+                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center pr-1">
+                                              <input
+                                                type="date"
+                                                id={`billing-date-picker-${idx}`}
+                                                value={row.date || ''}
+                                                onChange={(e) => handleRowDatePickerChange(idx, e.target.value)}
+                                                className="absolute right-0 top-0 w-6 h-full opacity-0 pointer-events-none"
+                                                tabIndex={-1}
+                                              />
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const picker = document.getElementById(`billing-date-picker-${idx}`);
+                                                  if (picker) {
+                                                    if (typeof picker.showPicker === 'function') {
+                                                      try {
+                                                        picker.showPicker();
+                                                        return;
+                                                      } catch (err) {
+                                                        // fallback
+                                                      }
+                                                    }
+                                                    picker.focus();
+                                                  }
+                                                }}
+                                                className="p-0.5 text-slate-400 hover:text-secondary focus:outline-none transition-colors rounded flex items-center justify-center cursor-pointer"
+                                                title="Seleccionar fecha"
+                                              >
+                                                <span className="material-symbols-outlined text-[17px]">
+                                                  calendar_month
+                                                </span>
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td className="p-1" style={{ width: `${billingColWidths.uf}px` }}>
+                                          <input
+                                            type="number"
+                                            value={row.uf}
+                                            onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
+                                            className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
+                                            step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
+                                          />
+                                        </td>
+                                        <td className="p-1" style={{ width: `${billingColWidths.comment}px` }}>
                                           <input
                                             type="text"
-                                            readOnly
-                                            value={row.date ? row.date.split('-').reverse().join('/') : ''}
-                                            className="w-full border-0 bg-transparent p-1 focus:bg-white rounded outline-none text-body-sm pr-6"
-                                            placeholder="dd/mm/yyyy"
+                                            list={`approve-comments-options-${idx}`}
+                                            value={row.comment || ''}
+                                            onChange={(e) => handleRowChange(idx, 'comment', e.target.value)}
+                                            placeholder="Seleccionar o escribir..."
+                                            className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm"
                                           />
-                                          <input
-                                            type="date"
-                                            value={row.date || ''}
-                                            onChange={(e) => handleRowChange(idx, 'date', e.target.value)}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                                          />
-                                          <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">
-                                            calendar_month
-                                          </span>
+                                          <datalist id={`approve-comments-options-${idx}`}>
+                                            {COMMENT_OPTIONS.map((opt) => (
+                                              <option key={opt} value={opt} />
+                                            ))}
+                                          </datalist>
+                                        </td>
+                                        <td className="p-1 text-center" style={{ width: `${billingColWidths.action}px` }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveRow(idx)}
+                                            className="p-1 hover:bg-red-50 rounded text-error hover:text-red-600 transition-all flex items-center justify-center mx-auto"
+                                            title="Eliminar fila"
+                                          >
+                                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))
+                                  ) : (
+                                    <tr>
+                                      <td colSpan={5} className="py-8 px-4 text-center text-on-surface-variant/70 italic bg-slate-50/30">
+                                        <div className="flex flex-col items-center justify-center gap-1.5">
+                                          <span className="material-symbols-outlined text-[32px] text-slate-300">calendar_today</span>
+                                          <span>No hay cuotas programadas. Presiona <strong>"Agregar Fila"</strong> para comenzar a agregar cuotas.</span>
                                         </div>
                                       </td>
-                                      <td className="p-1 w-28">
-                                        <input
-                                          type="number"
-                                          value={row.uf}
-                                          onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
-                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
-                                          step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
-                                        />
-                                      </td>
-                                      <td className="p-1">
-                                        <input
-                                          type="text"
-                                          list={`approve-comments-options-${idx}`}
-                                          value={row.comment || ''}
-                                          onChange={(e) => handleRowChange(idx, 'comment', e.target.value)}
-                                          placeholder="Seleccionar o escribir..."
-                                          className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm"
-                                        />
-                                        <datalist id={`approve-comments-options-${idx}`}>
-                                          {COMMENT_OPTIONS.map((opt) => (
-                                            <option key={opt} value={opt} />
-                                          ))}
-                                        </datalist>
-                                      </td>
-                                      <td className="p-1 w-12 text-center">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveRow(idx)}
-                                          className="p-1 hover:bg-red-50 rounded text-error hover:text-red-600 transition-all flex items-center justify-center mx-auto"
-                                          title="Eliminar fila"
-                                        >
-                                          <span className="material-symbols-outlined text-[18px]">delete</span>
-                                        </button>
-                                      </td>
                                     </tr>
-                                  ))}
+                                  )}
                                 </tbody>
                               </table>
                             </div>
 
-                            {/* Add Row Button */}
-                            <div className="flex justify-start mt-2">
+                            {/* Action Buttons: Add Row and Adjust Dates */}
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
                               <button
                                 type="button"
                                 onClick={handleAddRow}
-                                className="px-3 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary text-body-sm font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm"
+                                className="px-3 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary text-body-sm font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm active:scale-95"
                               >
                                 <span className="material-symbols-outlined text-[18px]">add_circle</span>
                                 <span>Agregar Fila</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleAdjustDates}
+                                disabled={billingTable.length < 2}
+                                title={billingTable.length < 2 ? "Se requieren al menos 2 filas para ajustar fechas correlativas" : "Ajustar fechas correlativas de las cuotas según el número de cuotas de cada fila"}
+                                className={`px-3 py-1.5 text-body-sm font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm ${
+                                  billingTable.length < 2
+                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                    : 'bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:scale-[1.02] active:scale-95'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[18px]">event_repeat</span>
+                                <span>Ajustar Fechas</span>
                               </button>
                             </div>
 
@@ -3923,13 +4305,6 @@ export default function Presupuestos({
                                 </div>
                               );
                             })()}
-                          </>
-                        ) : (
-                          <div className="flex-grow flex flex-col items-center justify-center p-xl border border-dashed border-outline-variant/60 rounded-lg text-on-surface-variant italic text-body-sm">
-                            <span className="material-symbols-outlined text-[36px] text-slate-300 mb-2">calendar_today</span>
-                            Ingrese Fecha Inicio y Nº Cuotas para generar la tabla.
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -3943,6 +4318,8 @@ export default function Presupuestos({
                       onClick={() => {
                         setIsApproveModalOpen(false);
                         setApprovingQuote(null);
+                        setApproveModalSize({ width: null, height: null });
+                        setSplitWidthPercent(58);
                         setApprovingQuoteBackupFiles([]);
                         setMatchedProjectId(null);
                         setPrefilledFromProjectId(null);
@@ -3974,9 +4351,26 @@ export default function Presupuestos({
                 </form>
               </div>
 
+              {/* Vertical Draggable Divider between Form and Preview */}
+              {previewFile && (
+                <div
+                  onMouseDown={handleSplitResizeStart}
+                  className="hidden lg:flex w-2.5 hover:w-3 bg-slate-200 hover:bg-secondary/40 active:bg-secondary cursor-col-resize items-center justify-center transition-all z-20 group select-none relative flex-shrink-0 border-x border-slate-300/40"
+                  title="Arrastra para cambiar el ancho entre el formulario y el documento"
+                >
+                  <div className="h-10 w-1 rounded-full bg-slate-400 group-hover:bg-secondary transition-colors" />
+                </div>
+              )}
+
               {/* Document Preview Side Panel inside Approval Modal */}
               {previewFile && (
-                <div className="w-full lg:w-1/2 xl:w-5/12 bg-slate-50 flex flex-col max-h-[calc(92vh-80px)] animate-fade-in border-t lg:border-t-0">
+                <div
+                  className="w-full bg-slate-50 flex flex-col animate-fade-in border-t lg:border-t-0 flex-grow min-w-0"
+                  style={{
+                    width: isDesktop ? `calc(${100 - splitWidthPercent}% - 10px)` : '100%',
+                    maxHeight: approveModalSize.height ? 'calc(100% - 2px)' : 'calc(92vh - 80px)'
+                  }}
+                >
                   <div className="p-3 md:p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-xs sticky top-0 z-10">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="material-symbols-outlined text-secondary flex-shrink-0">
@@ -4026,6 +4420,36 @@ export default function Presupuestos({
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Manillas de redimensionamiento del modal (Resize Handles) */}
+            {/* Borde derecho */}
+            <div
+              onMouseDown={(e) => handleApproveResizeStart(e, 'right')}
+              className="absolute top-0 right-0 bottom-0 w-2.5 hover:w-3 cursor-ew-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+              title="Arrastra para cambiar el ancho"
+            />
+            {/* Borde izquierdo */}
+            <div
+              onMouseDown={(e) => handleApproveResizeStart(e, 'left')}
+              className="absolute top-0 left-0 bottom-0 w-2.5 hover:w-3 cursor-ew-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+              title="Arrastra para cambiar el ancho"
+            />
+            {/* Borde inferior */}
+            <div
+              onMouseDown={(e) => handleApproveResizeStart(e, 'bottom')}
+              className="absolute bottom-0 left-0 right-0 h-2.5 hover:h-3 cursor-ns-resize hover:bg-secondary/20 active:bg-secondary/30 transition-all z-30 group"
+              title="Arrastra para cambiar el alto"
+            />
+            {/* Esquina inferior derecha */}
+            <div
+              onMouseDown={(e) => handleApproveResizeStart(e, 'corner')}
+              className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-40 flex items-end justify-end p-1 text-slate-400 hover:text-secondary active:text-secondary-dark select-none transition-colors group"
+              title="Arrastra para cambiar tamaño del modal"
+            >
+              <svg className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M14 14H12V12H14V14ZM14 10H12V8H14V10ZM10 14H8V12H10V14ZM14 6H12V4H14V6ZM6 14H4V12H6V14ZM10 10H8V8H10V10Z" />
+              </svg>
             </div>
           </div>
         </div>

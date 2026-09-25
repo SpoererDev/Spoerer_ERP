@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabaseService, formatAmountWithCurrency } from '../utils/supabaseService';
 import { getNextSubQuotaNumber, compareNumQuota } from '../utils/billingHelpers';
+import { isValidDateDDMMYYYY, formatToDDMMYYYY, formatToIsoDate } from '../utils/validation';
 
 // Helper: Sumar meses de forma segura considerando el fin de mes y años bisiestos
 function addMonths(dateStr, monthsToAdd) {
@@ -155,6 +156,10 @@ export default function InstallmentsModal({
       setLocalInstallments(
         sorted.map(inst => ({
           ...inst,
+          rawDate: inst.date ? formatToDDMMYYYY(inst.date) : '',
+          dateError: false,
+          rawActualPaymentDate: inst.actualPaymentDate ? formatToDDMMYYYY(inst.actualPaymentDate) : '',
+          actualPaymentDateError: false,
           description: inst.description || '',
           comment: inst.comment || '',
           oc: inst.oc || '',
@@ -201,6 +206,10 @@ export default function InstallmentsModal({
           numQuota: nextQuotaNum,
           status: 'Por aprobar',
           dateConfirmed: false,
+          rawDate: instToChange.date ? formatToDDMMYYYY(instToChange.date) : '',
+          dateError: false,
+          rawActualPaymentDate: '',
+          actualPaymentDateError: false,
           comment: `Reemplazo cuota ${instToChange.numQuota}, factura ${instToChange.invoiceNumber || 'S/N'} que fue anulada`,
           invoiceNumber: '',
           invoiceFileUrl: '',
@@ -300,6 +309,8 @@ export default function InstallmentsModal({
               }
             }
           } else if (field === 'date') {
+            updated.rawDate = newVal ? formatToDDMMYYYY(newVal) : '';
+            updated.dateError = false;
             if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
               if (newVal && newVal <= todayStr) {
                 updated.status = 'Por facturar';
@@ -307,6 +318,10 @@ export default function InstallmentsModal({
                 updated.status = 'Aprobada';
               }
             }
+          } else if (field === 'actualPaymentDate') {
+            updated.actualPaymentDate = newVal || null;
+            updated.rawActualPaymentDate = newVal ? formatToDDMMYYYY(newVal) : '';
+            updated.actualPaymentDateError = false;
           } else if (field === 'status') {
             if (newVal === 'Por aprobar') {
               updated.dateConfirmed = false;
@@ -328,7 +343,9 @@ export default function InstallmentsModal({
               const newSlaveDate = addMonths(value, slaveIndex);
               const updatedSlave = {
                 ...inst,
-                date: newSlaveDate
+                date: newSlaveDate,
+                rawDate: formatToDDMMYYYY(newSlaveDate),
+                dateError: false
               };
               if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
                 updatedSlave.status = (newSlaveDate && newSlaveDate <= todayStr) ? 'Por facturar' : 'Aprobada';
@@ -372,6 +389,173 @@ export default function InstallmentsModal({
     });
   };
 
+  const handleDateTextChange = (index, value) => {
+    setLocalInstallments(prev => {
+      const isValid = isValidDateDDMMYYYY(value);
+      const isoDate = isValid ? formatToIsoDate(value) : null;
+      const metadata = getGroupMetadata(prev);
+      const instToChange = prev[index];
+      const groupId = instToChange?.grupo;
+      const isMaster = groupId && metadata[groupId]?.masterId === instToChange?.id;
+
+      return prev.map((inst, idx) => {
+        if (idx === index) {
+          const updated = {
+            ...inst,
+            rawDate: value,
+            dateError: value.trim().length >= 10 && !isValid
+          };
+          if (isValid && isoDate) {
+            updated.date = isoDate;
+            updated.dateError = false;
+            if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+              updated.status = (isoDate <= todayStr) ? 'Por facturar' : 'Aprobada';
+            }
+          }
+          return updated;
+        }
+
+        // Propagate to slaves if master date is valid
+        if (isValid && isoDate && isMaster && inst.grupo === groupId) {
+          const orderedMembers = metadata[groupId].orderedMembers;
+          const slaveIndex = orderedMembers.findIndex(m => m.id === inst.id);
+          if (slaveIndex > 0) {
+            const newSlaveDate = addMonths(isoDate, slaveIndex);
+            const updatedSlave = {
+              ...inst,
+              date: newSlaveDate,
+              rawDate: formatToDDMMYYYY(newSlaveDate),
+              dateError: false
+            };
+            if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+              updatedSlave.status = (newSlaveDate && newSlaveDate <= todayStr) ? 'Por facturar' : 'Aprobada';
+            }
+            return updatedSlave;
+          }
+        }
+
+        return inst;
+      });
+    });
+  };
+
+  const handleDateTextBlur = (index, value) => {
+    setLocalInstallments(prev => {
+      const trimmed = (value || '').trim();
+      const isValid = isValidDateDDMMYYYY(trimmed);
+      const isoDate = isValid ? formatToIsoDate(trimmed) : null;
+
+      const metadata = getGroupMetadata(prev);
+      const instToChange = prev[index];
+      const groupId = instToChange?.grupo;
+      const isMaster = groupId && metadata[groupId]?.masterId === instToChange?.id;
+
+      return prev.map((inst, idx) => {
+        if (idx === index) {
+          if (isValid && isoDate) {
+            const updated = {
+              ...inst,
+              rawDate: formatToDDMMYYYY(isoDate),
+              date: isoDate,
+              dateError: false
+            };
+            if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+              updated.status = (isoDate <= todayStr) ? 'Por facturar' : 'Aprobada';
+            }
+            return updated;
+          }
+          return {
+            ...inst,
+            rawDate: trimmed,
+            dateError: true
+          };
+        }
+
+        if (isValid && isoDate && isMaster && inst.grupo === groupId) {
+          const orderedMembers = metadata[groupId].orderedMembers;
+          const slaveIndex = orderedMembers.findIndex(m => m.id === inst.id);
+          if (slaveIndex > 0) {
+            const newSlaveDate = addMonths(isoDate, slaveIndex);
+            const updatedSlave = {
+              ...inst,
+              date: newSlaveDate,
+              rawDate: formatToDDMMYYYY(newSlaveDate),
+              dateError: false
+            };
+            if (inst.dateConfirmed || inst.status === 'Aprobada' || inst.status === 'Por facturar') {
+              updatedSlave.status = (newSlaveDate && newSlaveDate <= todayStr) ? 'Por facturar' : 'Aprobada';
+            }
+            return updatedSlave;
+          }
+        }
+
+        return inst;
+      });
+    });
+  };
+
+  const handleDatePickerChange = (index, isoDate) => {
+    if (!isoDate) return;
+    handleFieldChange(index, 'date', isoDate);
+  };
+
+  const handleActualPaymentDateTextChange = (index, value) => {
+    setLocalInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== index) return inst;
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return {
+          ...inst,
+          rawActualPaymentDate: value,
+          actualPaymentDate: null,
+          actualPaymentDateError: false
+        };
+      }
+      const isValid = isValidDateDDMMYYYY(trimmed);
+      const isoDate = isValid ? formatToIsoDate(trimmed) : null;
+      return {
+        ...inst,
+        rawActualPaymentDate: value,
+        actualPaymentDate: isValid && isoDate ? isoDate : inst.actualPaymentDate,
+        actualPaymentDateError: trimmed.length >= 10 && !isValid
+      };
+    }));
+  };
+
+  const handleActualPaymentDateTextBlur = (index, value) => {
+    setLocalInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== index) return inst;
+      const trimmed = (value || '').trim();
+      if (!trimmed) {
+        return {
+          ...inst,
+          rawActualPaymentDate: '',
+          actualPaymentDate: null,
+          actualPaymentDateError: false
+        };
+      }
+      const isValid = isValidDateDDMMYYYY(trimmed);
+      if (isValid) {
+        const iso = formatToIsoDate(trimmed);
+        return {
+          ...inst,
+          rawActualPaymentDate: formatToDDMMYYYY(iso),
+          actualPaymentDate: iso,
+          actualPaymentDateError: false
+        };
+      }
+      return {
+        ...inst,
+        rawActualPaymentDate: trimmed,
+        actualPaymentDateError: true
+      };
+    }));
+  };
+
+  const handleActualPaymentDatePickerChange = (index, isoDate) => {
+    handleFieldChange(index, 'actualPaymentDate', isoDate || null);
+  };
+
   const handleAddRow = () => {
     let nextDate = '';
     let nextNum = 1;
@@ -402,6 +586,10 @@ export default function InstallmentsModal({
       origin_budget_id: initialInstallments[0]?.origin_budget_id || null,
       numQuota: String(nextNum).padStart(2, '0'),
       date: nextDate,
+      rawDate: formatToDDMMYYYY(nextDate),
+      dateError: false,
+      rawActualPaymentDate: '',
+      actualPaymentDateError: false,
       uf: 0,
       status: 'Por aprobar',
       description: '',
@@ -529,9 +717,12 @@ export default function InstallmentsModal({
           if (slaveIndex === 0) {
             return inst;
           } else if (slaveIndex > 0) {
+            const slaveDate = addMonths(masterInst.date, slaveIndex);
             return {
               ...inst,
-              date: addMonths(masterInst.date, slaveIndex),
+              date: slaveDate,
+              rawDate: formatToDDMMYYYY(slaveDate),
+              dateError: false,
               uf: masterInst.uf,
               dateConfirmed: masterInst.dateConfirmed,
               description: masterInst.description || '',
@@ -780,11 +971,18 @@ export default function InstallmentsModal({
       }
     }
 
-    // Verificar que todas las cuotas activas tengan fecha planificada asignada
+    // Verificar que todas las cuotas activas tengan fecha planificada asignada y válida
     for (let i = 0; i < localInstallments.length; i++) {
       const curr = localInstallments[i];
-      if (curr.status !== 'Anulada' && !curr.date) {
-        setValidationError(`La cuota ${curr.numQuota} no tiene una fecha planificada asignada.`);
+      if (curr.status !== 'Anulada') {
+        const isDateValid = !curr.dateError && curr.date && isValidDateDDMMYYYY(curr.rawDate || formatToDDMMYYYY(curr.date));
+        if (!isDateValid) {
+          setValidationError(`La cuota ${curr.numQuota} tiene una fecha planificada inválida o incompleta. Use el formato DD/MM/AAAA.`);
+          return;
+        }
+      }
+      if (curr.actualPaymentDateError || (curr.rawActualPaymentDate && !isValidDateDDMMYYYY(curr.rawActualPaymentDate))) {
+        setValidationError(`La cuota ${curr.numQuota} tiene una fecha de pago inválida. Use el formato DD/MM/AAAA o déjela vacía.`);
         return;
       }
     }
@@ -805,6 +1003,11 @@ export default function InstallmentsModal({
         delete updatedInst.deleteOcFile;
         // Strip group property before saving
         delete updatedInst.grupo;
+        // Strip UI temporary properties
+        delete updatedInst.rawDate;
+        delete updatedInst.dateError;
+        delete updatedInst.rawActualPaymentDate;
+        delete updatedInst.actualPaymentDateError;
         processedInstallments.push(updatedInst);
       }
 
@@ -920,7 +1123,7 @@ export default function InstallmentsModal({
               <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 border-b border-slate-200 z-20 shadow-xs">
                 <tr className="text-body-sm font-semibold">
                   <th className="p-2 border-b border-slate-200 text-center min-w-[70px] w-16">Nº Cuota</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Fecha Planificada</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Planificada</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[60px] w-14" title="Fecha Confirmada (Doble clic para confirmar o desconfirmar)">Conf.</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[90px] w-24">Moneda</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Monto</th>
@@ -928,7 +1131,7 @@ export default function InstallmentsModal({
                   <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">Folio Factura</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">OC</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Detalle Pesos (CLP)</th>
-                  <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Fecha Pago</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Pago</th>
                   <th className="p-2 border-b text-center min-w-[160px] w-40">Descripción</th>
                   <th className="p-2 border-b text-center min-w-[160px] w-40">Comentario</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Empresa Fact.</th>
@@ -988,29 +1191,64 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Fecha Planificada */}
-                        <td className="p-1">
+                        <td className="p-1 min-w-[140px] w-36">
                           <div className="relative flex items-center w-full">
                             <input
                               type="text"
-                              readOnly
-                              value={row.date ? row.date.split('-').reverse().join('/') : ''}
-                              className={`w-full border-0 bg-transparent p-1 focus:bg-white rounded outline-none text-body-sm pr-6 text-center ${
-                                row.dateConfirmed ? 'text-emerald-700 font-semibold' : ''
-                              } ${isSlave ? 'text-slate-400 font-normal' : ''}`}
-                              placeholder="dd/mm/yyyy"
-                            />
-                            <input
-                              type="date"
-                              value={row.date || ''}
                               disabled={isSlave}
-                              onChange={(e) => handleFieldChange(idx, 'date', e.target.value)}
-                              className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
-                                isSlave ? 'cursor-not-allowed' : 'cursor-pointer'
-                              }`}
+                              value={row.rawDate !== undefined ? row.rawDate : (row.date ? formatToDDMMYYYY(row.date) : '')}
+                              onChange={(e) => handleDateTextChange(idx, e.target.value)}
+                              onBlur={(e) => handleDateTextBlur(idx, e.target.value)}
+                              placeholder="dd/mm/aaaa"
+                              title={row.dateError ? "Fecha inválida. Use formato dd/mm/aaaa (ej: 25/09/2026)" : (isSlave ? "Fecha controlada por la cuota principal" : "")}
+                              className={`w-full p-1 text-body-sm rounded outline-none pr-7 transition-all text-center ${
+                                row.dateError
+                                  ? 'border border-error bg-red-50/60 text-error focus:ring-1 focus:ring-error'
+                                  : 'border-0 bg-transparent focus:bg-white focus:ring-1 focus:ring-secondary'
+                              } ${
+                                row.dateConfirmed ? 'text-emerald-700 font-semibold' : ''
+                              } ${isSlave ? 'text-slate-400 font-normal cursor-not-allowed' : ''}`}
                             />
-                            <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">
-                              calendar_month
-                            </span>
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center pr-1">
+                              <input
+                                type="date"
+                                id={`installment-date-picker-${idx}`}
+                                value={row.date || ''}
+                                disabled={isSlave}
+                                onChange={(e) => handleDatePickerChange(idx, e.target.value)}
+                                className="absolute right-0 top-0 w-6 h-full opacity-0 pointer-events-none"
+                                tabIndex={-1}
+                              />
+                              <button
+                                type="button"
+                                disabled={isSlave}
+                                onClick={() => {
+                                  if (isSlave) return;
+                                  const picker = document.getElementById(`installment-date-picker-${idx}`);
+                                  if (picker) {
+                                    if (typeof picker.showPicker === 'function') {
+                                      try {
+                                        picker.showPicker();
+                                        return;
+                                      } catch (err) {
+                                        // fallback
+                                      }
+                                    }
+                                    picker.focus();
+                                  }
+                                }}
+                                className={`p-0.5 text-slate-400 transition-colors rounded flex items-center justify-center ${
+                                  isSlave
+                                    ? 'cursor-not-allowed opacity-40'
+                                    : 'hover:text-secondary focus:outline-none cursor-pointer active:scale-95'
+                                }`}
+                                title={isSlave ? "Fecha controlada por la cuota principal" : "Seleccionar fecha"}
+                              >
+                                <span className="material-symbols-outlined text-[17px]">
+                                  calendar_month
+                                </span>
+                              </button>
+                            </div>
                           </div>
                         </td>
 
@@ -1162,29 +1400,60 @@ export default function InstallmentsModal({
                         </td>
 
                         {/* Fecha Pago */}
-                        <td className="p-1 w-32">
+                        <td className="p-1 min-w-[140px] w-36">
                           <div className="relative flex items-center w-full">
                             <input
                               type="text"
-                              readOnly
-                              value={row.actualPaymentDate ? row.actualPaymentDate.split('-').reverse().join('/') : ''}
-                              className={`w-full border-0 bg-transparent p-1 focus:bg-white rounded outline-none text-body-sm pr-6 text-center ${
-                                isSlave || isMaster ? 'text-slate-400 cursor-not-allowed' : ''
-                              }`}
-                              placeholder={isSlave || isMaster ? "Bloqueado" : "dd/mm/yyyy"}
-                            />
-                            <input
-                              type="date"
-                              value={row.actualPaymentDate || ''}
                               disabled={isSlave || isMaster}
-                              onChange={(e) => handleFieldChange(idx, 'actualPaymentDate', e.target.value)}
-                              className={`absolute inset-0 w-full h-full opacity-0 z-10 ${
-                                isSlave || isMaster ? 'cursor-not-allowed' : 'cursor-pointer'
-                              }`}
+                              value={row.rawActualPaymentDate !== undefined ? row.rawActualPaymentDate : (row.actualPaymentDate ? formatToDDMMYYYY(row.actualPaymentDate) : '')}
+                              onChange={(e) => handleActualPaymentDateTextChange(idx, e.target.value)}
+                              onBlur={(e) => handleActualPaymentDateTextBlur(idx, e.target.value)}
+                              placeholder={isSlave || isMaster ? "Bloqueado" : "dd/mm/aaaa"}
+                              title={row.actualPaymentDateError ? "Fecha inválida. Use formato dd/mm/aaaa (ej: 25/09/2026)" : ""}
+                              className={`w-full p-1 text-body-sm rounded outline-none pr-7 transition-all text-center ${
+                                row.actualPaymentDateError
+                                  ? 'border border-error bg-red-50/60 text-error focus:ring-1 focus:ring-error'
+                                  : 'border-0 bg-transparent focus:bg-white focus:ring-1 focus:ring-secondary'
+                              } ${isSlave || isMaster ? 'text-slate-400 cursor-not-allowed' : ''}`}
                             />
-                            <span className="material-symbols-outlined absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[16px]">
-                              calendar_month
-                            </span>
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center pr-1">
+                              <input
+                                type="date"
+                                id={`installment-payment-picker-${idx}`}
+                                value={row.actualPaymentDate || ''}
+                                disabled={isSlave || isMaster}
+                                onChange={(e) => handleActualPaymentDatePickerChange(idx, e.target.value)}
+                                className="absolute right-0 top-0 w-6 h-full opacity-0 pointer-events-none"
+                                tabIndex={-1}
+                              />
+                              <button
+                                type="button"
+                                disabled={isSlave || isMaster}
+                                onClick={() => {
+                                  if (isSlave || isMaster) return;
+                                  const picker = document.getElementById(`installment-payment-picker-${idx}`);
+                                  if (picker) {
+                                    if (typeof picker.showPicker === 'function') {
+                                      try {
+                                        picker.showPicker();
+                                        return;
+                                      } catch (err) {}
+                                    }
+                                    picker.focus();
+                                  }
+                                }}
+                                className={`p-0.5 text-slate-400 transition-colors rounded flex items-center justify-center ${
+                                  isSlave || isMaster
+                                    ? 'cursor-not-allowed opacity-40'
+                                    : 'hover:text-secondary focus:outline-none cursor-pointer active:scale-95'
+                                }`}
+                                title={isSlave || isMaster ? "Bloqueado" : "Seleccionar fecha de pago"}
+                              >
+                                <span className="material-symbols-outlined text-[17px]">
+                                  calendar_month
+                                </span>
+                              </button>
+                            </div>
                           </div>
                         </td>
 
