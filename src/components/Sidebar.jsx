@@ -5,9 +5,9 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const isAdmin = user?.role?.toLowerCase() === 'admin' || 
-                  user?.role?.toLowerCase() === 'administrador' || 
-                  user?.role?.toLowerCase() === 'system administrator';
+  const isAdmin = user?.role?.toLowerCase() === 'admin' ||
+    user?.role?.toLowerCase() === 'administrador' ||
+    user?.role?.toLowerCase() === 'system administrator';
 
   const daysSinceBackup = useMemo(() => {
     if (!latestBackupLog) return null;
@@ -47,9 +47,8 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
     <div className="min-h-screen flex bg-background text-on-surface">
       {/* SideNavBar Shell */}
       <aside
-        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col bg-[#091426] h-screen transition-all duration-300 border-r border-slate-800 shadow-xl ${
-          isCollapsed ? 'w-[72px]' : 'w-[260px]'
-        }`}
+        className={`fixed left-0 top-0 bottom-0 z-50 flex flex-col bg-[#091426] h-screen transition-all duration-300 border-r border-slate-800 shadow-xl ${isCollapsed ? 'w-[72px]' : 'w-[260px]'
+          }`}
       >
         {/* Brand Logo & Title */}
         <div className={`py-5 flex flex-col border-b border-slate-800/80 ${isCollapsed ? 'px-3 items-center' : 'px-5'}`}>
@@ -70,28 +69,21 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
 
         {/* Navigation Items */}
         <nav className="flex-1 px-3 py-4 flex flex-col gap-1.5 custom-scrollbar overflow-y-auto text-left">
-          {!isCollapsed && (
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest px-3 mb-1">
-              Menú Principal
-            </span>
-          )}
           {navItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => setCurrentTab(item.id)}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left active:scale-[0.98] ${
-                  isActive
-                    ? 'bg-slate-800/90 text-white font-semibold shadow-inner border-l-4 border-emerald-400'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800/40'
-                }`}
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left active:scale-[0.98] ${isActive
+                  ? 'bg-slate-800/90 text-white font-semibold shadow-inner border-l-4 border-emerald-400'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/40'
+                  }`}
                 title={item.label}
               >
-                <span 
-                  className={`material-symbols-outlined text-[22px] transition-colors ${
-                    isActive ? 'text-emerald-400' : 'text-slate-400'
-                  }`}
+                <span
+                  className={`material-symbols-outlined text-[22px] transition-colors ${isActive ? 'text-emerald-400' : 'text-slate-400'
+                    }`}
                   style={{ fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0" }}
                 >
                   {item.icon}
@@ -106,15 +98,13 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
           {isAdmin && (
             <button
               onClick={onOpenBackupHistory}
-              className={`flex ${isCollapsed ? 'items-center justify-center px-0' : 'items-start px-3.5'} gap-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left hover:bg-slate-800/50 border-t border-slate-800/80 pt-3 mt-3 active:scale-[0.98] ${
-                hasWarning ? 'text-slate-200 hover:text-white' : 'text-slate-300 hover:text-white'
-              }`}
+              className={`flex ${isCollapsed ? 'items-center justify-center px-0' : 'items-start px-3.5'} gap-3 py-2.5 rounded-xl transition-all duration-200 cursor-pointer w-full text-left hover:bg-slate-800/50 border-t border-slate-800/80 pt-3 mt-3 active:scale-[0.98] ${hasWarning ? 'text-slate-200 hover:text-white' : 'text-slate-300 hover:text-white'
+                }`}
               title={`Respaldos e Historial - ${subtitleText}`}
             >
               <div className="relative shrink-0 mt-0.5">
-                <span className={`material-symbols-outlined text-[22px] transition-colors ${
-                  hasWarning ? 'text-amber-400' : 'text-slate-400'
-                }`}>
+                <span className={`material-symbols-outlined text-[22px] transition-colors ${hasWarning ? 'text-amber-400' : 'text-slate-400'
+                  }`}>
                   cloud_download
                 </span>
                 {hasWarning && isCollapsed && (
@@ -124,9 +114,8 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
               {!isCollapsed && (
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-medium whitespace-nowrap leading-tight text-slate-100">Respaldos e Historial</span>
-                  <span className={`text-[11px] mt-1 flex items-center gap-1 leading-tight ${
-                    hasWarning ? 'text-amber-400 font-semibold' : 'text-slate-400 font-normal'
-                  }`}>
+                  <span className={`text-[11px] mt-1 flex items-center gap-1 leading-tight ${hasWarning ? 'text-amber-400 font-semibold' : 'text-slate-400 font-normal'
+                    }`}>
                     {hasWarning && (
                       <span className="material-symbols-outlined text-[13px] text-amber-400 shrink-0">warning</span>
                     )}
