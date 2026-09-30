@@ -2613,6 +2613,7 @@ export default function Presupuestos({
                                 <th className="p-md font-semibold text-on-surface-variant">Fecha de Cobro</th>
                                 <th className="p-md font-semibold text-on-surface-variant">Estado</th>
                                 <th className="p-md font-semibold text-on-surface-variant text-right">Monto</th>
+                                <th className="p-md font-semibold text-on-surface-variant">Descripción</th>
                                 <th className="p-md font-semibold text-on-surface-variant">Comentario</th>
                               </tr>
                             </thead>
@@ -2642,15 +2643,18 @@ export default function Presupuestos({
                                             : cuota.status === 'Anulada'
                                               ? 'bg-red-50 text-red-700 border-red-200'
                                               : 'bg-slate-100 text-slate-700 border-slate-350'
-                                      }`}>
+                                    }`}>
                                       {cuota.status || 'Por aprobar'}
                                     </span>
                                   </td>
                                   <td className="p-md text-right font-bold text-on-surface">
                                     {formatAmountWithCurrency(cuota.uf, cuota.currency || viewingQuote.currency || 'UF')}
                                   </td>
-                                  <td className="p-md text-on-surface-variant italic">
-                                    {cuota.comment || 'Facturación ordinaria'}
+                                  <td className="p-md text-on-surface font-medium">
+                                    {cuota.description || '-'}
+                                  </td>
+                                  <td className="p-md text-on-surface-variant italic text-xs">
+                                    {cuota.comment || '-'}
                                   </td>
                                 </tr>
                               ))}
@@ -3265,11 +3269,12 @@ export default function Presupuestos({
                           <table className="w-full text-left border-collapse">
                             <thead className="bg-slate-50 border-b sticky top-0 z-10 font-semibold text-on-surface-variant">
                               <tr>
-                                <th className="p-2 border-b border-slate-200 text-center w-24">N° Cuota</th>
-                                <th className="p-2 border-b border-slate-200 w-40">Fecha de Cobro</th>
-                                <th className="p-2 border-b border-slate-200 w-40">Estado</th>
-                                <th className="p-2 border-b border-slate-200 text-right w-32 font-semibold text-on-surface-variant">Monto</th>
-                                <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Comentario / Descripción</th>
+                                <th className="p-2 border-b border-slate-200 text-center w-20">N° Cuota</th>
+                                <th className="p-2 border-b border-slate-200 w-36">Fecha de Cobro</th>
+                                <th className="p-2 border-b border-slate-200 w-28 text-center">Estado</th>
+                                <th className="p-2 border-b border-slate-200 text-right w-28 font-semibold text-on-surface-variant">Monto</th>
+                                <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Descripción</th>
+                                <th className="p-2 border-b border-slate-200 font-semibold text-on-surface-variant">Comentario</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-body-sm text-slate-700">
@@ -3308,8 +3313,11 @@ export default function Presupuestos({
                                   <td className="p-2 text-right font-semibold text-primary">
                                     {formatAmountWithCurrency(row.uf, row.currency || quoteCurrency || 'UF')}
                                   </td>
-                                  <td className="p-2 text-on-surface-variant italic">
-                                    {row.description || row.comment || 'Facturación ordinaria'}
+                                  <td className="p-2 text-on-surface-variant font-medium">
+                                    {row.description || '-'}
+                                  </td>
+                                  <td className="p-2 text-on-surface-variant italic text-xs text-slate-500">
+                                    {row.comment || '-'}
                                   </td>
                                 </tr>
                               ))}

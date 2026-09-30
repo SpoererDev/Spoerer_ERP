@@ -743,6 +743,7 @@ export const supabaseService = {
           currency: inst.currency || quote.currency || savedBudget.currency || 'UF',
           billing_company: inst.billingCompany || quote.billingCompany || savedBudget.billing_company || 'Spoerer',
           legal_entity_id: inst.legalEntityId || quote.legalEntityId || quote.clientId || savedBudget.legal_entity_id || savedBudget.client_id || null,
+          description: inst.description || '',
           comment: inst.comment || '',
           status: mapInstallmentStatusToDb(inst.status || 'Por aprobar'),
           date_confirmed: inst.dateConfirmed || false,

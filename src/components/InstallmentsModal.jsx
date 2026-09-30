@@ -158,6 +158,8 @@ export default function InstallmentsModal({
           ...inst,
           rawDate: inst.date ? formatToDDMMYYYY(inst.date) : '',
           dateError: false,
+          rawActualInvoiceDate: inst.actualInvoiceDate ? formatToDDMMYYYY(inst.actualInvoiceDate) : '',
+          actualInvoiceDateError: false,
           rawActualPaymentDate: inst.actualPaymentDate ? formatToDDMMYYYY(inst.actualPaymentDate) : '',
           actualPaymentDateError: false,
           description: inst.description || '',
@@ -208,6 +210,8 @@ export default function InstallmentsModal({
           dateConfirmed: false,
           rawDate: instToChange.date ? formatToDDMMYYYY(instToChange.date) : '',
           dateError: false,
+          rawActualInvoiceDate: '',
+          actualInvoiceDateError: false,
           rawActualPaymentDate: '',
           actualPaymentDateError: false,
           comment: `Reemplazo cuota ${instToChange.numQuota}, factura ${instToChange.invoiceNumber || 'S/N'} que fue anulada`,
@@ -318,6 +322,10 @@ export default function InstallmentsModal({
                 updated.status = 'Aprobada';
               }
             }
+          } else if (field === 'actualInvoiceDate') {
+            updated.actualInvoiceDate = newVal || null;
+            updated.rawActualInvoiceDate = newVal ? formatToDDMMYYYY(newVal) : '';
+            updated.actualInvoiceDateError = false;
           } else if (field === 'actualPaymentDate') {
             updated.actualPaymentDate = newVal || null;
             updated.rawActualPaymentDate = newVal ? formatToDDMMYYYY(newVal) : '';
@@ -499,6 +507,63 @@ export default function InstallmentsModal({
     handleFieldChange(index, 'date', isoDate);
   };
 
+  const handleActualInvoiceDateTextChange = (index, value) => {
+    setLocalInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== index) return inst;
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return {
+          ...inst,
+          rawActualInvoiceDate: value,
+          actualInvoiceDate: null,
+          actualInvoiceDateError: false
+        };
+      }
+      const isValid = isValidDateDDMMYYYY(trimmed);
+      const isoDate = isValid ? formatToIsoDate(trimmed) : null;
+      return {
+        ...inst,
+        rawActualInvoiceDate: value,
+        actualInvoiceDate: isValid && isoDate ? isoDate : inst.actualInvoiceDate,
+        actualInvoiceDateError: trimmed.length >= 10 && !isValid
+      };
+    }));
+  };
+
+  const handleActualInvoiceDateTextBlur = (index, value) => {
+    setLocalInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== index) return inst;
+      const trimmed = (value || '').trim();
+      if (!trimmed) {
+        return {
+          ...inst,
+          rawActualInvoiceDate: '',
+          actualInvoiceDate: null,
+          actualInvoiceDateError: false
+        };
+      }
+      const isValid = isValidDateDDMMYYYY(trimmed);
+      if (isValid) {
+        const iso = formatToIsoDate(trimmed);
+        return {
+          ...inst,
+          rawActualInvoiceDate: formatToDDMMYYYY(iso),
+          actualInvoiceDate: iso,
+          actualInvoiceDateError: false
+        };
+      }
+      return {
+        ...inst,
+        rawActualInvoiceDate: trimmed,
+        actualInvoiceDateError: true
+      };
+    }));
+  };
+
+  const handleActualInvoiceDatePickerChange = (index, isoDate) => {
+    handleFieldChange(index, 'actualInvoiceDate', isoDate || null);
+  };
+
   const handleActualPaymentDateTextChange = (index, value) => {
     setLocalInstallments(prev => prev.map((inst, idx) => {
       if (idx !== index) return inst;
@@ -588,6 +653,8 @@ export default function InstallmentsModal({
       date: nextDate,
       rawDate: formatToDDMMYYYY(nextDate),
       dateError: false,
+      rawActualInvoiceDate: '',
+      actualInvoiceDateError: false,
       rawActualPaymentDate: '',
       actualPaymentDateError: false,
       uf: 0,
@@ -981,6 +1048,10 @@ export default function InstallmentsModal({
           return;
         }
       }
+      if (curr.actualInvoiceDateError || (curr.rawActualInvoiceDate && !isValidDateDDMMYYYY(curr.rawActualInvoiceDate))) {
+        setValidationError(`La cuota ${curr.numQuota} tiene una fecha de facturación inválida. Use el formato DD/MM/AAAA o déjela vacía.`);
+        return;
+      }
       if (curr.actualPaymentDateError || (curr.rawActualPaymentDate && !isValidDateDDMMYYYY(curr.rawActualPaymentDate))) {
         setValidationError(`La cuota ${curr.numQuota} tiene una fecha de pago inválida. Use el formato DD/MM/AAAA o déjela vacía.`);
         return;
@@ -1006,6 +1077,8 @@ export default function InstallmentsModal({
         // Strip UI temporary properties
         delete updatedInst.rawDate;
         delete updatedInst.dateError;
+        delete updatedInst.rawActualInvoiceDate;
+        delete updatedInst.actualInvoiceDateError;
         delete updatedInst.rawActualPaymentDate;
         delete updatedInst.actualPaymentDateError;
         processedInstallments.push(updatedInst);
@@ -1119,7 +1192,7 @@ export default function InstallmentsModal({
 
           {/* Tabla de cuotas */}
           <div className="border border-slate-200 rounded-lg bg-white overflow-auto flex-1 min-h-[320px] custom-scrollbar shadow-xs">
-            <table className="w-full text-left border-collapse min-w-[1720px]">
+            <table className="w-full text-left border-collapse min-w-[1860px]">
               <thead className="bg-slate-100 text-slate-700 text-label-sm uppercase font-bold sticky top-0 border-b border-slate-200 z-20 shadow-xs">
                 <tr className="text-body-sm font-semibold">
                   <th className="p-2 border-b border-slate-200 text-center min-w-[70px] w-16">Nº Cuota</th>
@@ -1129,6 +1202,7 @@ export default function InstallmentsModal({
                   <th className="p-2 border-b border-slate-200 text-center min-w-[110px] w-28">Monto</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[120px] w-28">Estado</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">Folio Factura</th>
+                  <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Facturación</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[100px] w-24">OC</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[130px] w-32">Detalle Pesos (CLP)</th>
                   <th className="p-2 border-b border-slate-200 text-center min-w-[140px] w-36">Fecha Pago</th>
@@ -1363,6 +1437,64 @@ export default function InstallmentsModal({
                             }`}
                             placeholder={isSlave || isMaster ? "Bloqueado" : "..."}
                           />
+                        </td>
+
+                        {/* Fecha Facturación */}
+                        <td className="p-1 min-w-[140px] w-36">
+                          <div className="relative flex items-center w-full">
+                            <input
+                              type="text"
+                              disabled={isSlave || isMaster}
+                              value={row.rawActualInvoiceDate !== undefined ? row.rawActualInvoiceDate : (row.actualInvoiceDate ? formatToDDMMYYYY(row.actualInvoiceDate) : '')}
+                              onChange={(e) => handleActualInvoiceDateTextChange(idx, e.target.value)}
+                              onBlur={(e) => handleActualInvoiceDateTextBlur(idx, e.target.value)}
+                              placeholder={isSlave || isMaster ? "Bloqueado" : "dd/mm/aaaa"}
+                              title={row.actualInvoiceDateError ? "Fecha inválida. Use formato dd/mm/aaaa (ej: 25/09/2026)" : ""}
+                              className={`w-full p-1 text-body-sm rounded outline-none pr-7 transition-all text-center ${
+                                row.actualInvoiceDateError
+                                  ? 'border border-error bg-red-50/60 text-error focus:ring-1 focus:ring-error'
+                                  : 'border-0 bg-transparent focus:bg-white focus:ring-1 focus:ring-secondary'
+                              } ${isSlave || isMaster ? 'text-slate-400 cursor-not-allowed' : ''}`}
+                            />
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center pr-1">
+                              <input
+                                type="date"
+                                id={`installment-invoice-picker-${idx}`}
+                                value={row.actualInvoiceDate || ''}
+                                disabled={isSlave || isMaster}
+                                onChange={(e) => handleActualInvoiceDatePickerChange(idx, e.target.value)}
+                                className="absolute right-0 top-0 w-6 h-full opacity-0 pointer-events-none"
+                                tabIndex={-1}
+                              />
+                              <button
+                                type="button"
+                                disabled={isSlave || isMaster}
+                                onClick={() => {
+                                  if (isSlave || isMaster) return;
+                                  const picker = document.getElementById(`installment-invoice-picker-${idx}`);
+                                  if (picker) {
+                                    if (typeof picker.showPicker === 'function') {
+                                      try {
+                                        picker.showPicker();
+                                        return;
+                                      } catch (err) {}
+                                    }
+                                    picker.focus();
+                                  }
+                                }}
+                                className={`p-0.5 text-slate-400 transition-colors rounded flex items-center justify-center ${
+                                  isSlave || isMaster
+                                    ? 'cursor-not-allowed opacity-40'
+                                    : 'hover:text-secondary focus:outline-none cursor-pointer active:scale-95'
+                                }`}
+                                title={isSlave || isMaster ? "Bloqueado" : "Seleccionar fecha de facturación"}
+                              >
+                                <span className="material-symbols-outlined text-[17px]">
+                                  calendar_month
+                                </span>
+                              </button>
+                            </div>
+                          </div>
                         </td>
 
                         {/* OC */}

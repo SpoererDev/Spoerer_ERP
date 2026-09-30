@@ -756,6 +756,7 @@ export default function Facturacion({
         "Monto": parseFloat(installment.uf) || 0,
         "UF": parseFloat(installment.uf) || 0,
         "$": isInvoiced ? parseFloat(installment.total_clp) || 0 : '',
+        "F-Factura": installment.actualInvoiceDate ? formatDateExcel(installment.actualInvoiceDate) : '',
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
         "Estado F#": installment.status || '',
         "Tipo": '',
@@ -1598,7 +1599,7 @@ export default function Facturacion({
 
                           {/* Nivel 3: Tabla de Cuotas */}
                           <div className="overflow-x-auto rounded-lg border border-outline-variant/30">
-                            <table className="w-full text-left border-collapse min-w-[1250px]">
+                            <table className="w-full text-left border-collapse min-w-[1360px]">
                               <thead>
                                 <tr className="bg-surface-container-low">
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 w-20">Nº Cuota</th>
@@ -1610,6 +1611,7 @@ export default function Facturacion({
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Monto</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center">Estado</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Folio Factura</th>
+                                  <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Fecha Facturación</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-right">Detalle Pesos (CLP)</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30">Fecha Pago</th>
                                   <th className="px-md py-sm font-label-md text-label-md text-on-surface-variant border-b border-outline-variant/30 text-center">Respaldos</th>
@@ -1691,6 +1693,9 @@ export default function Facturacion({
                                       </td>
                                       <td className="px-md py-md font-medium text-on-surface-variant">
                                         {inst.invoiceNumber || '-'}
+                                      </td>
+                                      <td className="px-md py-md text-on-surface-variant whitespace-nowrap">
+                                        {formatDate(inst.actualInvoiceDate)}
                                       </td>
                                       <td className="px-md py-md text-right">
                                         {(inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') && (inst.total_clp === null || inst.total_clp === undefined) ? (
