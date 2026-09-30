@@ -190,6 +190,55 @@ export default function Proyectos({
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [extraCostToDelete, setExtraCostToDelete] = useState(null);
 
+  // Filter expansion and additional filter states
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [clientFilter, setClientFilter] = useState('Todos');
+  const [billingCompanyFilter, setBillingCompanyFilter] = useState('Todos');
+  const [yearFilter, setYearFilter] = useState('Todos');
+  const [situacionFilter, setSituacionFilter] = useState('Todos');
+
+  const availableClients = useMemo(() => {
+    const set = new Set();
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        if (p.cliente && p.cliente.trim()) set.add(p.cliente.trim());
+      });
+    }
+    if (clients && Array.isArray(clients)) {
+      clients.forEach(c => {
+        if (c.company && c.company.trim()) set.add(c.company.trim());
+        if (c.realClient && c.realClient.trim()) set.add(c.realClient.trim());
+      });
+    }
+    if (mainClients && Array.isArray(mainClients)) {
+      mainClients.forEach(mc => {
+        if (mc.name && mc.name.trim()) set.add(mc.name.trim());
+      });
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }, [projects, clients, mainClients]);
+
+  const availableBillingCompanies = useMemo(() => {
+    const set = new Set(['Spoerer', 'FPF']);
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        if (p.billingCompany && p.billingCompany.trim()) set.add(p.billingCompany.trim());
+      });
+    }
+    return Array.from(set).sort();
+  }, [projects]);
+
+  const availableYears = useMemo(() => {
+    const set = new Set();
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        if (p.anio) set.add(Number(p.anio));
+      });
+    }
+    set.add(new Date().getFullYear());
+    return Array.from(set).filter(Boolean).sort((a, b) => b - a);
+  }, [projects]);
+
   // Dropdown filter state and click-outside
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const multiselectRef = useRef(null);
@@ -240,6 +289,10 @@ export default function Proyectos({
     setSearchTerm('');
     setTipoFilter(null);
     setEncargadoFilter('Todos');
+    setClientFilter('Todos');
+    setBillingCompanyFilter('Todos');
+    setYearFilter('Todos');
+    setSituacionFilter('Todos');
   };
 
   // Search and Project Type filter
@@ -259,12 +312,57 @@ export default function Proyectos({
     }
     // 3. Search query filter
     const term = searchTerm.toLowerCase();
-    return (
+    const matchesSearch =
       project.projectName.toLowerCase().includes(term) ||
       project.cliente.toLowerCase().includes(term) ||
       (project.encargado && project.encargado.toLowerCase().includes(term)) ||
-      project.anio.toString().includes(term)
-    );
+      project.anio.toString().includes(term);
+
+    if (!matchesSearch) return false;
+
+    // 4. Client Filter
+    if (clientFilter !== 'Todos') {
+      const pCliente = (project.cliente || '').trim().toLowerCase();
+      const target = clientFilter.trim().toLowerCase();
+      let matchesClient = pCliente === target;
+      if (!matchesClient && project.clientId && clients) {
+        const c = clients.find(cl => cl.id === project.clientId);
+        if (c && ((c.company && c.company.trim().toLowerCase() === target) || (c.realClient && c.realClient.trim().toLowerCase() === target))) {
+          matchesClient = true;
+        }
+      }
+      if (!matchesClient && project.mainClientId && mainClients) {
+        const mc = mainClients.find(m => m.id === project.mainClientId);
+        if (mc && mc.name && mc.name.trim().toLowerCase() === target) {
+          matchesClient = true;
+        }
+      }
+      if (!matchesClient) return false;
+    }
+
+    // 5. Empresa Facturacion Filter
+    if (billingCompanyFilter !== 'Todos') {
+      const comp = project.billingCompany || 'Spoerer';
+      if (comp !== billingCompanyFilter) return false;
+    }
+
+    // 6. Year Filter
+    if (yearFilter !== 'Todos') {
+      if (String(project.anio) !== String(yearFilter)) return false;
+    }
+
+    // 7. Situacion Filter (sin presupuesto, con costos extras)
+    if (situacionFilter !== 'Todos') {
+      if (situacionFilter === 'sin_presupuesto') {
+        const projBudgets = (budgets || []).filter(b => b.projectId === project.id);
+        if (projBudgets.length > 0) return false;
+      } else if (situacionFilter === 'con_costos_extras') {
+        const projCosts = (extraCosts || []).filter(c => c.project_id === project.id);
+        if (projCosts.length === 0) return false;
+      }
+    }
+
+    return true;
   });
 
   // Calculate KPIs using filteredProjects
@@ -778,106 +876,190 @@ export default function Proyectos({
         </CollapsibleKpiBanner>
 
         {/* Search and Filters */}
-        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
-          {/* Left Side: Buscar and Limpiar */}
-          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-              <div className="relative w-full">
-                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                <input
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="Buscar por código, nombre o cliente..."
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-            {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos') && (
-              <button
-                onClick={handleClearFilters}
-                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
-              >
-                <span className="material-symbols-outlined text-[16px]">clear_all</span>
-                <span>Limpiar</span>
-              </button>
-            )}
-          </div>
-
-          {/* Right Side: Filters */}
-          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-            {/* Tipo de Proyecto Multiselect */}
-            <div className="flex items-center gap-2 relative" ref={multiselectRef}>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
-              <button
-                type="button"
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="flex items-center justify-between min-w-[170px] max-w-[220px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-left outline-none cursor-pointer"
-              >
-                <span className="truncate">
-                  {tipoFilter === null || tipoFilter.length === uniqueProjectTypes.length
-                    ? "Todos los tipos"
-                    : tipoFilter.length === 0
-                    ? "Ninguno seleccionado"
-                    : `${tipoFilter.length} seleccionado(s)`}
-                </span>
-                <span className="material-symbols-outlined text-[18px] text-slate-400 ml-2 select-none">
-                  {isDropdownOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-                </span>
-              </button>
-
-              {isDropdownOpen && (
-                <div className="absolute right-0 top-[105%] bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 animate-fade-in text-left">
-                  <button
-                    type="button"
-                    onClick={handleSelectAllTipos}
-                    className="px-4 py-1.5 text-left text-xs text-emerald-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>[ Seleccionar Todos ]</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeselectAllTipos}
-                    className="px-4 py-1.5 text-left text-xs text-rose-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
-                  >
-                    <span>[ Limpiar Selección ]</span>
-                  </button>
-                  {uniqueProjectTypes.map((tipoOpt) => {
-                    const isChecked = tipoFilter === null || tipoFilter.includes(tipoOpt);
-                    return (
-                      <label
-                        key={tipoOpt}
-                        className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-xs font-medium text-slate-700 select-none transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => handleToggleTipoOption(tipoOpt)}
-                          className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-1 cursor-pointer"
-                        />
-                        <span className="truncate">{tipoOpt}</span>
-                      </label>
-                    );
-                  })}
+        <div className="card-modern py-2.5 px-4 flex flex-col gap-2.5">
+          {/* Main Row: Buscar, Limpiar, Tipo, Encargado, and Toggle (+) */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
+            {/* Left Side: Buscar and Limpiar */}
+            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+              <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
+                <div className="relative w-full">
+                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                  <input
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                    placeholder="Buscar por código, nombre o cliente..."
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
                 </div>
+              </div>
+              {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos' || clientFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || yearFilter !== 'Todos' || situacionFilter !== 'Todos') && (
+                <button
+                  onClick={handleClearFilters}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                  <span>Limpiar</span>
+                </button>
               )}
             </div>
 
-            {/* Encargado Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
-              <select
-                value={encargadoFilter}
-                onChange={(e) => setEncargadoFilter(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
+            {/* Right Side: Filters + Toggle Button */}
+            <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+              {/* Tipo de Proyecto Multiselect */}
+              <div className="flex items-center gap-2 relative" ref={multiselectRef}>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
+                <button
+                  type="button"
+                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                  className="flex items-center justify-between min-w-[170px] max-w-[220px] px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all text-left outline-none cursor-pointer"
+                >
+                  <span className="truncate">
+                    {tipoFilter === null || tipoFilter.length === uniqueProjectTypes.length
+                      ? "Todos los tipos"
+                      : tipoFilter.length === 0
+                      ? "Ninguno seleccionado"
+                      : `${tipoFilter.length} seleccionado(s)`}
+                  </span>
+                  <span className="material-symbols-outlined text-[18px] text-slate-400 ml-2 select-none">
+                    {isDropdownOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+                  </span>
+                </button>
+
+                {isDropdownOpen && (
+                  <div className="absolute right-0 top-[105%] bg-white border border-slate-200 rounded-xl shadow-xl z-50 w-full min-w-[220px] max-h-64 overflow-y-auto py-2 flex flex-col gap-1 animate-fade-in text-left">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllTipos}
+                      className="px-4 py-1.5 text-left text-xs text-emerald-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
+                    >
+                      <span>[ Seleccionar Todos ]</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeselectAllTipos}
+                      className="px-4 py-1.5 text-left text-xs text-rose-600 hover:bg-slate-50 font-bold transition-all border-b border-slate-100 cursor-pointer flex items-center justify-between"
+                    >
+                      <span>[ Limpiar Selección ]</span>
+                    </button>
+                    {uniqueProjectTypes.map((tipoOpt) => {
+                      const isChecked = tipoFilter === null || tipoFilter.includes(tipoOpt);
+                      return (
+                        <label
+                          key={tipoOpt}
+                          className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 text-xs font-medium text-slate-700 select-none transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleToggleTipoOption(tipoOpt)}
+                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-1 cursor-pointer"
+                          />
+                          <span className="truncate">{tipoOpt}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Encargado Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
+                <select
+                  value={encargadoFilter}
+                  onChange={(e) => setEncargadoFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
+                >
+                  <option value="Todos">Todos los encargados</option>
+                  {availableEncargados.map(enc => (
+                    <option key={enc} value={enc}>{enc}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Toggle (+) / (-) Button */}
+              <button
+                type="button"
+                onClick={() => setIsFilterExpanded(prev => !prev)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl border text-base font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0 ${
+                  isFilterExpanded
+                    ? 'bg-[#091426] text-white border-[#091426]'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                }`}
+                title={isFilterExpanded ? "Contraer filtros adicionales" : "Mostrar filtros adicionales"}
+                aria-label={isFilterExpanded ? "Contraer filtros" : "Más filtros"}
               >
-                <option value="Todos">Todos los encargados</option>
-                {availableEncargados.map(enc => (
-                  <option key={enc} value={enc}>{enc}</option>
-                ))}
-              </select>
+                <span className="leading-none select-none">
+                  {isFilterExpanded ? '−' : '+'}
+                </span>
+              </button>
             </div>
           </div>
+
+          {/* Secondary Row: Hidden Filters (Expanded) */}
+          {isFilterExpanded && (
+            <div className="border-t border-slate-100 pt-2.5 flex flex-wrap items-center gap-4 animate-fade-in">
+              {/* Cliente Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
+                <select
+                  value={clientFilter}
+                  onChange={(e) => setClientFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[170px] max-w-[240px] truncate"
+                >
+                  <option value="Todos">Todos los clientes</option>
+                  {availableClients.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Empresa Facturación Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa Facturación:</span>
+                <select
+                  value={billingCompanyFilter}
+                  onChange={(e) => setBillingCompanyFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[140px] truncate"
+                >
+                  <option value="Todos">Todas las empresas</option>
+                  {availableBillingCompanies.map(comp => (
+                    <option key={comp} value={comp}>{comp}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Año Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Año:</span>
+                <select
+                  value={yearFilter}
+                  onChange={(e) => setYearFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[110px]"
+                >
+                  <option value="Todos">Todos los años</option>
+                  {availableYears.map(yr => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Situación Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Situación:</span>
+                <select
+                  value={situacionFilter}
+                  onChange={(e) => setSituacionFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[170px]"
+                >
+                  <option value="Todos">Todas las situaciones</option>
+                  <option value="sin_presupuesto">Sin presupuesto</option>
+                  <option value="con_costos_extras">Con costos extras</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

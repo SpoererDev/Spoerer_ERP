@@ -109,9 +109,31 @@ export default function Facturacion({
 
   // --- FILTER STATE ---
   const [billingCompanyFilter, setBillingCompanyFilter] = useState('Todos');
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [situacionFilter, setSituacionFilter] = useState('Todas');
+  const [minAmountFilter, setMinAmountFilter] = useState(0);
+  const [maxAmountFilter, setMaxAmountFilter] = useState(null);
+  const [activeThumb, setActiveThumb] = useState('max'); // 'min' | 'max'
 
-  // --- FORM STATES ---
-  const [isSaving, setIsSaving] = useState(false);
+  // Compute maximum planned UF across projects for the slider ceiling
+  const maxProjectUF = useMemo(() => {
+    let max = 1000;
+    if (projects && Array.isArray(projects)) {
+      projects.forEach(p => {
+        const pInsts = (installments || []).filter(i => i.project_id === p.id && i.status !== 'Anulada');
+        const totalInstUf = pInsts.reduce((sum, i) => sum + (parseFloat(i.uf) || 0), 0);
+        const pBudgets = (budgets || []).filter(b => b.projectId === p.id);
+        const totalBudUf = pBudgets.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+        const pTotal = Math.max(totalInstUf, totalBudUf);
+        if (pTotal > max) max = pTotal;
+      });
+    }
+    return Math.ceil(max / 100) * 100;
+  }, [projects, installments, budgets]);
+
+  const currentMinSlider = minAmountFilter;
+  const currentMaxSlider = maxAmountFilter !== null ? maxAmountFilter : maxProjectUF;
+  const sliderStep = Math.max(5, Math.round(maxProjectUF / 200));
 
   // --- ENCARGADOS COMPUTATION ---
   const adminUsers = useMemo(() => {
@@ -496,7 +518,42 @@ export default function Facturacion({
       const instCompany = inst.billingCompany || (inst.origin_budget_id && budgets.find(b => b.id === inst.origin_budget_id)?.billingCompany) || project?.billingCompany || 'Spoerer';
       if (billingCompanyFilter !== 'Todos' && instCompany !== billingCompanyFilter) return false;
 
-      // 6. Text Search
+      // 6. Situación Filter (con algo por cobrar, completamente cobrado, todas)
+      if (situacionFilter !== 'Todas') {
+        if (inst.project_id) {
+          const projectInstallments = installments.filter(i => i.project_id === inst.project_id && i.status !== 'Anulada');
+          const hasPending = projectInstallments.some(i => i.status !== 'Pagada');
+          const isFullyPaid = projectInstallments.length > 0 && projectInstallments.every(i => i.status === 'Pagada');
+
+          if (situacionFilter === 'con_cobrar') {
+            if (!hasPending) return false;
+          } else if (situacionFilter === 'cobrado') {
+            if (!isFullyPaid) return false;
+          }
+        } else {
+          if (situacionFilter === 'con_cobrar' && inst.status === 'Pagada') return false;
+          if (situacionFilter === 'cobrado' && inst.status !== 'Pagada') return false;
+        }
+      }
+
+      // 7. Rango Monto Total Dual Slider Filter (Min y Max)
+      const effectiveMin = minAmountFilter || 0;
+      const effectiveMax = maxAmountFilter !== null ? maxAmountFilter : maxProjectUF;
+      if (effectiveMin > 0 || effectiveMax < maxProjectUF) {
+        if (project) {
+          const projectInstallments = installments.filter(i => i.project_id === project.id && i.status !== 'Anulada');
+          const totalInstUf = projectInstallments.reduce((sum, i) => sum + (parseFloat(i.uf) || 0), 0);
+          const projectBudgets = (budgets || []).filter(b => b.projectId === project.id);
+          const totalBudUf = projectBudgets.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+          const pTotal = totalInstUf > 0 ? totalInstUf : totalBudUf;
+          if (pTotal < effectiveMin || pTotal > effectiveMax) return false;
+        } else {
+          const instAmt = parseFloat(inst.uf) || 0;
+          if (instAmt < effectiveMin || instAmt > effectiveMax) return false;
+        }
+      }
+
+      // 8. Text Search
       if (searchTerm.trim() !== '') {
         const term = searchTerm.toLowerCase();
 
@@ -533,7 +590,7 @@ export default function Facturacion({
 
       return true;
     });
-  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, searchTerm, todayStr, getInstallmentClientName]);
+  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, situacionFilter, minAmountFilter, maxAmountFilter, maxProjectUF, searchTerm, todayStr, getInstallmentClientName]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -1281,153 +1338,248 @@ export default function Facturacion({
         </CollapsibleKpiBanner>
 
         {/* SECTION B: Barra de Filtros y Búsqueda */}
-        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
-          {/* Left Side: Buscar and Limpiar */}
-          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-              <div className="relative w-full">
-                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                <input
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="N° Presupuesto, Factura, Proyecto o Cliente..."
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+        <div className="card-modern py-2.5 px-4 flex flex-col gap-2.5">
+          {/* Main Row: Buscar, Limpiar, Button Groups, and Toggle (+) */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
+            {/* Left Side: Buscar and Limpiar */}
+            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+              <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
+                <div className="relative w-full">
+                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                  <input
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                    placeholder="N° Presupuesto, Factura, Proyecto o Cliente..."
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
+              {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || situacionFilter !== 'Todas' || minAmountFilter > 0 || (maxAmountFilter !== null && maxAmountFilter < maxProjectUF)) && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setTemporalFilter('Todos');
+                    setStatusFilter('Todos');
+                    setClientFilter('Todos');
+                    setEncargadoFilter('Todos');
+                    setBillingCompanyFilter('Todos');
+                    setSituacionFilter('Todas');
+                    setMinAmountFilter(0);
+                    setMaxAmountFilter(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                  title="Limpiar Filtros"
+                >
+                  <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
-            {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos') && (
+
+            {/* Right Side: Filters (Only Button Groups + Toggle Button) */}
+            <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+              {/* Temporal Filter Button Group */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  {[
+                    { value: '1_mes', label: '1 Mes' },
+                    { value: '2_meses', label: '2 Meses' },
+                    { value: '3_meses', label: '3 Meses' },
+                    { value: 'Todos', label: 'Histórico' }
+                  ].map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setTemporalFilter(p.value)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
+                        ? 'bg-[#091426] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status Filter Button Group */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Estado Cuota:</span>
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  {[
+                    { value: 'Todos', label: 'Todos' },
+                    { value: 'Por aprobar', label: 'Por aprobar' },
+                    { value: 'Aprobada', label: 'Aprobada' },
+                    { value: 'Por facturar', label: 'Por facturar' },
+                    { value: 'Facturada', label: 'Facturada' },
+                    { value: 'Pagada', label: 'Pagada' },
+                    { value: 'Anulada', label: 'Anulada' }
+                  ].map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setStatusFilter(s.value)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
+                        ? 'bg-[#091426] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Toggle (+) / (-) Button */}
               <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setTemporalFilter('Todos');
-                  setStatusFilter('Todos');
-                  setClientFilter('Todos');
-                  setEncargadoFilter('Todos');
-                  setBillingCompanyFilter('Todos');
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
-                title="Limpiar Filtros"
+                type="button"
+                onClick={() => setIsFilterExpanded(prev => !prev)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl border text-base font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0 ${
+                  isFilterExpanded
+                    ? 'bg-[#091426] text-white border-[#091426]'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                }`}
+                title={isFilterExpanded ? "Contraer filtros adicionales" : "Mostrar filtros adicionales"}
+                aria-label={isFilterExpanded ? "Contraer filtros" : "Más filtros"}
               >
-                <span className="material-symbols-outlined text-[16px]">clear_all</span>
-                <span>Limpiar</span>
+                <span className="leading-none select-none">
+                  {isFilterExpanded ? '−' : '+'}
+                </span>
               </button>
-            )}
-          </div>
-
-          {/* Right Side: Filters */}
-          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-            {/* Empresa Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa:</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                {[
-                  { value: 'Todos', label: 'Todas' },
-                  { value: 'Spoerer', label: 'Spoerer' },
-                  { value: 'FPF', label: 'FPF' }
-                ].map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => setBillingCompanyFilter(c.value)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${billingCompanyFilter === c.value
-                      ? 'bg-[#091426] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                      }`}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Temporal Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                {[
-                  { value: '1_mes', label: '1 Mes' },
-                  { value: '2_meses', label: '2 Meses' },
-                  { value: '3_meses', label: '3 Meses' },
-                  { value: 'Todos', label: 'Histórico' }
-                ].map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setTemporalFilter(p.value)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
-                      ? 'bg-[#091426] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                      }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Status Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Estado Cuota:</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                {[
-                  { value: 'Todos', label: 'Todos' },
-                  { value: 'Por aprobar', label: 'Por aprobar' },
-                  { value: 'Aprobada', label: 'Aprobada' },
-                  { value: 'Por facturar', label: 'Por facturar' },
-                  { value: 'Facturada', label: 'Facturada' },
-                  { value: 'Pagada', label: 'Pagada' },
-                  { value: 'Anulada', label: 'Anulada' }
-                ].map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => setStatusFilter(s.value)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
-                      ? 'bg-[#091426] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                      }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Client Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
-              <select
-                value={clientFilter}
-                onChange={(e) => setClientFilter(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[200px] truncate"
-              >
-                <option value="Todos">Todos los clientes</option>
-                {availableClients.map(clientName => (
-                  <option key={clientName} value={clientName}>
-                    {clientName}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Encargado Filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
-              <select
-                value={encargadoFilter}
-                onChange={(e) => setEncargadoFilter(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer max-w-[180px] truncate"
-              >
-                <option value="Todos">Todos los encargados</option>
-                {availableEncargados.map(enc => (
-                  <option key={enc} value={enc}>
-                    {enc}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
+
+          {/* Secondary Row: Hidden Filters (Expanded) */}
+          {isFilterExpanded && (
+            <div className="border-t border-slate-100 pt-2.5 flex flex-wrap items-center gap-4 animate-fade-in">
+              {/* Cliente Filter Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
+                <select
+                  value={clientFilter}
+                  onChange={(e) => setClientFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[170px] max-w-[220px] truncate"
+                >
+                  <option value="Todos">Todos los clientes</option>
+                  {availableClients.map(clientName => (
+                    <option key={clientName} value={clientName}>
+                      {clientName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Encargado Filter Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
+                <select
+                  value={encargadoFilter}
+                  onChange={(e) => setEncargadoFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[160px] max-w-[200px] truncate"
+                >
+                  <option value="Todos">Todos los encargados</option>
+                  {availableEncargados.map(enc => (
+                    <option key={enc} value={enc}>
+                      {enc}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Empresa Facturación Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa Facturación:</span>
+                <select
+                  value={billingCompanyFilter}
+                  onChange={(e) => setBillingCompanyFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[140px] truncate"
+                >
+                  <option value="Todos">Todas las empresas</option>
+                  <option value="Spoerer">Spoerer</option>
+                  <option value="FPF">FPF</option>
+                </select>
+              </div>
+
+              {/* Situación Dropdown (con algo por cobrar, completamente cobrado, todas) */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Situación:</span>
+                <select
+                  value={situacionFilter}
+                  onChange={(e) => setSituacionFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[170px]"
+                >
+                  <option value="Todas">Todas las situaciones</option>
+                  <option value="con_cobrar">Con algo por cobrar</option>
+                  <option value="cobrado">Completamente cobrado</option>
+                </select>
+              </div>
+
+              {/* Slide Rango Monto Total (Doble extremo: Mínimo y Máximo) */}
+              <div className="flex flex-col gap-1 min-w-[240px] max-w-[300px] flex-grow sm:flex-grow-0">
+                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500">
+                  <span className="uppercase tracking-wider whitespace-nowrap">Rango Monto Total:</span>
+                  <span className="font-mono text-slate-800 text-xs font-semibold truncate ml-2">
+                    {currentMinSlider === 0 && currentMaxSlider >= maxProjectUF 
+                      ? `Todos (0 - ${maxProjectUF.toLocaleString('es-CL')} UF)` 
+                      : `${currentMinSlider.toLocaleString('es-CL')} - ${currentMaxSlider.toLocaleString('es-CL')} UF`}
+                  </span>
+                </div>
+                <div className="relative w-full h-5 flex items-center">
+                  {/* Track base */}
+                  <div className="absolute left-0 right-0 h-1.5 bg-slate-200 rounded-full pointer-events-none" />
+                  
+                  {/* Active highlight between min and max */}
+                  <div 
+                    className="absolute h-1.5 bg-[#091426] rounded-full pointer-events-none transition-all duration-75"
+                    style={{
+                      left: `${(currentMinSlider / maxProjectUF) * 100}%`,
+                      width: `${Math.max(0, ((currentMaxSlider - currentMinSlider) / maxProjectUF) * 100)}%`
+                    }}
+                  />
+
+                  {/* Input Minimo (Extremo Izquierdo) */}
+                  <input
+                    type="range"
+                    min="0"
+                    max={maxProjectUF}
+                    step={sliderStep}
+                    value={currentMinSlider}
+                    onMouseDown={() => setActiveThumb('min')}
+                    onTouchStart={() => setActiveThumb('min')}
+                    onChange={(e) => {
+                      const val = Math.min(Number(e.target.value), currentMaxSlider - sliderStep);
+                      setMinAmountFilter(Math.max(0, val));
+                    }}
+                    className="dual-range-input absolute left-0 right-0 w-full"
+                    style={{ zIndex: activeThumb === 'min' ? 30 : (currentMinSlider > maxProjectUF * 0.75 ? 25 : 20) }}
+                  />
+
+                  {/* Input Maximo (Extremo Derecho) */}
+                  <input
+                    type="range"
+                    min="0"
+                    max={maxProjectUF}
+                    step={sliderStep}
+                    value={currentMaxSlider}
+                    onMouseDown={() => setActiveThumb('max')}
+                    onTouchStart={() => setActiveThumb('max')}
+                    onChange={(e) => {
+                      const val = Math.max(Number(e.target.value), currentMinSlider + sliderStep);
+                      setMaxAmountFilter(Math.min(maxProjectUF, val));
+                    }}
+                    className="dual-range-input absolute left-0 right-0 w-full"
+                    style={{ zIndex: activeThumb === 'max' ? 30 : 20 }}
+                  />
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono -mt-1 select-none">
+                  <span>0 UF</span>
+                  <span>{maxProjectUF.toLocaleString('es-CL')} UF</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

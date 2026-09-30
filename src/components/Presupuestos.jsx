@@ -186,6 +186,31 @@ export default function Presupuestos({
   const [viewingQuote, setViewingQuote] = useState(null);
   const [changeStatusFromApprovedConfirm, setChangeStatusFromApprovedConfirm] = useState(null); // { quote, newStatus }
 
+  // Filter expansion and client filter states
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [clientFilter, setClientFilter] = useState('Todos');
+
+  const availableClients = useMemo(() => {
+    const set = new Set();
+    if (quotes && Array.isArray(quotes)) {
+      quotes.forEach(q => {
+        if (q.clientName && q.clientName.trim()) set.add(q.clientName.trim());
+      });
+    }
+    if (clients && Array.isArray(clients)) {
+      clients.forEach(c => {
+        if (c.company && c.company.trim()) set.add(c.company.trim());
+        if (c.realClient && c.realClient.trim()) set.add(c.realClient.trim());
+      });
+    }
+    if (mainClients && Array.isArray(mainClients)) {
+      mainClients.forEach(mc => {
+        if (mc.name && mc.name.trim()) set.add(mc.name.trim());
+      });
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }, [quotes, clients, mainClients]);
+
   const handleViewQuote = (quote) => {
     setViewingQuote(quote);
     setIsViewModalOpen(true);
@@ -1855,7 +1880,11 @@ export default function Presupuestos({
 
     const matchesPeriod = isQuoteInPeriod(quote, calcPeriod);
 
-    return matchesSearch && matchesStatus && matchesPeriod;
+    const matchesClient =
+      clientFilter === 'Todos' ||
+      (quote.clientName && quote.clientName.trim().toLowerCase() === clientFilter.trim().toLowerCase());
+
+    return matchesSearch && matchesStatus && matchesPeriod && matchesClient;
   });
 
   // Calculate totals based on filtered quotes grouped by status and currency
@@ -2113,81 +2142,122 @@ export default function Presupuestos({
         </CollapsibleKpiBanner>
 
         {/* Filter and Summary Bar */}
-        <div className="card-modern py-2.5 px-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
-          {/* Left Side: Buscar and Limpiar */}
-          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-            <div className="flex-grow max-w-lg min-w-[240px]">
-              <div className="relative">
-                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                <input
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                  placeholder="Buscar por ID, cliente o descripción..."
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+        <div className="card-modern py-2.5 px-4 flex flex-col gap-2.5">
+          {/* Main Row: Buscar, Limpiar, Button Groups, and Toggle (+) */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
+            {/* Left Side: Buscar and Limpiar */}
+            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+              <div className="flex-grow max-w-lg min-w-[240px]">
+                <div className="relative">
+                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                  <input
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                    placeholder="Buscar por ID, cliente o descripción..."
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
               </div>
+              {(searchTerm || statusFilter !== 'Todos' || calcPeriod !== 'all' || clientFilter !== 'Todos') && (
+                <button
+                  onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); setClientFilter('Todos'); }}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[16px]">clear_all</span>
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
-            {searchTerm && (
+
+            {/* Right Side: Period and Status groups + Toggle Button */}
+            <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+              {/* Period Filter Button Group */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Período:</span>
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  {[
+                    { value: '1', label: '1M' },
+                    { value: '6', label: '6M' },
+                    { value: '12', label: '12M' },
+                    { value: '24', label: '24M' },
+                    { value: '36', label: '36M' },
+                    { value: 'all', label: 'Todos' }
+                  ].map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setCalcPeriod(p.value)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${calcPeriod === p.value
+                        ? 'bg-[#091426] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status Filter Button Group */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
+                  {['Todos', 'Borrador', 'En revisión', 'Enviado', 'Aprobado', 'Rechazado'].map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setStatusFilter(status)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === status
+                        ? 'bg-[#091426] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Toggle (+) / (-) Button */}
               <button
-                onClick={() => { setSearchTerm(''); setStatusFilter('Todos'); setCalcPeriod('all'); }}
-                className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                type="button"
+                onClick={() => setIsFilterExpanded(prev => !prev)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl border text-base font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0 ${
+                  isFilterExpanded
+                    ? 'bg-[#091426] text-white border-[#091426]'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                }`}
+                title={isFilterExpanded ? "Contraer filtros adicionales" : "Mostrar filtros adicionales"}
+                aria-label={isFilterExpanded ? "Contraer filtros" : "Más filtros"}
               >
-                <span className="material-symbols-outlined text-[16px]">clear_all</span>
-                <span>Limpiar</span>
+                <span className="leading-none select-none">
+                  {isFilterExpanded ? '−' : '+'}
+                </span>
               </button>
-            )}
-          </div>
-
-          {/* Right Side: Period and Status groups */}
-          <div className="flex flex-wrap items-center gap-4 justify-end w-full lg:w-auto">
-            {/* Period Filter Button Group */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Período:</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                {[
-                  { value: '1', label: '1M' },
-                  { value: '6', label: '6M' },
-                  { value: '12', label: '12M' },
-                  { value: '24', label: '24M' },
-                  { value: '36', label: '36M' },
-                  { value: 'all', label: 'Todos' }
-                ].map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setCalcPeriod(p.value)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${calcPeriod === p.value
-                      ? 'bg-[#091426] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                      }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Status Filter Button Group */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Estado:</span>
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                {['Todos', 'Borrador', 'En revisión', 'Enviado', 'Aprobado', 'Rechazado'].map((status) => (
-                  <button
-                    key={status}
-                    type="button"
-                    onClick={() => setStatusFilter(status)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === status
-                      ? 'bg-[#091426] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                      }`}
-                  >
-                    {status}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
+
+          {/* Secondary Row: Hidden Filters (Expanded) */}
+          {isFilterExpanded && (
+            <div className="border-t border-slate-100 pt-2.5 flex flex-wrap items-center gap-4 animate-fade-in">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
+                <select
+                  value={clientFilter}
+                  onChange={(e) => setClientFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[200px] max-w-[280px] truncate"
+                >
+                  <option value="Todos">Todos los clientes</option>
+                  {availableClients.map(clientName => (
+                    <option key={clientName} value={clientName}>
+                      {clientName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
