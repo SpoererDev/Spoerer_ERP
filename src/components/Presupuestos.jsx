@@ -2831,7 +2831,7 @@ export default function Presupuestos({
                         {!isClientSelected && (
                           <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-body-sm animate-fade-in">
                             <span className="material-symbols-outlined text-[20px] text-amber-600 flex-shrink-0">lock</span>
-                            <span>Seleccione un <strong>Cliente</strong> para habilitar los demás campos del presupuesto.</span>
+                            <span>Seleccione un <strong>Cliente</strong> para habilitar los demás campos del presupuesto. Puede subir respaldos a la derecha para consultar la información.</span>
                           </div>
                         )}
 
@@ -3195,10 +3195,7 @@ export default function Presupuestos({
                         </h3>
 
                         <div className="flex items-center gap-md flex-wrap pt-xs">
-                          <label className={`flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant rounded-lg transition-all text-body-sm font-bold shadow-sm ${!isClientSelected
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
-                            : 'bg-white hover:bg-slate-50 text-on-surface hover:text-primary hover:border-secondary cursor-pointer'
-                            }`}>
+                          <label className="flex items-center gap-2 px-md py-2.5 border border-dashed border-outline-variant rounded-lg transition-all text-body-sm font-bold shadow-sm bg-white hover:bg-slate-50 text-on-surface hover:text-primary hover:border-secondary cursor-pointer">
                             <span className="material-symbols-outlined text-[20px] text-on-surface-variant">upload_file</span>
                             <span>Subir Respaldo</span>
                             <input
@@ -3206,7 +3203,6 @@ export default function Presupuestos({
                               multiple
                               accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                               className="hidden"
-                              disabled={!isClientSelected}
                               onChange={handleFileUpload}
                             />
                           </label>
@@ -3220,10 +3216,10 @@ export default function Presupuestos({
                                   extractDataWithAi(recentFile.fileObject);
                                 }
                               }}
-                              disabled={!isClientSelected || isAiExtracting}
-                              className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${!isClientSelected || isAiExtracting
+                              disabled={isAiExtracting}
+                              className={`flex items-center gap-2 px-md py-2.5 rounded-lg text-white font-bold text-body-sm shadow-md transition-all active:scale-95 ${isAiExtracting
                                 ? 'bg-slate-300 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
-                                : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20'
+                                : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-purple-600/20 cursor-pointer'
                                 }`}
                             >
                               {isAiExtracting ? (
