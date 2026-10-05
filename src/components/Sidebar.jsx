@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import logoSpr from '../assets/logo SPR.PNG';
 
-export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout, onOpenBackupHistory, latestBackupLog }) {
+export default function Sidebar({ children, currentTab, setCurrentTab, user, onLogout, onOpenBackupHistory, latestBackupLog, onOpenNotificationSettings }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -231,6 +231,16 @@ export default function Sidebar({ children, currentTab, setCurrentTab, user, onL
                         {hasWarning && (
                           <span className="material-symbols-outlined text-[15px] text-amber-500 shrink-0" title={subtitleText}>warning</span>
                         )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (onOpenNotificationSettings) onOpenNotificationSettings();
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full px-4 py-2 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[18px] text-slate-500">notifications</span>
+                        <span>Notificaciones</span>
                       </button>
                     </>
                   )}

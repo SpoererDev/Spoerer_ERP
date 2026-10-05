@@ -1489,6 +1489,68 @@ export const supabaseService = {
     return userId;
   },
 
+  // NOTIFICATION SETTINGS
+  async getNotificationSettings() {
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.warn('Error fetching notification_settings:', error);
+      return [];
+    }
+    return (data || []).map(row => ({
+      id: row.id,
+      notificationType: row.notification_type,
+      title: row.title,
+      description: row.description,
+      enabled: row.enabled,
+      userIds: row.user_ids || [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  },
+
+  async updateNotificationSetting(notificationType, updates) {
+    const dbUpdates = {
+      updated_at: new Date().toISOString()
+    };
+    if (updates.userIds !== undefined) {
+      dbUpdates.user_ids = updates.userIds;
+    }
+    if (updates.enabled !== undefined) {
+      dbUpdates.enabled = updates.enabled;
+    }
+    if (updates.title !== undefined) {
+      dbUpdates.title = updates.title;
+    }
+    if (updates.description !== undefined) {
+      dbUpdates.description = updates.description;
+    }
+
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .upsert({
+        notification_type: notificationType,
+        ...dbUpdates
+      }, { onConflict: 'notification_type' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      id: data.id,
+      notificationType: data.notification_type,
+      title: data.title,
+      description: data.description,
+      enabled: data.enabled,
+      userIds: data.user_ids || [],
+      createdAt: data.created_at,
+      updatedAt: data.updated_at
+    };
+  },
+
   async uploadInstallmentFile(folder, projectNumber, file) {
     if (!file) return '';
     const cleanName = sanitizeFileName(file.name);
@@ -1591,7 +1653,8 @@ export const supabaseService = {
       { data: projects },
       { data: extraCosts },
       { data: installments },
-      { data: profiles }
+      { data: profiles },
+      { data: notificationSettings }
     ] = await Promise.all([
       supabase.from('main_clients').select('*'),
       supabase.from('clients').select('*'),
@@ -1600,7 +1663,8 @@ export const supabaseService = {
       supabase.from('projects').select('*'),
       supabase.from('extra_costs').select('*'),
       supabase.from('billing_installments').select('*'),
-      supabase.from('profiles').select('*')
+      supabase.from('profiles').select('*'),
+      supabase.from('notification_settings').select('*')
     ]);
 
     return {
@@ -1611,7 +1675,8 @@ export const supabaseService = {
       projects: projects || [],
       extraCosts: extraCosts || [],
       installments: installments || [],
-      profiles: profiles || []
+      profiles: profiles || [],
+      notificationSettings: notificationSettings || []
     };
   },
 

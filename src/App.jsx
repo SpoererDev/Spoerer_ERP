@@ -7,6 +7,7 @@ import Facturacion from './components/Facturacion';
 import Usuarios from './components/Usuarios';
 import Proyectos from './components/Proyectos';
 import BackupHistoryModal from './components/BackupHistoryModal';
+import NotificationSettingsModal from './components/NotificationSettingsModal';
 import { generateConsolidatedBackup } from './utils/backupExporter';
 import { supabaseService } from './utils/supabaseService';
 import { supabase } from './utils/supabaseClient';
@@ -22,6 +23,9 @@ export default function App() {
   const [latestBackupLog, setLatestBackupLog] = useState(null);
   const [backupHistoryModalOpen, setBackupHistoryModalOpen] = useState(false);
 
+  // Notification settings states
+  const [notificationSettingsModalOpen, setNotificationSettingsModalOpen] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState([]);
 
   // Flat SQL-aligned states
   const [mainClients, setMainClients] = useState([]);
@@ -177,14 +181,15 @@ export default function App() {
         }
 
         // 2. Cargar datos de Supabase
-        const [mainCls, cls, bgs, prjs, insts, costs, usrs] = await Promise.all([
+        const [mainCls, cls, bgs, prjs, insts, costs, usrs, notifSettings] = await Promise.all([
           supabaseService.getMainClients(),
           supabaseService.getClients(),
           supabaseService.getBudgets(),
           supabaseService.getProjects(),
           supabaseService.getInstallments(),
           supabaseService.getExtraCosts(),
-          supabaseService.getProfiles()
+          supabaseService.getProfiles(),
+          supabaseService.getNotificationSettings()
         ]);
         setMainClients(mainCls);
         setClients(cls);
@@ -193,6 +198,7 @@ export default function App() {
         setInstallments(insts);
         setExtraCosts(costs);
         setUsers(usrs);
+        setNotificationSettings(notifSettings || []);
       } catch (error) {
         console.error("Error cargando datos de Supabase:", error);
       } finally {
@@ -670,6 +676,23 @@ export default function App() {
     }
   };
 
+  const handleSaveNotificationSetting = async (notificationType, updates) => {
+    try {
+      const updated = await supabaseService.updateNotificationSetting(notificationType, updates);
+      setNotificationSettings(prev => {
+        const exists = prev.some(n => n.notificationType === notificationType);
+        if (exists) {
+          return prev.map(n => n.notificationType === notificationType ? updated : n);
+        }
+        return [...prev, updated];
+      });
+      return updated;
+    } catch (err) {
+      console.error("Error al guardar configuración de notificación:", err);
+      throw err;
+    }
+  };
+
   // Render Login Check
   if (!user) {
     return <Login onLogin={handleLogin} />;
@@ -683,6 +706,7 @@ export default function App() {
       onLogout={handleLogout}
       onOpenBackupHistory={() => setBackupHistoryModalOpen(true)}
       latestBackupLog={latestBackupLog}
+      onOpenNotificationSettings={() => setNotificationSettingsModalOpen(true)}
     >
 
       {loading && (
@@ -806,6 +830,15 @@ export default function App() {
         onClose={() => setBackupHistoryModalOpen(false)}
         onDownloadBackup={(type) => handleExecuteBackup(type)}
         latestBackupLog={latestBackupLog}
+      />
+
+      {/* Notification Settings Modal */}
+      <NotificationSettingsModal
+        isOpen={notificationSettingsModalOpen}
+        onClose={() => setNotificationSettingsModalOpen(false)}
+        users={users}
+        notificationSettings={notificationSettings}
+        onSaveNotificationSetting={handleSaveNotificationSetting}
       />
     </Sidebar>
   );
