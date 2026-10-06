@@ -81,6 +81,7 @@ export default function Facturacion({
   const [selectedInstallment, setSelectedInstallment] = useState(null);
   const [isNoRazonSocialModalOpen, setIsNoRazonSocialModalOpen] = useState(false);
   const [isDateUnconfirmedModalOpen, setIsDateUnconfirmedModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Installments unified modal state
   const [isInstallmentsModalOpen, setIsInstallmentsModalOpen] = useState(false);
