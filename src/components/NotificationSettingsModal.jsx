@@ -57,7 +57,7 @@ export default function NotificationSettingsModal({
 
   // UI state for saving
   const [isSaving, setIsSaving] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
   const [errorMessage, setErrorMessage] = useState('');
 
   // Sync internal state when modal opens or notificationSettings change
@@ -82,7 +82,7 @@ export default function NotificationSettingsModal({
     setEnabledByType(initialEnabledMap);
     setSearchTerm('');
     setErrorMessage('');
-    setShowSuccessModal(false);
+
   }, [isOpen, notificationSettings, notificationTypes]);
 
   if (!isOpen) return null;
@@ -161,7 +161,7 @@ export default function NotificationSettingsModal({
           description: currentTypeConfig.description
         });
       }
-      setShowSuccessModal(true);
+      onClose();
     } catch (err) {
       console.error('Error guardando configuración de notificaciones:', err);
       setErrorMessage(err.message || 'Ocurrió un error al guardar la configuración en la base de datos.');
@@ -215,9 +215,6 @@ export default function NotificationSettingsModal({
                   <span className="font-label-sm text-label-sm text-on-surface-variant font-bold uppercase tracking-wider block mb-1">
                     Panel de Eventos
                   </span>
-                  <p className="text-body-sm text-slate-500 leading-snug">
-                    Selecciona el evento para configurar sus destinatarios. Próximamente se integrarán más acciones.
-                  </p>
                 </div>
 
                 {/* Lista de tipos de notificaciones */}
@@ -305,20 +302,6 @@ export default function NotificationSettingsModal({
                       </div>
                     );
                   })}
-                </div>
-
-                {/* Caja de Información de Arquitectura */}
-                <div className="p-md rounded-xl bg-slate-100/80 border border-slate-200 text-slate-600 text-xs space-y-1.5">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                    <span className="material-symbols-outlined text-[16px] text-secondary">
-                      database
-                    </span>
-                    <span>Persistencia en Base de Datos</span>
-                  </div>
-                  <p className="text-[11px] leading-relaxed text-slate-500">
-                    Esta configuración se almacena en la tabla <code className="font-mono bg-white px-1 py-0.5 rounded border border-slate-200">notification_settings</code> de Supabase.
-                    Al conectar el servicio de correos, el sistema consultará automáticamente esta lista para despachar las notificaciones.
-                  </p>
                 </div>
 
               </div>
@@ -536,53 +519,7 @@ export default function NotificationSettingsModal({
         </div>
       </div>
 
-      {/* Modal de Éxito según SKILL spoerer-modals-creator (Sección 2.A) */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4 text-center">
-          <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up p-lg">
-            {/* Icono grande y centrado */}
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mx-auto shadow-sm mb-3">
-              <span className="material-symbols-outlined text-[36px]">verified</span>
-            </div>
-
-            {/* Título y Mensaje */}
-            <h3 className="font-headline-sm text-headline-sm text-primary font-bold mb-1">
-              ¡Configuración Guardada!
-            </h3>
-            <p className="text-body-md text-on-surface-variant mb-md">
-              Las preferencias de notificación para <strong>"{currentTypeConfig.title}"</strong> han sido actualizadas exitosamente en la base de datos.
-            </p>
-
-            {/* Resumen */}
-            <div className="bg-slate-50 p-md rounded-xl border border-slate-100 text-left space-y-sm mb-lg text-body-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Estado del evento:</span>
-                <span className={`font-bold ${currentIsEnabled ? 'text-emerald-700' : 'text-slate-600'}`}>
-                  {currentIsEnabled ? 'Habilitado' : 'Pausado'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Destinatarios asignados:</span>
-                <span className="font-bold text-slate-800">
-                  {currentUserIds.length} {currentUserIds.length === 1 ? 'usuario' : 'usuarios'}
-                </span>
-              </div>
-            </div>
-
-            {/* Botón Entendido */}
-            <button
-              type="button"
-              onClick={() => {
-                setShowSuccessModal(false);
-                onClose();
-              }}
-              className="bg-primary text-white w-full py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all cursor-pointer"
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }
+

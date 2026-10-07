@@ -84,4 +84,17 @@ revoke all on function budget_notifications.enqueue_approval() from public,anon,
 create trigger enqueue_budget_approved_notification after insert or update of status,project_id on public.budgets
  for each row execute function budget_notifications.enqueue_approval();
 select cron.schedule('budget-approved-email-retry','*/5 * * * *','select budget_notifications.invoke_worker()');
+create or replace function budget_notifications.cleanup_old_deliveries() returns integer language plpgsql security definer set search_path='' as $$
+declare deleted_count integer;
+begin
+ delete from public.budget_notification_deliveries
+ where created_at < now() - interval '90 days'
+   and status in ('sent','failed','cancelled');
+ get diagnostics deleted_count = row_count;
+ return deleted_count;
+end; $$;
+revoke all on function budget_notifications.cleanup_old_deliveries() from public,anon,authenticated;
+grant execute on function budget_notifications.cleanup_old_deliveries() to service_role;
+select cron.schedule('budget-notification-cleanup-90d','0 3 * * *','select budget_notifications.cleanup_old_deliveries()');
+
 

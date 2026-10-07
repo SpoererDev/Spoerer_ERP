@@ -375,8 +375,9 @@ const moveQuoteFiles = async (oldBudgetNumber, newBudgetNumber, oldStatus, newSt
       moveSuccessful = true;
     }
 
-    // Generate fresh public URL for expectedPath
-    const finalPath = moveSuccessful ? expectedPath : currentPath;
+    // Generate fresh public URL for expectedPath.
+    // Always normalize finalPath to expectedPath to prevent infinite retry loops on initial load.
+    const finalPath = expectedPath;
     const { data: { publicUrl } } = supabase.storage.from('budgets').getPublicUrl(finalPath);
 
     movedFiles.push({

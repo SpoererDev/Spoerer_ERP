@@ -15,7 +15,7 @@ import './App.css';
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [currentTab, setCurrentTab] = useState('crm');
+  const [currentTab, setCurrentTab] = useState('presupuestos');
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
