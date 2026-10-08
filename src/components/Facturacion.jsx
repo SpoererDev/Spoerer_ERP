@@ -290,6 +290,7 @@ export default function Facturacion({
   const [ufFetchError, setUfFetchError] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [emitComment, setEmitComment] = useState('');
+  const [emitTaxPercent, setEmitTaxPercent] = useState('19');
 
   // Register Payment Form
   const [actualPaymentDate, setActualPaymentDate] = useState('');
@@ -456,12 +457,13 @@ export default function Facturacion({
   const plannedAmount = selectedInstallment ? parseFloat(selectedInstallment.uf) || 0 : 0;
   const instCurrency = (selectedInstallment?.currency || 'UF').toUpperCase();
   const instBillingCompany = selectedInstallment?.billingCompany || (budgets.find(b => b.id === selectedInstallment?.origin_budget_id)?.billingCompany) || (projects.find(p => p.id === selectedInstallment?.project_id)?.billingCompany) || 'Spoerer';
-  const isExempt = instBillingCompany === 'FPF';
+  const numericTaxPercent = parseFloat(emitTaxPercent) || 0;
+  const isExempt = numericTaxPercent === 0;
   const parsedUfRate = parseFloat(ufRate) || 0;
   const calculatedNet = instCurrency === 'CLP'
     ? Math.round(plannedAmount)
     : Math.round(plannedAmount * parsedUfRate);
-  const calculatedTax = isExempt ? 0 : Math.round(calculatedNet * 0.19);
+  const calculatedTax = isExempt ? 0 : Math.round(calculatedNet * (numericTaxPercent / 100));
   const calculatedTotal = calculatedNet + calculatedTax;
 
   const instRazonSocial = useMemo(() => {
@@ -1048,6 +1050,17 @@ export default function Facturacion({
     setUfRate('');
     setInvoiceFile(null);
     setEmitComment(installment.comment || '');
+
+    // Determine initial tax percent for this installment
+    const defaultTax = installment.taxPercent !== undefined && installment.taxPercent !== null
+      ? installment.taxPercent
+      : (budget?.taxPercent !== undefined && budget?.taxPercent !== null
+        ? budget.taxPercent
+        : (project?.taxPercent !== undefined && project?.taxPercent !== null
+          ? project.taxPercent
+          : ((installment.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19)));
+    setEmitTaxPercent(String(defaultTax));
+
     setIsEmitModalOpen(true);
   };
 
@@ -1092,6 +1105,7 @@ export default function Facturacion({
         status: 'Facturada',
         invoiceNumber: invoiceNumber.trim(),
         actualInvoiceDate,
+        taxPercent: numericTaxPercent,
         net_clp: calculatedNet,
         tax_clp: calculatedTax,
         total_clp: calculatedTotal,
@@ -1859,12 +1873,21 @@ export default function Facturacion({
                                               {formatCLP(inst.total_clp)}
                                             </span>
                                             {/* Tooltip con desglose */}
-                                            <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block bg-slate-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50 whitespace-nowrap text-left border border-slate-800">
-                                              <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">Cálculo de Pesos ({(inst.billingCompany || project?.billingCompany) === 'FPF' ? 'FPF 0% IVA' : 'Spoerer 19% IVA'})</div>
-                                              <p className="flex justify-between gap-4"><span>Neto:</span> <span className="font-mono">{formatCLP(inst.net_clp)}</span></p>
-                                              <p className="flex justify-between gap-4"><span>{(inst.billingCompany || project?.billingCompany) === 'FPF' ? 'IVA (0% Exento):' : 'IVA (19%):'}</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
-                                              <p className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1 font-bold text-secondary-fixed-dim"><span>Total:</span> <span className="font-mono">{formatCLP(inst.total_clp)}</span></p>
-                                            </div>
+                                            {(() => {
+                                              const rowTax = inst.taxPercent !== undefined && inst.taxPercent !== null
+                                                ? inst.taxPercent
+                                                : ((inst.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19);
+                                              return (
+                                                <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block bg-slate-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50 whitespace-nowrap text-left border border-slate-800">
+                                                  <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">
+                                                    Cálculo de Pesos ({inst.billingCompany || project?.billingCompany || 'Spoerer'} {rowTax === 0 ? '0% IVA (Exento)' : `${rowTax}% IVA`})
+                                                  </div>
+                                                  <p className="flex justify-between gap-4"><span>Neto:</span> <span className="font-mono">{formatCLP(inst.net_clp)}</span></p>
+                                                  <p className="flex justify-between gap-4"><span>{rowTax === 0 ? 'IVA (0% Exento):' : `IVA (${rowTax}%):`}</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
+                                                  <p className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1 font-bold text-secondary-fixed-dim"><span>Total:</span> <span className="font-mono">{formatCLP(inst.total_clp)}</span></p>
+                                                </div>
+                                              );
+                                            })()}
                                           </div>
                                         )}
                                       </td>
@@ -2047,7 +2070,7 @@ export default function Facturacion({
                   <span className={`font-bold text-xs px-2 py-0.5 rounded ${
                     instBillingCompany === 'FPF' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
                   }`}>
-                    {instBillingCompany} {isExempt ? '(0% IVA)' : '(19% IVA)'}
+                    {instBillingCompany} {isExempt ? '(0% IVA - Exento)' : `(${emitTaxPercent}% IVA)`}
                   </span>
                 </p>
                 <p className="flex justify-between items-center border-t border-slate-200/40 pt-1 mt-1">
@@ -2148,11 +2171,47 @@ export default function Facturacion({
                 </div>
               )}
 
+              {/* Tasa de IVA / Impuesto (%) */}
+              <div className="space-y-xs">
+                <div className="flex items-center justify-between">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
+                    IVA / Impuesto (%)
+                  </label>
+                  {isExempt && (
+                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
+                      Exento de IVA
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max="100"
+                    className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-8 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                    value={emitTaxPercent}
+                    onChange={(e) => setEmitTaxPercent(e.target.value)}
+                    placeholder="19"
+                    disabled={isSaving}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm pointer-events-none">
+                    %
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Heredado del presupuesto ({emitTaxPercent}%). Puede ajustarlo si esta factura requiere una tasa diferente o está exenta.
+                </p>
+              </div>
+
               {/* Reactive calculated fields */}
               {(instCurrency === 'CLP' || parsedUfRate > 0) && (
                 <div className="bg-slate-50/50 border border-slate-200/60 p-md rounded-xl text-body-sm space-y-1.5">
-                  <div className="font-bold text-primary mb-2 text-[11px] uppercase tracking-wider border-b border-slate-200/40 pb-1">
-                    Cálculo Estimado CLP {isExempt ? '(0% IVA - FPF)' : '(19% IVA - Spoerer)'}
+                  <div className="font-bold text-primary mb-2 text-[11px] uppercase tracking-wider border-b border-slate-200/40 pb-1 flex justify-between items-center">
+                    <span>Cálculo Estimado CLP</span>
+                    <span className="font-semibold text-[10px] text-slate-500">
+                      {isExempt ? '(0% IVA - Exento)' : `(${emitTaxPercent}% IVA)`}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-on-surface-variant font-medium">Neto:</span>
@@ -2160,7 +2219,7 @@ export default function Facturacion({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-on-surface-variant font-medium">
-                      {isExempt ? 'IVA (0% Exento):' : 'IVA (19%):'}
+                      {isExempt ? 'IVA (0% Exento):' : `IVA (${emitTaxPercent}%):`}
                     </span>
                     <span className="font-mono font-semibold text-primary">{formatCLP(calculatedTax)}</span>
                   </div>
@@ -2455,7 +2514,12 @@ export default function Facturacion({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-on-surface-variant font-medium">
-                    {selectedInstallment.billingCompany === 'FPF' ? 'IVA (0% Exento):' : 'IVA (19%):'}
+                    {(() => {
+                      const viewTax = selectedInstallment.taxPercent !== undefined && selectedInstallment.taxPercent !== null
+                        ? selectedInstallment.taxPercent
+                        : (selectedInstallment.billingCompany === 'FPF' ? 0 : 19);
+                      return viewTax === 0 ? 'IVA (0% Exento):' : `IVA (${viewTax}%):`;
+                    })()}
                   </span>
                   <span className="font-mono font-medium text-primary">{formatCLP(selectedInstallment.tax_clp)}</span>
                 </div>
@@ -2589,6 +2653,7 @@ export default function Facturacion({
           budgetAmount={activeBudgetForInstallments.budget.amount}
           currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
           billingCompany={activeBudgetForInstallments?.project?.billingCompany || activeBudgetForInstallments?.budget?.billingCompany || 'Spoerer'}
+          taxPercent={activeBudgetForInstallments?.budget?.taxPercent ?? activeBudgetForInstallments?.project?.taxPercent ?? (activeBudgetForInstallments?.budget?.billingCompany === 'FPF' || activeBudgetForInstallments?.project?.billingCompany === 'FPF' ? 0 : 19)}
           budgetBackupFiles={activeBudgetForInstallments.budget.backupFiles}
           initialInstallments={activeBudgetForInstallments.installments}
           clients={clients}

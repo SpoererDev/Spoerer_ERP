@@ -68,6 +68,7 @@ export default function InstallmentsModal({
   isDeferredSave = false,
   currency = 'UF',
   billingCompany = 'Spoerer',
+  taxPercent = 19,
   clients = [],
   legalEntityId = null
 }) {
@@ -279,23 +280,27 @@ export default function InstallmentsModal({
               updated.tax_clp = null;
             } else {
               updated.total_clp = newVal;
-              const isExempt = (inst.billingCompany || 'Spoerer') === 'FPF';
-              if (isExempt) {
+              const instTax = updated.taxPercent !== undefined && updated.taxPercent !== null
+                ? parseFloat(updated.taxPercent)
+                : ((inst.billingCompany || billingCompany || 'Spoerer') === 'FPF' ? 0 : (taxPercent !== undefined ? parseFloat(taxPercent) : 19));
+              if (instTax === 0) {
                 updated.net_clp = newVal;
                 updated.tax_clp = 0;
               } else {
-                updated.net_clp = Math.round(newVal / 1.19);
+                updated.net_clp = Math.round(newVal / (1 + instTax / 100));
                 updated.tax_clp = newVal - updated.net_clp;
               }
             }
           } else if (field === 'billingCompany') {
+            const isExempt = newVal === 'FPF';
+            const instTax = isExempt ? 0 : (inst.taxPercent !== undefined && inst.taxPercent !== null ? parseFloat(inst.taxPercent) : (taxPercent !== undefined ? parseFloat(taxPercent) : 19));
+            updated.taxPercent = instTax;
             if (updated.total_clp !== null && updated.total_clp !== undefined) {
-              const isExempt = newVal === 'FPF';
-              if (isExempt) {
+              if (instTax === 0) {
                 updated.net_clp = updated.total_clp;
                 updated.tax_clp = 0;
               } else {
-                updated.net_clp = Math.round(updated.total_clp / 1.19);
+                updated.net_clp = Math.round(updated.total_clp / (1 + instTax / 100));
                 updated.tax_clp = updated.total_clp - updated.net_clp;
               }
             }
@@ -665,6 +670,7 @@ export default function InstallmentsModal({
       dateConfirmed: false,
       currency: initialInstallments[0]?.currency || currency || 'UF',
       billingCompany: initialInstallments[0]?.billingCompany || billingCompany || 'Spoerer',
+      taxPercent: initialInstallments[0]?.taxPercent !== undefined ? initialInstallments[0]?.taxPercent : (taxPercent !== undefined ? parseFloat(taxPercent) : 19),
       legalEntityId: initialInstallments[0]?.legalEntityId || legalEntityId || null,
       total_clp: null,
       net_clp: null,
@@ -838,21 +844,23 @@ export default function InstallmentsModal({
     setLocalInstallments(prev => prev.map(inst => {
       if (selectedIds.has(inst.id)) {
         const isExempt = val === 'FPF';
+        const instTax = isExempt ? 0 : (inst.taxPercent !== undefined && inst.taxPercent !== null ? parseFloat(inst.taxPercent) : (taxPercent !== undefined ? parseFloat(taxPercent) : 19));
         const total = inst.total_clp;
         let net = inst.net_clp;
         let tax = inst.tax_clp;
         if (total !== null && total !== undefined) {
-          if (isExempt) {
+          if (instTax === 0) {
             net = total;
             tax = 0;
           } else {
-            net = Math.round(total / 1.19);
+            net = Math.round(total / (1 + instTax / 100));
             tax = total - net;
           }
         }
         return {
           ...inst,
           billingCompany: val,
+          taxPercent: instTax,
           net_clp: net,
           tax_clp: tax
         };

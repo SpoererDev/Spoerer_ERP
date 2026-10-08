@@ -156,6 +156,7 @@ export default function Proyectos({
   const [isCustomEditTipo, setIsCustomEditTipo] = useState(false);
   const [editEncargado, setEditEncargado] = useState('');
   const [editBillingCompany, setEditBillingCompany] = useState('Spoerer');
+  const [editTaxPercent, setEditTaxPercent] = useState('19');
   const [disassociatingBudgetId, setDisassociatingBudgetId] = useState(null);
 
   const adminUsers = useMemo(() => {
@@ -413,6 +414,10 @@ export default function Proyectos({
     setIsCustomEditTipo(existingTipo ? !PROJECT_TYPES.includes(existingTipo) : false);
     setEditEncargado(project.encargado || '');
     setEditBillingCompany(project.billingCompany || 'Spoerer');
+    const defaultTax = project.taxPercent !== undefined && project.taxPercent !== null
+      ? project.taxPercent
+      : (project.billingCompany === 'FPF' ? 0 : 19);
+    setEditTaxPercent(String(defaultTax));
   };
 
   // Save project general parameters edit
@@ -454,6 +459,7 @@ export default function Proyectos({
         clientId: clientId || null,
         legalEntityId: editingProject.legalEntityId || clientId || null,
         billingCompany: editBillingCompany || 'Spoerer',
+        taxPercent: parseFloat(editTaxPercent) || 0,
         status: editingProject.status,
         tipo: editTipo || null,
         encargado: editEncargado || null
@@ -1522,11 +1528,11 @@ export default function Proyectos({
                       Empresa de Facturación
                     </label>
                     <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                      editBillingCompany === 'FPF'
+                      editBillingCompany === 'FPF' || parseFloat(editTaxPercent) === 0
                         ? 'bg-amber-100 text-amber-800'
                         : 'bg-slate-100 text-slate-800'
                     }`}>
-                      {editBillingCompany === 'FPF' ? '0% IVA (Exento)' : '19% IVA'}
+                      {parseFloat(editTaxPercent) === 0 ? '0% IVA (Exento)' : `${editTaxPercent}% IVA`}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 bg-white p-1 rounded-lg border border-slate-200">
@@ -1534,7 +1540,14 @@ export default function Proyectos({
                       <button
                         key={comp}
                         type="button"
-                        onClick={() => setEditBillingCompany(comp)}
+                        onClick={() => {
+                          setEditBillingCompany(comp);
+                          if (comp === 'FPF') {
+                            setEditTaxPercent('0');
+                          } else if (parseFloat(editTaxPercent) === 0) {
+                            setEditTaxPercent('19');
+                          }
+                        }}
                         className={`py-1.5 px-3 rounded-md text-label-sm font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                           editBillingCompany === comp
                             ? comp === 'FPF'
@@ -1549,6 +1562,27 @@ export default function Proyectos({
                         {comp}
                       </button>
                     ))}
+                  </div>
+
+                  <div className="flex flex-col gap-xs mt-2">
+                    <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                      IVA / Impuesto Predeterminado (%)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max="100"
+                        value={editTaxPercent}
+                        onChange={(e) => setEditTaxPercent(e.target.value)}
+                        className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-8 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                        placeholder="19"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm pointer-events-none">
+                        %
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -2237,6 +2271,7 @@ export default function Proyectos({
           }}
           currency={activeBudgetForInstallments?.budget?.currency || 'UF'}
           billingCompany={activeBudgetForInstallments?.project?.billingCompany || activeBudgetForInstallments?.budget?.billingCompany || 'Spoerer'}
+          taxPercent={activeBudgetForInstallments?.budget?.taxPercent ?? activeBudgetForInstallments?.project?.taxPercent ?? (activeBudgetForInstallments?.budget?.billingCompany === 'FPF' || activeBudgetForInstallments?.project?.billingCompany === 'FPF' ? 0 : 19)}
           projectName={`${activeBudgetForInstallments.project.projectNumber} - ${activeBudgetForInstallments.project.rawProjectName}`}
           budgetNumber={activeBudgetForInstallments.budget.quoteId}
           budgetAmount={activeBudgetForInstallments.budget.amount}

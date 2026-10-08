@@ -650,6 +650,7 @@ export default function Presupuestos({
   }, [selectedMainClient, mainClients]);
 
   const [subtotal, setSubtotal] = useState('1.200,00');
+  const [taxPercent, setTaxPercent] = useState(19);
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
 
@@ -659,17 +660,17 @@ export default function Presupuestos({
     const roundedSub = quoteCurrency === 'CLP'
       ? Math.round(numSub)
       : Math.round(numSub * 100) / 100;
-    const taxRate = billingCompany === 'FPF' ? 0 : 0.19;
+    const rate = (parseFloat(taxPercent) || 0) / 100;
     const tx = quoteCurrency === 'CLP'
-      ? Math.round(roundedSub * taxRate)
-      : Math.round((roundedSub * taxRate) * 100) / 100; // 0% tax for FPF, 19% tax (IVA) for Spoerer
+      ? Math.round(roundedSub * rate)
+      : Math.round((roundedSub * rate) * 100) / 100;
     const roundedTotal = quoteCurrency === 'CLP'
       ? roundedSub + tx
       : Math.round((roundedSub + tx) * 100) / 100;
 
     setTax(tx);
     setTotal(roundedTotal);
-  }, [subtotal, billingCompany, quoteCurrency]);
+  }, [subtotal, taxPercent, quoteCurrency]);
 
   const handleSubtotalChange = (e) => {
     let val = e.target.value;
@@ -1130,12 +1131,16 @@ export default function Presupuestos({
       for (let i = 0; i < C; i++) {
         const numStr = String(counter).padStart(2, '0');
         const dateVal = addMonthsToDateString(row.date, i);
+        const approvingTax = approvingQuote?.taxPercent !== undefined && approvingQuote?.taxPercent !== null
+          ? parseFloat(approvingQuote.taxPercent)
+          : (approvingQuote?.billingCompany === 'FPF' ? 0 : 19);
         expandedTable.push({
           numQuota: numStr,
           date: dateVal,
           uf: U,
           currency: approvingQuote?.currency || '',
           billingCompany: approvingQuote?.billingCompany || '',
+          taxPercent: approvingTax,
           legalEntityId: approvingQuote?.legalEntityId || approvingQuote?.clientId || null,
           description: V,
           comment: '',
@@ -1172,6 +1177,10 @@ export default function Presupuestos({
       if (matchedMC) resolvedMainClientId = matchedMC.id;
     }
 
+    const approvingTaxPercent = approvingQuote?.taxPercent !== undefined && approvingQuote?.taxPercent !== null
+      ? parseFloat(approvingQuote.taxPercent)
+      : (approvingQuote?.billingCompany === 'FPF' ? 0 : 19);
+
     const projectForm = {
       id: targetProjectId,
       projectNumber: finalProjectNumber,
@@ -1184,7 +1193,8 @@ export default function Presupuestos({
       anio: parseInt(anio) || existing?.anio || new Date().getFullYear(),
       tipo: tipo || existing?.tipo || null,
       encargado: encargado || existing?.encargado || null,
-      billingCompany: existing?.billingCompany || approvingQuote?.billingCompany || 'Spoerer'
+      billingCompany: existing?.billingCompany || approvingQuote?.billingCompany || 'Spoerer',
+      taxPercent: existing?.taxPercent !== undefined ? existing.taxPercent : approvingTaxPercent
     };
 
     const budgetForm = {
@@ -1192,6 +1202,7 @@ export default function Presupuestos({
       title: descripcion || '',
       currency: approvingQuote?.currency || 'UF',
       billingCompany: approvingQuote?.billingCompany || 'Spoerer',
+      taxPercent: approvingTaxPercent,
       backupFiles: approvingQuoteBackupFiles
     };
 
@@ -1351,6 +1362,7 @@ export default function Presupuestos({
     setQuoteTitle('Servicios ERP');
     setQuoteCurrency('UF');
     setBillingCompany('Spoerer');
+    setTaxPercent(19);
     setSubtotal(formatToChileanNumber(1200.00, 2)); // default value
     setBackupFiles([]);
     setEditBillingTable([]);
@@ -1364,6 +1376,10 @@ export default function Presupuestos({
     setCurrentBudgetUuid(quote.id);
     setQuoteCurrency(quote.currency || 'UF');
     setBillingCompany(quote.billingCompany || 'Spoerer');
+    const quoteTax = quote.taxPercent !== undefined && quote.taxPercent !== null
+      ? parseFloat(quote.taxPercent)
+      : (quote.billingCompany === 'FPF' ? 0 : 19);
+    setTaxPercent(quoteTax);
 
     const matchedMC = mainClients.find(mc =>
       (quote.mainClientId && mc.id === quote.mainClientId) ||
@@ -1424,6 +1440,10 @@ export default function Presupuestos({
         setCurrentBudgetUuid(existing.id);
         setQuoteCurrency(existing.currency || 'UF');
         setBillingCompany(existing.billingCompany || 'Spoerer');
+        const existingTax = existing.taxPercent !== undefined && existing.taxPercent !== null
+          ? parseFloat(existing.taxPercent)
+          : (existing.billingCompany === 'FPF' ? 0 : 19);
+        setTaxPercent(existingTax);
 
         const matchedMC = mainClients.find(mc =>
           (existing.mainClientId && mc.id === existing.mainClientId) ||
@@ -1817,6 +1837,7 @@ export default function Presupuestos({
       amount: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency),
       currency: quoteCurrency,
       billingCompany: billingCompany || 'Spoerer',
+      taxPercent: taxPercent === '' ? 19 : (parseFloat(taxPercent) ?? 19),
       validity: `${validity} días`,
       status: finalStatus,
       items: [
@@ -1830,7 +1851,8 @@ export default function Presupuestos({
       setIsSaving(true);
       const billingTableToSave = editBillingTable.map(row => ({
         ...row,
-        billingCompany: row.billingCompany || billingCompany || 'Spoerer'
+        billingCompany: row.billingCompany || billingCompany || 'Spoerer',
+        taxPercent: row.taxPercent !== undefined ? row.taxPercent : (taxPercent === '' ? 19 : (parseFloat(taxPercent) ?? 19))
       }));
       await onAddQuote(newQuote, newQuote.items, billingTableToSave);
       setNotification({
@@ -1846,6 +1868,7 @@ export default function Presupuestos({
       setQuoteTitle('Servicios ERP');
       setQuoteCurrency('UF');
       setBillingCompany('Spoerer');
+      setTaxPercent(19);
       setSubtotal(formatToChileanNumber(0, 2));
       setBackupFiles([]);
       setEditBillingTable([]);
@@ -2579,9 +2602,35 @@ export default function Presupuestos({
                       <span className="text-on-surface">{viewingQuote.validity}</span>
                     </div>
                     <div>
-                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Monto Total</span>
+                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Subtotal Neto</span>
                       <span className="font-extrabold text-primary text-headline-sm">
                         {formatAmountWithCurrency(viewingQuote.amount, viewingQuote.currency)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">
+                        IVA ({viewingQuote.taxPercent !== undefined && viewingQuote.taxPercent !== null ? viewingQuote.taxPercent : (viewingQuote.billingCompany === 'FPF' ? 0 : 19)}%)
+                      </span>
+                      <span className="font-bold text-on-surface text-body-md">
+                        {(() => {
+                          const rate = ((viewingQuote.taxPercent !== undefined && viewingQuote.taxPercent !== null ? viewingQuote.taxPercent : (viewingQuote.billingCompany === 'FPF' ? 0 : 19)) || 0) / 100;
+                          const t = viewingQuote.currency === 'CLP'
+                            ? Math.round((viewingQuote.amount || 0) * rate)
+                            : Math.round(((viewingQuote.amount || 0) * rate) * 100) / 100;
+                          return formatAmountWithCurrency(t, viewingQuote.currency);
+                        })()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-label-md text-on-surface-variant uppercase font-semibold">Total con IVA</span>
+                      <span className="font-bold text-secondary text-title-md">
+                        {(() => {
+                          const rate = ((viewingQuote.taxPercent !== undefined && viewingQuote.taxPercent !== null ? viewingQuote.taxPercent : (viewingQuote.billingCompany === 'FPF' ? 0 : 19)) || 0) / 100;
+                          const t = viewingQuote.currency === 'CLP'
+                            ? Math.round((viewingQuote.amount || 0) * rate)
+                            : Math.round(((viewingQuote.amount || 0) * rate) * 100) / 100;
+                          return formatAmountWithCurrency((viewingQuote.amount || 0) + t, viewingQuote.currency);
+                        })()}
                       </span>
                     </div>
                     <div>
@@ -3081,11 +3130,11 @@ export default function Presupuestos({
                               Empresa de Facturación
                             </label>
                             <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                              billingCompany === 'FPF'
+                              billingCompany === 'FPF' || parseFloat(taxPercent) === 0
                                 ? 'bg-amber-100 text-amber-800'
                                 : 'bg-slate-100 text-slate-800'
                             }`}>
-                              {billingCompany === 'FPF' ? '0% IVA (Exento)' : '19% IVA'}
+                              {parseFloat(taxPercent) === 0 ? '0% IVA (Exento)' : `${taxPercent}% IVA`}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -3094,7 +3143,14 @@ export default function Presupuestos({
                                 key={comp}
                                 type="button"
                                 disabled={!isClientSelected}
-                                onClick={() => setBillingCompany(comp)}
+                                onClick={() => {
+                                  setBillingCompany(comp);
+                                  if (comp === 'FPF') {
+                                    setTaxPercent(0);
+                                  } else if (comp === 'Spoerer' && parseFloat(taxPercent) === 0) {
+                                    setTaxPercent(19);
+                                  }
+                                }}
                                 className={`py-1.5 px-3 rounded-md text-label-sm font-bold flex items-center justify-center gap-1.5 transition-all ${
                                   billingCompany === comp
                                     ? comp === 'FPF'
@@ -3169,13 +3225,40 @@ export default function Presupuestos({
 
                         {/* Fila 5: Impuestos y Totales */}
                         <div className="space-y-sm pt-sm border-t border-slate-200/60">
-                          <div className="flex justify-between text-body-sm text-on-surface-variant px-1">
-                            <span>Impuesto ({billingCompany === 'FPF' ? '0% IVA - Exento' : '19% IVA'})</span>
-                            <span className="font-medium">{formatAmountWithCurrency(tax, quoteCurrency)}</span>
+                          <div className="flex justify-between items-center text-body-sm text-on-surface-variant px-1">
+                            <div className="flex items-center gap-2">
+                              <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">IVA / Impuesto:</label>
+                              <div className="relative w-20">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="any"
+                                  disabled={!isClientSelected}
+                                  value={taxPercent}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setTaxPercent(val === '' ? '' : Math.max(0, parseFloat(val) || 0));
+                                  }}
+                                  className={`w-full border border-slate-200 rounded-lg text-body-sm py-1 pl-2 pr-6 outline-none font-bold text-primary focus:ring-1 focus:ring-secondary focus:border-secondary transition-all ${
+                                    !isClientSelected ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white'
+                                  }`}
+                                  placeholder="19"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-body-xs font-bold text-slate-400 pointer-events-none">%</span>
+                              </div>
+                              {parseFloat(taxPercent) === 0 && (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">Exento</span>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-slate-400 text-xs block">Monto IVA</span>
+                              <span className="font-medium text-on-surface">{formatAmountWithCurrency(tax, quoteCurrency)}</span>
+                            </div>
                           </div>
                           <div className="flex justify-between items-center bg-secondary/5 px-md py-2.5 rounded-lg border border-secondary/10">
                             <span className="text-body-md font-bold text-secondary">
-                              {billingCompany === 'FPF' ? 'Total (Exento de IVA)' : 'Total (IVA Incluido)'}
+                              {parseFloat(taxPercent) === 0 ? 'Total (Exento de IVA)' : 'Total (IVA Incluido)'}
                             </span>
                             <span className="text-title-lg font-black text-secondary">
                               {formatAmountWithCurrency(total, quoteCurrency)}
@@ -4859,6 +4942,7 @@ export default function Presupuestos({
           onClose={() => setIsInstallmentsModalOpen(false)}
           currency={quoteCurrency}
           billingCompany={billingCompany || 'Spoerer'}
+          taxPercent={parseFloat(taxPercent) || 0}
           clients={clients}
           legalEntityId={selectedLegalEntity || existingQuoteObj?.legalEntityId || existingQuoteObj?.clientId || null}
           projectName={existingQuoteObj?.projectId ? (() => {

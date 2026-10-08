@@ -133,6 +133,7 @@ const mapBudgetFromDb = (dbBudget) => {
     amount: parseFloat(dbBudget.total_amount) || 0,
     currency: dbBudget.currency || 'UF',
     billingCompany: dbBudget.billing_company || 'Spoerer',
+    taxPercent: dbBudget.tax_percent !== null && dbBudget.tax_percent !== undefined ? parseFloat(dbBudget.tax_percent) : (dbBudget.billing_company === 'FPF' ? 0 : 19),
     validity: `${dbBudget.validity_days} días`,
     status: dbBudget.status,
     items: dbBudget.budget_items ? dbBudget.budget_items.map(item => ({
@@ -174,6 +175,7 @@ const mapProjectFromDb = (dbProject) => {
     tipo: dbProject.tipo,
     currency: dbProject.currency || 'UF',
     billingCompany: dbProject.billing_company || 'Spoerer',
+    taxPercent: dbProject.tax_percent !== null && dbProject.tax_percent !== undefined ? parseFloat(dbProject.tax_percent) : (dbProject.billing_company === 'FPF' ? 0 : 19),
     encargado: dbProject.encargado || ''
   };
 };
@@ -203,6 +205,7 @@ const mapInstallmentFromDb = (dbInst) => ({
   uf: parseFloat(dbInst.planned_amount_uf) || 0,
   currency: dbInst.currency || 'UF',
   billingCompany: dbInst.billing_company || 'Spoerer',
+  taxPercent: dbInst.tax_percent !== null && dbInst.tax_percent !== undefined ? parseFloat(dbInst.tax_percent) : (dbInst.billing_company === 'FPF' ? 0 : 19),
   net_clp: dbInst.net_amount_clp ? parseFloat(dbInst.net_amount_clp) : null,
   tax_clp: dbInst.tax_amount_clp ? parseFloat(dbInst.tax_amount_clp) : null,
   total_clp: dbInst.total_amount_clp ? parseFloat(dbInst.total_amount_clp) : null,
@@ -653,6 +656,7 @@ export const supabaseService = {
         total_amount: totalAmount,
         currency: quote.currency || 'UF',
         billing_company: quote.billingCompany || (oldBudget ? oldBudget.billing_company : 'Spoerer'),
+        tax_percent: quote.taxPercent !== undefined && quote.taxPercent !== null ? parseFloat(quote.taxPercent) : (oldBudget?.tax_percent !== undefined ? parseFloat(oldBudget.tax_percent) : (quote.billingCompany === 'FPF' ? 0 : 19)),
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         backup_files: finalFiles
@@ -680,6 +684,7 @@ export const supabaseService = {
         total_amount: totalAmount,
         currency: quote.currency || 'UF',
         billing_company: quote.billingCompany || 'Spoerer',
+        tax_percent: quote.taxPercent !== undefined && quote.taxPercent !== null ? parseFloat(quote.taxPercent) : (quote.billingCompany === 'FPF' ? 0 : 19),
         validity_days: validityDays,
         status: quote.status || 'Borrador',
         created_by: quote.createdBy || null,
@@ -743,6 +748,11 @@ export const supabaseService = {
           planned_amount_uf: parseFloat(inst.uf) || 0,
           currency: inst.currency || quote.currency || savedBudget.currency || 'UF',
           billing_company: inst.billingCompany || quote.billingCompany || savedBudget.billing_company || 'Spoerer',
+          tax_percent: inst.taxPercent !== undefined && inst.taxPercent !== null
+            ? parseFloat(inst.taxPercent)
+            : (quote.taxPercent !== undefined && quote.taxPercent !== null
+                ? parseFloat(quote.taxPercent)
+                : (savedBudget.tax_percent !== null ? parseFloat(savedBudget.tax_percent) : (inst.billingCompany === 'FPF' ? 0 : 19))),
           legal_entity_id: inst.legalEntityId || quote.legalEntityId || quote.clientId || savedBudget.legal_entity_id || savedBudget.client_id || null,
           description: inst.description || '',
           comment: inst.comment || '',
@@ -890,6 +900,7 @@ export const supabaseService = {
       tipo: project.tipo || null,
       currency: project.currency || 'UF',
       billing_company: project.billingCompany || 'Spoerer',
+      tax_percent: project.taxPercent !== undefined && project.taxPercent !== null ? parseFloat(project.taxPercent) : (project.billingCompany === 'FPF' ? 0 : 19),
       encargado: project.encargado || null
     };
 
@@ -1007,6 +1018,7 @@ export const supabaseService = {
     if (updates.uf !== undefined) dbUpdates.planned_amount_uf = parseFloat(updates.uf) || 0;
     if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
     if (updates.billingCompany !== undefined) dbUpdates.billing_company = updates.billingCompany;
+    if (updates.taxPercent !== undefined) dbUpdates.tax_percent = updates.taxPercent !== null ? parseFloat(updates.taxPercent) : null;
     if (updates.legalEntityId !== undefined) dbUpdates.legal_entity_id = updates.legalEntityId;
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.comment !== undefined) dbUpdates.comment = updates.comment;
@@ -1046,6 +1058,7 @@ export const supabaseService = {
       planned_amount_uf: parseFloat(installment.uf) || 0,
       currency: installment.currency || 'UF',
       billing_company: installment.billingCompany || 'Spoerer',
+      tax_percent: installment.taxPercent !== undefined && installment.taxPercent !== null ? parseFloat(installment.taxPercent) : (installment.billingCompany === 'FPF' ? 0 : 19),
       legal_entity_id: installment.legalEntityId || null,
       status: mapInstallmentStatusToDb(installment.status || 'Por aprobar'),
       description: installment.description || '',
@@ -1099,6 +1112,11 @@ export const supabaseService = {
       tipo: projectForm.tipo || null,
       currency: projectForm.currency || (budgetForm ? budgetForm.currency : null) || 'UF',
       billing_company: projectForm.billingCompany || (budgetForm ? budgetForm.billingCompany : null) || 'Spoerer',
+      tax_percent: projectForm.taxPercent !== undefined && projectForm.taxPercent !== null
+        ? parseFloat(projectForm.taxPercent)
+        : (budgetForm?.taxPercent !== undefined && budgetForm?.taxPercent !== null
+            ? parseFloat(budgetForm.taxPercent)
+            : 19),
       encargado: projectForm.encargado || null
     };
 
@@ -1241,6 +1259,10 @@ export const supabaseService = {
       budgetUpdateData.billing_company = budgetForm.billingCompany;
     }
 
+    if (budgetForm && budgetForm.taxPercent !== undefined && budgetForm.taxPercent !== null) {
+      budgetUpdateData.tax_percent = parseFloat(budgetForm.taxPercent);
+    }
+
     if (budgetForm && budgetForm.amount !== undefined) {
       budgetUpdateData.total_amount = budgetForm.amount;
     } else {
@@ -1274,6 +1296,11 @@ export const supabaseService = {
         planned_amount_uf: parseFloat(inst.uf) || 0,
         currency: inst.currency !== undefined ? inst.currency : ((currentBudget ? currentBudget.currency : null) || 'UF'),
         billing_company: inst.billingCompany !== undefined ? inst.billingCompany : ((budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer'),
+        tax_percent: inst.taxPercent !== undefined && inst.taxPercent !== null
+          ? parseFloat(inst.taxPercent)
+          : (budgetForm?.taxPercent !== undefined && budgetForm?.taxPercent !== null
+              ? parseFloat(budgetForm.taxPercent)
+              : (currentBudget?.tax_percent !== undefined && currentBudget?.tax_percent !== null ? parseFloat(currentBudget.tax_percent) : (inst.billingCompany === 'FPF' ? 0 : 19))),
         legal_entity_id: inst.legalEntityId !== undefined ? inst.legalEntityId : (projectForm.legalEntityId || (currentBudget ? (currentBudget.legal_entity_id || currentBudget.client_id) : null) || null),
         description: inst.description || inst.comment || '',
         comment: inst.description ? (inst.comment || '') : '',
