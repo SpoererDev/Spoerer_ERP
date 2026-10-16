@@ -40,6 +40,8 @@ build
 *.pyc
 *.csv
 .agents/
+Respaldo/
+supabase/
 
 
 

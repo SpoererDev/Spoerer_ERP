@@ -55,6 +55,67 @@ const getNextGroupId = (installments) => {
   return `G${counter}`;
 };
 
+// Helper: Formatear monto numérico de cuota con separador de miles (formato chileno es-CL)
+const formatInstallmentAmountDisplay = (val, curr = 'UF') => {
+  if (val === null || val === undefined || val === '' || val === 0) return '';
+  const num = Number(val);
+  if (isNaN(num) || num === 0) return '';
+  const isCLP = String(curr || 'UF').toUpperCase() === 'CLP';
+  if (isCLP) {
+    return Math.round(num).toLocaleString('es-CL');
+  }
+  return num.toLocaleString('es-CL', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4
+  });
+};
+
+// Helper: Parsear y formatear entrada de texto con separador de miles en tiempo real
+const parseAndFormatInstallmentAmountInput = (rawInput, curr = 'UF') => {
+  if (rawInput === null || rawInput === undefined || rawInput === '') {
+    return { display: '', numeric: 0 };
+  }
+  const isCLP = String(curr || 'UF').toUpperCase() === 'CLP';
+  let str = String(rawInput);
+
+  if (isCLP) {
+    const digits = str.replace(/\D/g, '');
+    if (!digits) return { display: '', numeric: 0 };
+    const num = parseInt(digits, 10) || 0;
+    return {
+      display: num.toLocaleString('es-CL'),
+      numeric: num
+    };
+  }
+
+  // En UF / USD: si el usuario presiona '.' al final (teclado numérico) y aún no hay coma decimal, convertir a ','
+  if (!str.includes(',') && str.endsWith('.')) {
+    str = str.slice(0, -1) + ',';
+  }
+  // Quitar puntos de separadores de miles y caracteres no numéricos salvo la coma decimal
+  str = str.replace(/\./g, '').replace(/[^0-9,]/g, '');
+  if (!str) return { display: '', numeric: 0 };
+
+  const parts = str.split(',');
+  const intDigits = parts[0].replace(/^0+(?=\d)/, '');
+  const intNum = intDigits ? (parseInt(intDigits, 10) || 0) : 0;
+  const formattedInt = intDigits ? intNum.toLocaleString('es-CL') : '0';
+
+  if (parts.length > 1) {
+    const decDigits = parts.slice(1).join('').slice(0, 4);
+    const numeric = parseFloat(`${intNum}.${decDigits || '0'}`) || 0;
+    return {
+      display: `${formattedInt},${decDigits}`,
+      numeric
+    };
+  }
+
+  return {
+    display: intDigits ? formattedInt : '',
+    numeric: intNum
+  };
+};
+
 export default function InstallmentsModal({
   isOpen,
   onClose,
@@ -341,6 +402,11 @@ export default function InstallmentsModal({
             } else if (newVal !== 'Anulada') {
               updated.dateConfirmed = true;
             }
+          } else if (field === 'currency') {
+            updated.rawUf = undefined;
+            if (newVal === 'CLP') {
+              updated.uf = Math.round(parseFloat(inst.uf) || 0);
+            }
           }
 
           return updated;
@@ -389,10 +455,17 @@ export default function InstallmentsModal({
               };
             }
             if (field === 'uf' || field === 'description' || field === 'comment' || field === 'oc' || field === 'currency' || field === 'billingCompany' || field === 'legalEntityId') {
-              return {
+              const updatedSlave = {
                 ...inst,
                 [field]: newVal
               };
+              if (field === 'currency') {
+                updatedSlave.rawUf = undefined;
+                if (newVal === 'CLP') {
+                  updatedSlave.uf = Math.round(parseFloat(inst.uf) || 0);
+                }
+              }
+              return updatedSlave;
             }
           }
         }
@@ -400,6 +473,49 @@ export default function InstallmentsModal({
         return inst;
       });
     });
+  };
+
+  const handleAmountTextChange = (index, value) => {
+    setLocalInstallments(prev => {
+      const metadata = getGroupMetadata(prev);
+      const instToChange = prev[index];
+      const rowCurrency = instToChange?.currency || currency || 'UF';
+      const { display, numeric } = parseAndFormatInstallmentAmountInput(value, rowCurrency);
+      const groupId = instToChange?.grupo;
+      const isMaster = groupId && metadata[groupId]?.masterId === instToChange?.id;
+
+      return prev.map((inst, idx) => {
+        if (idx === index) {
+          return {
+            ...inst,
+            uf: numeric,
+            rawUf: display
+          };
+        }
+        if (isMaster && inst.grupo === groupId) {
+          const orderedMembers = metadata[groupId].orderedMembers;
+          const slaveIndex = orderedMembers.findIndex(m => m.id === inst.id);
+          if (slaveIndex > 0) {
+            return {
+              ...inst,
+              uf: numeric,
+              rawUf: undefined
+            };
+          }
+        }
+        return inst;
+      });
+    });
+  };
+
+  const handleAmountTextBlur = (index) => {
+    setLocalInstallments(prev => prev.map((inst, idx) => {
+      if (idx !== index) return inst;
+      return {
+        ...inst,
+        rawUf: undefined
+      };
+    }));
   };
 
   const handleDateTextChange = (index, value) => {
@@ -833,7 +949,9 @@ export default function InstallmentsModal({
       if (selectedIds.has(inst.id)) {
         return {
           ...inst,
-          currency: val
+          currency: val,
+          uf: val === 'CLP' ? Math.round(parseFloat(inst.uf) || 0) : inst.uf,
+          rawUf: undefined
         };
       }
       return inst;
@@ -1083,6 +1201,7 @@ export default function InstallmentsModal({
         // Strip group property before saving
         delete updatedInst.grupo;
         // Strip UI temporary properties
+        delete updatedInst.rawUf;
         delete updatedInst.rawDate;
         delete updatedInst.dateError;
         delete updatedInst.rawActualInvoiceDate;
@@ -1385,15 +1504,16 @@ export default function InstallmentsModal({
                         {/* Monto */}
                         <td className="p-1 w-28">
                           <input
-                            type="number"
-                            value={row.uf || ''}
+                            type="text"
+                            inputMode="decimal"
+                            value={row.rawUf !== undefined ? row.rawUf : formatInstallmentAmountDisplay(row.uf, row.currency || currency || 'UF')}
                             disabled={isSlave}
-                            onChange={(e) => handleFieldChange(idx, 'uf', e.target.value)}
+                            onChange={(e) => handleAmountTextChange(idx, e.target.value)}
+                            onBlur={() => handleAmountTextBlur(idx)}
                             className={`w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-center ${
                               isSlave ? 'text-slate-400 cursor-not-allowed' : ''
                             }`}
-                            step="0.01"
-                            placeholder="0.00"
+                            placeholder={(row.currency || currency) === 'CLP' ? "0" : "0,00"}
                           />
                         </td>
 

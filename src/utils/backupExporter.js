@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabaseService } from './supabaseService';
-import { exportExcelFile } from './exportHelper';
+import { acquireBackupDirectoryHandle, exportBackupDualExcel } from './exportHelper';
 
 // Helper to format date in DD/MM/YYYY
 const formatDateExcel = (dateStr) => {
@@ -13,8 +13,15 @@ const formatDateExcel = (dateStr) => {
   return dateStr;
 };
 
-export const generateConsolidatedBackup = async ({ userName = 'Administrador', backupType = 'daily' } = {}) => {
+export const generateConsolidatedBackup = async ({ userName = 'Administrador', backupType = 'daily', configuredPath = '' } = {}) => {
   try {
+    // 0. Solicitar/confirmar la carpeta raíz inmediatamente para conservar el gesto del usuario
+    // y abrir en la ruta configurada
+    const dirSelection = await acquireBackupDirectoryHandle(configuredPath);
+    if (dirSelection.cancelled) {
+      return { success: false, cancelled: true };
+    }
+
     // 1. Fetch raw data from Supabase
     const rawData = await supabaseService.getAllRawDataForBackup();
 
@@ -99,8 +106,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
         "Cuota": inst.installment_number || '',
         "TotCuota": totCuotas || '',
         "Moneda": inst.currency || budg?.currency || 'UF',
-        "Monto": parseFloat(inst.planned_amount_uf) || 0,
-        "UF": parseFloat(inst.planned_amount_uf) || 0,
+        "Monto": parseFloat(inst.planned_amount_uf) || (inst.net_amount_clp ? parseFloat(inst.net_amount_clp) : 0) || 0,
+        "UF": parseFloat(inst.planned_amount_uf) || (inst.net_amount_clp ? parseFloat(inst.net_amount_clp) : 0) || 0,
         "$": isInvoiced ? parseFloat(inst.total_amount_clp) || 0 : '',
         "F-Pago": isPaid ? formatDateExcel(inst.actual_payment_date) : '',
         "Estado F#": statusUI,
@@ -252,17 +259,39 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       ws['!cols'] = cols;
     });
 
-    // Suggested file name: YYMMDD – Respaldo ERP Spoerer.xlsx
+    // Suggested file names:
+    // 1. Root folder: "Respaldo ERP Spoerer.xlsx" (replaces existing)
+    // 2. Subfolder "Respaldos de ERP": "YYMMDD – Respaldo ERP Spoerer.xlsx"
     const d = new Date();
     const yy = String(d.getFullYear()).slice(-2);
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
+    const rootFileName = 'Respaldo ERP Spoerer.xlsx';
+    const subfolderName = 'Respaldos de ERP';
     const fileName = `${yy}${mm}${dd} – Respaldo ERP Spoerer.xlsx`;
 
-    // Download / Save file using exportExcelFile (picker with suggestedName)
-    const exported = await exportExcelFile(workbook, fileName, 'spoerer_backup_general');
-    if (exported === false) {
+    const exportRes = await exportBackupDualExcel(
+      workbook,
+      rootFileName,
+      subfolderName,
+      fileName,
+      configuredPath,
+      dirSelection.handle
+    );
+    if (exportRes?.cancelled || exportRes?.saved === false) {
       return { success: false, cancelled: true };
+    }
+
+    // Si el usuario seleccionó una carpeta y aún no había ruta guardada en la BD, la registramos
+    if (exportRes.folderName && !configuredPath) {
+      try {
+        await supabaseService.saveBackupConfig({
+          path: exportRes.folderName,
+          folderName: exportRes.folderName
+        });
+      } catch (cfgErr) {
+        console.warn('No se pudo actualizar la configuración de carpeta en la BD:', cfgErr);
+      }
     }
 
     // Save log to Supabase
@@ -272,9 +301,16 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       fileName
     });
 
-    return { success: true, fileName };
+    return {
+      success: true,
+      fileName,
+      rootFileName,
+      subfolderName,
+      folderName: exportRes.folderName || ''
+    };
   } catch (error) {
     console.error('Error generating consolidated backup:', error);
     throw error;
   }
 };
+

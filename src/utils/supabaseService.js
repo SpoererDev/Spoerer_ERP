@@ -195,33 +195,98 @@ const mapInstallmentStatusFromDb = (status) => {
 };
 
 // Helper: Map installment fields
-const mapInstallmentFromDb = (dbInst) => ({
-  id: dbInst.id,
-  project_id: dbInst.project_id,
-  origin_budget_id: dbInst.origin_budget_id,
-  legalEntityId: dbInst.legal_entity_id || null,
-  numQuota: dbInst.installment_number,
-  date: dbInst.scheduled_date,
-  uf: parseFloat(dbInst.planned_amount_uf) || 0,
-  currency: dbInst.currency || 'UF',
-  billingCompany: dbInst.billing_company || 'Spoerer',
-  taxPercent: dbInst.tax_percent !== null && dbInst.tax_percent !== undefined ? parseFloat(dbInst.tax_percent) : (dbInst.billing_company === 'FPF' ? 0 : 19),
-  net_clp: dbInst.net_amount_clp ? parseFloat(dbInst.net_amount_clp) : null,
-  tax_clp: dbInst.tax_amount_clp ? parseFloat(dbInst.tax_amount_clp) : null,
-  total_clp: dbInst.total_amount_clp ? parseFloat(dbInst.total_amount_clp) : null,
-  status: mapInstallmentStatusFromDb(dbInst.status),
-  actualInvoiceDate: dbInst.actual_invoice_date || null,
-  invoiceNumber: dbInst.invoice_number || '',
-  invoiceFileUrl: dbInst.invoice_file_url || '',
-  actualPaymentDate: dbInst.actual_payment_date || null,
-  paymentBackupUrl: dbInst.payment_backup_url || '',
-  description: dbInst.description || '',
-  comment: dbInst.comment || '',
-  oc: dbInst.oc || '',
-  ocFileUrl: dbInst.oc_file_url || '',
-  otherFiles: Array.isArray(dbInst.other_files) ? dbInst.other_files : (typeof dbInst.other_files === 'string' ? JSON.parse(dbInst.other_files || '[]') : []),
-  dateConfirmed: dbInst.date_confirmed || false
-});
+const mapInstallmentFromDb = (dbInst) => {
+  const rawPlanned = parseFloat(dbInst.planned_amount_uf) || 0;
+  const isInvoicedOrPaid =
+    dbInst.status === 'Facturada' ||
+    dbInst.status === 'Factura emitida' ||
+    dbInst.status === 'Facturado' ||
+    dbInst.status === 'Pagada' ||
+    dbInst.status === 'Pagado';
+
+  // Fallback for rows where planned_amount_uf >= 1,000,000 was stored in net_amount_clp due to numeric(10,4) column constraint
+  const effectivePlanned =
+    rawPlanned === 0 && dbInst.net_amount_clp !== null && dbInst.net_amount_clp !== undefined
+      ? parseFloat(dbInst.net_amount_clp) || 0
+      : rawPlanned;
+
+  const effectiveNetClp =
+    !isInvoicedOrPaid && rawPlanned === 0 && (dbInst.total_amount_clp === null || dbInst.total_amount_clp === undefined)
+      ? null
+      : dbInst.net_amount_clp !== null && dbInst.net_amount_clp !== undefined
+        ? parseFloat(dbInst.net_amount_clp)
+        : null;
+
+  return {
+    id: dbInst.id,
+    project_id: dbInst.project_id,
+    origin_budget_id: dbInst.origin_budget_id,
+    legalEntityId: dbInst.legal_entity_id || null,
+    numQuota: dbInst.installment_number,
+    date: dbInst.scheduled_date,
+    uf: effectivePlanned,
+    currency: dbInst.currency || 'UF',
+    billingCompany: dbInst.billing_company || 'Spoerer',
+    taxPercent: dbInst.tax_percent !== null && dbInst.tax_percent !== undefined ? parseFloat(dbInst.tax_percent) : (dbInst.billing_company === 'FPF' ? 0 : 19),
+    net_clp: effectiveNetClp,
+    tax_clp: dbInst.tax_amount_clp ? parseFloat(dbInst.tax_amount_clp) : null,
+    total_clp: dbInst.total_amount_clp ? parseFloat(dbInst.total_amount_clp) : null,
+    status: mapInstallmentStatusFromDb(dbInst.status),
+    actualInvoiceDate: dbInst.actual_invoice_date || null,
+    invoiceNumber: dbInst.invoice_number || '',
+    invoiceFileUrl: dbInst.invoice_file_url || '',
+    actualPaymentDate: dbInst.actual_payment_date || null,
+    paymentBackupUrl: dbInst.payment_backup_url || '',
+    description: dbInst.description || '',
+    comment: dbInst.comment || '',
+    oc: dbInst.oc || '',
+    ocFileUrl: dbInst.oc_file_url || '',
+    otherFiles: Array.isArray(dbInst.other_files) ? dbInst.other_files : (typeof dbInst.other_files === 'string' ? JSON.parse(dbInst.other_files || '[]') : []),
+    dateConfirmed: dbInst.date_confirmed || false
+  };
+};
+
+// Helpers: Gracefully handle numeric(10,4) overflow on billing_installments.planned_amount_uf for amounts >= 1,000,000
+const applyInstallmentOverflowFallback = (row) => {
+  if (!row || row.planned_amount_uf === undefined || row.planned_amount_uf === null) return row;
+  const planned = parseFloat(row.planned_amount_uf) || 0;
+  if (Math.abs(planned) >= 1000000) {
+    return {
+      ...row,
+      planned_amount_uf: 0,
+      net_amount_clp: row.net_amount_clp !== null && row.net_amount_clp !== undefined ? row.net_amount_clp : planned
+    };
+  }
+  return row;
+};
+
+const insertBillingInstallmentsSafely = async (rows, selectResult = false) => {
+  const query = supabase.from('billing_installments').insert(rows);
+  const { data, error } = selectResult ? await query.select() : await query;
+  if (error && (error.code === '22003' || (error.message && error.message.toLowerCase().includes('numeric field overflow')))) {
+    const fallbackRows = rows.map(applyInstallmentOverflowFallback);
+    const retryQuery = supabase.from('billing_installments').insert(fallbackRows);
+    return selectResult ? await retryQuery.select() : await retryQuery;
+  }
+  return { data, error };
+};
+
+const updateBillingInstallmentSafely = async (id, dbUpdates) => {
+  const { data, error } = await supabase
+    .from('billing_installments')
+    .update(dbUpdates)
+    .eq('id', id)
+    .select();
+  if (error && (error.code === '22003' || (error.message && error.message.toLowerCase().includes('numeric field overflow')))) {
+    const fallbackUpdates = applyInstallmentOverflowFallback(dbUpdates);
+    return await supabase
+      .from('billing_installments')
+      .update(fallbackUpdates)
+      .eq('id', id)
+      .select();
+  }
+  return { data, error };
+};
 
 // Helper: Map extra costs fields
 const mapExtraCostFromDb = (dbCost) => ({
@@ -729,6 +794,12 @@ export const supabaseService = {
     // 2.5 Sync Billing Installments (Cuotas) if provided
     if (billingInstallments && savedBudget.id) {
       const projectId = savedBudget.project_id || null;
+
+      // Keep backup of existing installments in case insert fails
+      const { data: existingInstsBackup } = await supabase
+        .from('billing_installments')
+        .select('*')
+        .eq('origin_budget_id', savedBudget.id);
       
       // Delete existing installments linked to this budget
       const { error: delError } = await supabase
@@ -771,11 +842,14 @@ export const supabaseService = {
           total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
         }));
 
-        const { error: insError } = await supabase
-          .from('billing_installments')
-          .insert(installmentsToInsert);
+        const { error: insError } = await insertBillingInstallmentsSafely(installmentsToInsert);
         
-        if (insError) throw insError;
+        if (insError) {
+          if (existingInstsBackup && existingInstsBackup.length > 0) {
+            await supabase.from('billing_installments').insert(existingInstsBackup);
+          }
+          throw insError;
+        }
       }
     }
 
@@ -1039,11 +1113,7 @@ export const supabaseService = {
     if (updates.tax_clp !== undefined) dbUpdates.tax_amount_clp = updates.tax_clp;
     if (updates.total_clp !== undefined) dbUpdates.total_amount_clp = updates.total_clp;
 
-    const { data, error } = await supabase
-      .from('billing_installments')
-      .update(dbUpdates)
-      .eq('id', id)
-      .select();
+    const { data, error } = await updateBillingInstallmentSafely(id, dbUpdates);
     
     if (error) throw error;
     return mapInstallmentFromDb(data[0]);
@@ -1077,10 +1147,7 @@ export const supabaseService = {
       total_amount_clp: installment.total_clp !== undefined ? installment.total_clp : null
     };
 
-    const { data, error } = await supabase
-      .from('billing_installments')
-      .insert([dbData])
-      .select();
+    const { data, error } = await insertBillingInstallmentsSafely([dbData], true);
 
     if (error) throw error;
     return mapInstallmentFromDb(data[0]);
@@ -1098,7 +1165,8 @@ export const supabaseService = {
 
   // Vínculo Presupuesto + Proyecto + Cuotas (Transacción Atómica de Aprobación)
   async approveBudgetAndCreateProject(projectForm, budgetId, billingInstallments, budgetForm = null) {
-    // 1. Create Project
+    // 1. Create or Update Project
+    const isNewProject = !projectForm.id;
     const projectData = {
       project_number: projectForm.projectNumber,
       project_name: projectForm.rawProjectName,
@@ -1143,7 +1211,13 @@ export const supabaseService = {
     if (projError) throw projError;
     const project = mapProjectFromDb(dbProj);
 
-    // 2. Fetch budget to freeze total_amount
+    // 2. Fetch budget metadata and items
+    const { data: currentBudget } = await supabase
+      .from('budgets')
+      .select('status, budget_number, backup_files, currency, billing_company, tax_percent, legal_entity_id, client_id')
+      .eq('id', budgetId)
+      .single();
+
     const { data: dbBudgetItemData } = await supabase
       .from('budget_items')
       .select('*')
@@ -1196,13 +1270,65 @@ export const supabaseService = {
       }
     }
 
-    // 3. Move files in storage if status changes to Aprobado, or handle budgetForm files
-    const { data: currentBudget } = await supabase
-      .from('budgets')
-      .select('status, budget_number, backup_files, currency, billing_company')
-      .eq('id', budgetId)
-      .single();
+    // 3. Insert billing installments linked to project and budget BEFORE marking budget as Aprobado
+    // This guarantees that if installment creation fails, the budget is NOT left in Aprobado state with 0 installments.
+    if (billingInstallments && billingInstallments.length > 0) {
+      const { data: existingInstsBackup } = await supabase
+        .from('billing_installments')
+        .select('*')
+        .eq('origin_budget_id', budgetId);
 
+      // First clean up any old installments for this budget to prevent duplicates
+      await supabase
+        .from('billing_installments')
+        .delete()
+        .eq('origin_budget_id', budgetId);
+
+      const installmentsToInsert = billingInstallments.map(inst => ({
+        project_id: project.id,
+        origin_budget_id: budgetId,
+        installment_number: inst.numQuota,
+        scheduled_date: inst.date,
+        planned_amount_uf: parseFloat(inst.uf) || 0,
+        currency: inst.currency !== undefined ? inst.currency : ((currentBudget ? currentBudget.currency : null) || 'UF'),
+        billing_company: inst.billingCompany !== undefined ? inst.billingCompany : ((budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer'),
+        tax_percent: inst.taxPercent !== undefined && inst.taxPercent !== null
+          ? parseFloat(inst.taxPercent)
+          : (budgetForm?.taxPercent !== undefined && budgetForm?.taxPercent !== null
+              ? parseFloat(budgetForm.taxPercent)
+              : (currentBudget?.tax_percent !== undefined && currentBudget?.tax_percent !== null ? parseFloat(currentBudget.tax_percent) : (inst.billingCompany === 'FPF' ? 0 : 19))),
+        legal_entity_id: inst.legalEntityId !== undefined ? inst.legalEntityId : (projectForm.legalEntityId || (currentBudget ? (currentBudget.legal_entity_id || currentBudget.client_id) : null) || null),
+        description: inst.description || inst.comment || '',
+        comment: inst.description ? (inst.comment || '') : '',
+        oc: inst.oc || '',
+        oc_file_url: inst.ocFileUrl || null,
+        status: mapInstallmentStatusToDb(inst.status || 'Por aprobar'),
+        date_confirmed: inst.dateConfirmed || false,
+        invoice_number: inst.invoiceNumber || null,
+        invoice_file_url: inst.invoiceFileUrl || null,
+        actual_invoice_date: inst.actualInvoiceDate || null,
+        actual_payment_date: inst.actualPaymentDate || null,
+        payment_backup_url: inst.paymentBackupUrl || null,
+        other_files: inst.otherFiles || [],
+        net_amount_clp: inst.net_clp !== undefined ? inst.net_clp : null,
+        tax_amount_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
+        total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
+      }));
+
+      const { error: instError } = await insertBillingInstallmentsSafely(installmentsToInsert);
+      
+      if (instError) {
+        if (existingInstsBackup && existingInstsBackup.length > 0) {
+          await supabase.from('billing_installments').insert(existingInstsBackup);
+        }
+        if (isNewProject && project?.id) {
+          await supabase.from('projects').delete().eq('id', project.id);
+        }
+        throw instError;
+      }
+    }
+
+    // 4. Move files in storage if status changes to Aprobado, or handle budgetForm files
     let finalFiles = [];
     if (currentBudget) {
       if (budgetForm && budgetForm.backupFiles) {
@@ -1248,7 +1374,7 @@ export const supabaseService = {
       }
     }
 
-    // 4. Update Budget (setApproved, link project_id, update files, amount, and title if provided)
+    // 5. Update Budget (setApproved, link project_id, update files, amount, and title if provided)
     const budgetUpdateData = {
       status: 'Aprobado',
       project_id: project.id,
@@ -1279,52 +1405,6 @@ export const supabaseService = {
       .eq('id', budgetId);
     
     if (budgetError) throw budgetError;
-
-    // 4. Insert billing installments linked to project and budget
-    if (billingInstallments && billingInstallments.length > 0) {
-      // First clean up any old installments for this budget to prevent duplicates
-      await supabase
-        .from('billing_installments')
-        .delete()
-        .eq('origin_budget_id', budgetId);
-
-      const installmentsToInsert = billingInstallments.map(inst => ({
-        project_id: project.id,
-        origin_budget_id: budgetId,
-        installment_number: inst.numQuota,
-        scheduled_date: inst.date,
-        planned_amount_uf: parseFloat(inst.uf) || 0,
-        currency: inst.currency !== undefined ? inst.currency : ((currentBudget ? currentBudget.currency : null) || 'UF'),
-        billing_company: inst.billingCompany !== undefined ? inst.billingCompany : ((budgetForm ? budgetForm.billingCompany : null) || projectForm.billingCompany || (currentBudget ? currentBudget.billing_company : null) || 'Spoerer'),
-        tax_percent: inst.taxPercent !== undefined && inst.taxPercent !== null
-          ? parseFloat(inst.taxPercent)
-          : (budgetForm?.taxPercent !== undefined && budgetForm?.taxPercent !== null
-              ? parseFloat(budgetForm.taxPercent)
-              : (currentBudget?.tax_percent !== undefined && currentBudget?.tax_percent !== null ? parseFloat(currentBudget.tax_percent) : (inst.billingCompany === 'FPF' ? 0 : 19))),
-        legal_entity_id: inst.legalEntityId !== undefined ? inst.legalEntityId : (projectForm.legalEntityId || (currentBudget ? (currentBudget.legal_entity_id || currentBudget.client_id) : null) || null),
-        description: inst.description || inst.comment || '',
-        comment: inst.description ? (inst.comment || '') : '',
-        oc: inst.oc || '',
-        oc_file_url: inst.ocFileUrl || null,
-        status: mapInstallmentStatusToDb(inst.status || 'Por aprobar'),
-        date_confirmed: inst.dateConfirmed || false,
-        invoice_number: inst.invoiceNumber || null,
-        invoice_file_url: inst.invoiceFileUrl || null,
-        actual_invoice_date: inst.actualInvoiceDate || null,
-        actual_payment_date: inst.actualPaymentDate || null,
-        payment_backup_url: inst.paymentBackupUrl || null,
-        other_files: inst.otherFiles || [],
-        net_amount_clp: inst.net_clp !== undefined ? inst.net_clp : null,
-        tax_amount_clp: inst.tax_clp !== undefined ? inst.tax_clp : null,
-        total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
-      }));
-
-      const { error: instError } = await supabase
-        .from('billing_installments')
-        .insert(installmentsToInsert);
-      
-      if (instError) throw instError;
-    }
 
     // Retrieve fresh budgets and installments to sync states
     const { data: freshBudget } = await supabase
@@ -1670,7 +1750,47 @@ export const supabaseService = {
     return data ? data[0] : null;
   },
 
+  async getBackupConfig() {
+    try {
+      const { data, error } = await supabase
+        .from('notification_settings')
+        .select('*')
+        .eq('notification_type', 'backup_config')
+        .maybeSingle();
 
+      if (error) throw error;
+      return {
+        path: data?.description || '',
+        folderName: data?.title || ''
+      };
+    } catch (err) {
+      console.warn('Error fetching backup config from Supabase:', err);
+      return { path: '', folderName: '' };
+    }
+  },
+
+  async saveBackupConfig({ path, folderName }) {
+    const cleanPath = (path || '').trim();
+    const cleanFolder = (folderName || '').trim() || cleanPath.split(/[\\/]/).filter(Boolean).pop() || 'Carpeta de Respaldos';
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .upsert({
+        notification_type: 'backup_config',
+        title: cleanFolder,
+        description: cleanPath,
+        enabled: true,
+        user_ids: [],
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'notification_type' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      path: data.description || '',
+      folderName: data.title || ''
+    };
+  },
 
   async getAllRawDataForBackup() {
     const [

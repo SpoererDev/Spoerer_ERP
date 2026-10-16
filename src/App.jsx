@@ -124,14 +124,18 @@ export default function App() {
     };
   }, [user, fetchLatestBackup]);
 
-  const handleExecuteBackup = async (backupType = 'daily') => {
+  const handleExecuteBackup = async (backupType = 'daily', configuredPath = '') => {
     try {
+      const savedConfigSetting = (notificationSettings || []).find(s => s.notificationType === 'backup_config');
+      const effectivePath = configuredPath || savedConfigSetting?.description || '';
       const res = await generateConsolidatedBackup({
         userName: user?.name || 'Administrador',
-        backupType
+        backupType,
+        configuredPath: effectivePath
       });
-      if (res?.cancelled) return;
+      if (res?.cancelled) return res;
       await fetchLatestBackup();
+      return res;
     } catch (err) {
       console.error("Error al ejecutar respaldo:", err);
       alert("Ocurrió un error al generar el archivo de respaldo.");
@@ -830,7 +834,7 @@ export default function App() {
       <BackupHistoryModal
         isOpen={backupHistoryModalOpen}
         onClose={() => setBackupHistoryModalOpen(false)}
-        onDownloadBackup={(type) => handleExecuteBackup(type)}
+        onDownloadBackup={(type, configuredPath) => handleExecuteBackup(type, configuredPath)}
         latestBackupLog={latestBackupLog}
       />
 

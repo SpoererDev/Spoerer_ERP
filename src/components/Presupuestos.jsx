@@ -145,6 +145,65 @@ const formatToChileanNumber = (val, decimals = 2) => {
   });
 };
 
+// Helper: Formatear monto de cuota con separadores de miles (es-CL)
+const formatInstallmentAmountDisplay = (val, curr = 'UF') => {
+  if (val === null || val === undefined || val === '') return '';
+  const num = Number(val);
+  if (isNaN(num)) return '';
+  const isCLP = String(curr || 'UF').toUpperCase() === 'CLP';
+  if (isCLP) {
+    return Math.round(num).toLocaleString('es-CL');
+  }
+  return num.toLocaleString('es-CL', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4
+  });
+};
+
+// Helper: Parsear y formatear entrada de texto con separador de miles en tiempo real
+const parseAndFormatInstallmentAmountInput = (rawInput, curr = 'UF') => {
+  if (rawInput === null || rawInput === undefined || rawInput === '') {
+    return { display: '', numeric: 0 };
+  }
+  const isCLP = String(curr || 'UF').toUpperCase() === 'CLP';
+  let str = String(rawInput);
+
+  if (isCLP) {
+    const digits = str.replace(/\D/g, '');
+    if (!digits) return { display: '', numeric: 0 };
+    const num = parseInt(digits, 10) || 0;
+    return {
+      display: num.toLocaleString('es-CL'),
+      numeric: num
+    };
+  }
+
+  if (!str.includes(',') && str.endsWith('.')) {
+    str = str.slice(0, -1) + ',';
+  }
+  str = str.replace(/\./g, '').replace(/[^0-9,]/g, '');
+  if (!str) return { display: '', numeric: 0 };
+
+  const parts = str.split(',');
+  const intDigits = parts[0].replace(/^0+(?=\d)/, '');
+  const intNum = intDigits ? (parseInt(intDigits, 10) || 0) : 0;
+  const formattedInt = intDigits ? intNum.toLocaleString('es-CL') : '0';
+
+  if (parts.length > 1) {
+    const decDigits = parts.slice(1).join('').slice(0, 4);
+    const numeric = parseFloat(`${intNum}.${decDigits || '0'}`) || 0;
+    return {
+      display: `${formattedInt},${decDigits}`,
+      numeric
+    };
+  }
+
+  return {
+    display: intDigits ? formattedInt : '',
+    numeric: intNum
+  };
+};
+
 // Helper to check if a quote falls within the selected period of months
 const isQuoteInPeriod = (quote, period) => {
   if (period === 'all') return true;
@@ -911,8 +970,11 @@ export default function Presupuestos({
 
   const addMonthsToDateString = (dateStr, monthsToAdd) => addMonthsSafely(dateStr, monthsToAdd);
 
+  const [rawValorProyecto, setRawValorProyecto] = useState(undefined);
+
   const generateInitialBillingTable = (startDate, totalVal) => {
     const parsedTotalVal = parseFloat(totalVal) || 0;
+    setRawValorProyecto(undefined);
     if (!startDate) {
       setBillingTable([]);
       return;
@@ -932,7 +994,10 @@ export default function Presupuestos({
   };
 
   const handleValorProyectoChange = (val) => {
-    setValorProyecto(val);
+    const curr = approvingQuote?.currency || 'UF';
+    const { display, numeric } = parseAndFormatInstallmentAmountInput(val, curr);
+    setRawValorProyecto(display);
+    setValorProyecto(numeric);
   };
 
   const handleRowChange = (index, field, value) => {
@@ -948,6 +1013,29 @@ export default function Presupuestos({
         };
       }
       return row;
+    }));
+  };
+
+  const handleRowAmountTextChange = (index, value) => {
+    const curr = approvingQuote?.currency || 'UF';
+    const { display, numeric } = parseAndFormatInstallmentAmountInput(value, curr);
+    setBillingTable(prev => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      return {
+        ...row,
+        uf: numeric,
+        rawUf: display
+      };
+    }));
+  };
+
+  const handleRowAmountBlur = (index) => {
+    setBillingTable(prev => prev.map((row, idx) => {
+      if (idx !== index) return row;
+      return {
+        ...row,
+        rawUf: undefined
+      };
     }));
   };
 
@@ -1113,11 +1201,14 @@ export default function Presupuestos({
     }
 
     // Validate that sum of cuotas equals valorProyecto
+    const approvingCurrency = approvingQuote?.currency || 'UF';
+    const isCLPApprove = approvingCurrency === 'CLP';
     const currentSum = billingTable.reduce((acc, row) => acc + ((parseInt(row.cuotas) || 1) * (parseFloat(row.uf) || 0)), 0);
-    const roundedSum = Math.round(currentSum * 100) / 100;
-    const expectedTotal = Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
-    if (Math.abs(roundedSum - expectedTotal) >= 0.02) {
-      setValidationError(`La suma de las cuotas (${roundedSum.toFixed(2)} UF) no coincide con el valor total del presupuesto (${expectedTotal.toFixed(2)} UF). Diferencia: ${(expectedTotal - roundedSum).toFixed(2)} UF.`);
+    const roundedSum = isCLPApprove ? Math.round(currentSum) : Math.round(currentSum * 100) / 100;
+    const expectedTotal = isCLPApprove ? Math.round(parseFloat(valorProyecto) || 0) : Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
+    const tolerance = isCLPApprove ? 1 : 0.02;
+    if (Math.abs(roundedSum - expectedTotal) >= tolerance) {
+      setValidationError(`La suma de las cuotas (${formatAmountWithCurrency(roundedSum, approvingCurrency)}) no coincide con el valor total del presupuesto (${formatAmountWithCurrency(expectedTotal, approvingCurrency)}). Diferencia: ${formatAmountWithCurrency(expectedTotal - roundedSum, approvingCurrency)}.`);
       return;
     }
 
@@ -1138,7 +1229,7 @@ export default function Presupuestos({
           numQuota: numStr,
           date: dateVal,
           uf: U,
-          currency: approvingQuote?.currency || '',
+          currency: approvingQuote?.currency || 'UF',
           billingCompany: approvingQuote?.billingCompany || '',
           taxPercent: approvingTax,
           legalEntityId: approvingQuote?.legalEntityId || approvingQuote?.clientId || null,
@@ -1193,6 +1284,7 @@ export default function Presupuestos({
       anio: parseInt(anio) || existing?.anio || new Date().getFullYear(),
       tipo: tipo || existing?.tipo || null,
       encargado: encargado || existing?.encargado || null,
+      currency: existing?.currency || approvingQuote?.currency || 'UF',
       billingCompany: existing?.billingCompany || approvingQuote?.billingCompany || 'Spoerer',
       taxPercent: existing?.taxPercent !== undefined ? existing.taxPercent : approvingTaxPercent
     };
@@ -1771,7 +1863,8 @@ export default function Presupuestos({
       const roundedSum = isCLP ? Math.round(currentSum) : Math.round(currentSum * 100) / 100;
       const parsedSub = parseSubtotal(subtotal, quoteCurrency);
       const expectedTotal = isCLP ? Math.round(parsedSub) : Math.round(parsedSub * 100) / 100;
-      if (Math.abs(roundedSum - expectedTotal) >= 0.02) {
+      const tolerance = isCLP ? 1 : 0.02;
+      if (Math.abs(roundedSum - expectedTotal) >= tolerance) {
         setNotification({
           type: 'error',
           title: 'Error de Cuotas',
@@ -1809,8 +1902,6 @@ export default function Presupuestos({
           console.error("Error al crear proyecto desde presupuesto:", err);
         }
       }
-    } else {
-      projectIdToLink = null;
     }
 
     const duplicateQuote = quotes.find(q => (q.quoteId === formattedId || q.quoteId === quoteId) && q.id !== currentBudgetUuid);
@@ -4092,11 +4183,12 @@ export default function Presupuestos({
                           <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto ({approvingQuote?.currency || 'UF'})</label>
                           <input
                             className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
-                            type="number"
-                            value={valorProyecto}
+                            type="text"
+                            inputMode="decimal"
+                            value={rawValorProyecto !== undefined ? rawValorProyecto : formatInstallmentAmountDisplay(valorProyecto, approvingQuote?.currency || 'UF')}
                             onChange={(e) => handleValorProyectoChange(e.target.value)}
-                            min="0"
-                            step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
+                            onBlur={() => setRawValorProyecto(undefined)}
+                            placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
                             required
                           />
                         </div>
@@ -4348,11 +4440,13 @@ export default function Presupuestos({
                                         </td>
                                         <td className="p-1" style={{ width: `${billingColWidths.uf}px` }}>
                                           <input
-                                            type="number"
-                                            value={row.uf}
-                                            onChange={(e) => handleRowChange(idx, 'uf', e.target.value)}
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={row.rawUf !== undefined ? row.rawUf : formatInstallmentAmountDisplay(row.uf, approvingQuote?.currency || 'UF')}
+                                            onChange={(e) => handleRowAmountTextChange(idx, e.target.value)}
+                                            onBlur={() => handleRowAmountBlur(idx)}
+                                            placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
                                             className="w-full border-0 bg-transparent p-1 focus:ring-1 focus:ring-secondary focus:bg-white rounded outline-none text-body-sm font-semibold text-right"
-                                            step={approvingQuote?.currency === 'CLP' ? "1" : "0.01"}
                                           />
                                         </td>
                                         <td className="p-1" style={{ width: `${billingColWidths.comment}px` }}>
@@ -4425,10 +4519,11 @@ export default function Presupuestos({
 
                             {/* Verification Total Bar */}
                             {(() => {
+                              const isCLPApprove = (approvingQuote?.currency || 'UF') === 'CLP';
                               const currentSum = billingTable.reduce((acc, r) => acc + ((parseInt(r.cuotas) || 1) * (parseFloat(r.uf) || 0)), 0);
-                              const roundedSum = Math.round(currentSum * 100) / 100;
-                              const expectedTotal = Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
-                              const isMatch = Math.abs(roundedSum - expectedTotal) < 0.02;
+                              const roundedSum = isCLPApprove ? Math.round(currentSum) : Math.round(currentSum * 100) / 100;
+                              const expectedTotal = isCLPApprove ? Math.round(parseFloat(valorProyecto) || 0) : Math.round((parseFloat(valorProyecto) || 0) * 100) / 100;
+                              const isMatch = Math.abs(roundedSum - expectedTotal) < (isCLPApprove ? 1 : 0.02);
                               const totalCuotas = billingTable.reduce((acc, r) => acc + (parseInt(r.cuotas) || 1), 0);
                               return (
                                 <div className={`mt-3 p-3 rounded-lg flex flex-col gap-2 font-bold text-body-sm border ${isMatch
