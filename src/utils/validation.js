@@ -58,6 +58,12 @@ export const formatRut = (rut) => {
     return `${formattedBody}-${dv}`;
 };
 
+export const isForeignGenericRut = (rut) => {
+    if (!rut) return false;
+    const cleaned = String(rut).replace(/[^0-9kK]/g, '').toUpperCase();
+    return cleaned === '555555555';
+};
+
 export const isValidDateDDMMYYYY = (dateStr) => {
     if (!dateStr || typeof dateStr !== 'string') return false;
     const trimmed = dateStr.trim();

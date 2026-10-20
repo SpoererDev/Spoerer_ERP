@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
-import { validateRut, formatRut } from '../utils/validation';
+import { validateRut, formatRut, isForeignGenericRut } from '../utils/validation';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
 import { printFilteredBillingInstallments } from '../utils/billingPrintHelper';
 import { compareNumQuota } from '../utils/billingHelpers';
@@ -973,6 +973,32 @@ export default function Facturacion({
           setAssignError('El RUT ingresado no es válido.');
           setIsSavingRazonSocial(false);
           return;
+        }
+        if (newRazonSocialRut.trim()) {
+          const cleanedNewRut = newRazonSocialRut.split('.').join('').split('-').join('').toUpperCase();
+          const cleanedNewComp = newRazonSocialCompany.trim().toLowerCase();
+          if (isForeignGenericRut(newRazonSocialRut)) {
+            const dupForeign = (clients || []).find(c => {
+              const cRut = c.rut ? c.rut.split('.').join('').split('-').join('').toUpperCase() : '';
+              const cComp = (c.company || '').trim().toLowerCase();
+              return cRut === cleanedNewRut && cComp === cleanedNewComp;
+            });
+            if (dupForeign) {
+              setAssignError(`Ya existe una Razón Social extranjera con el nombre "${dupForeign.company}". Selecciónela en la pestaña "Seleccionar Existente".`);
+              setIsSavingRazonSocial(false);
+              return;
+            }
+          } else {
+            const dupNational = (clients || []).find(c => {
+              const cRut = c.rut ? c.rut.split('.').join('').split('-').join('').toUpperCase() : '';
+              return cRut === cleanedNewRut;
+            });
+            if (dupNational) {
+              setAssignError(`El RUT ${formatRut(newRazonSocialRut)} ya está registrado para "${dupNational.company}". Selecciónela en la pestaña "Seleccionar Existente".`);
+              setIsSavingRazonSocial(false);
+              return;
+            }
+          }
         }
 
         const mainClientId = targetBudgetForRazonSocial?.mainClientId || targetProjectForRazonSocial?.mainClientId || null;

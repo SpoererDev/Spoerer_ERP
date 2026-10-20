@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
-import { validateRut, formatRut } from '../utils/validation';
+import { validateRut, formatRut, isForeignGenericRut } from '../utils/validation';
 
 export default function CRM({ 
   mainClients = [], 
@@ -134,6 +134,7 @@ export default function CRM({
   // --- SUB-TAB 2: LEGAL ENTITIES (RAZÓN SOCIAL) STATES ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClientId, setEditingClientId] = useState(null);
+  const [isAutoMatchedByRut, setIsAutoMatchedByRut] = useState(false);
   const [viewingClient, setViewingClient] = useState(null);
   const [clientToDelete, setClientToDelete] = useState(null);
   
@@ -224,32 +225,43 @@ export default function CRM({
     }
 
     if (cleaned.length >= 7) {
-      const existingClient = clients.find(c => {
-        const cCleaned = c.rut ? c.rut.split('.').join('').split('-').join('') : '';
-        return cCleaned === cleaned;
-      });
-
-      if (existingClient) {
-        setEditingClientId(existingClient.id);
-        setCompany(existingClient.company || '');
-        
-        const targetMCId = existingClient.mainClientId || existingClient.realClient || '';
-        const matchedMC = mainClients.find(mc => mc.id === targetMCId || mc.name.toLowerCase() === targetMCId.toLowerCase());
-        setSelectedMainClientId(matchedMC ? matchedMC.id : targetMCId);
-        setMainClientSearchText(matchedMC ? matchedMC.name : (existingClient.mainClientName || existingClient.realClient || ''));
-        setIsMainClientDropdownOpen(false);
-
-        setGiro(existingClient.giro || '');
-        setAddress(existingClient.address || '');
-        setComuna(existingClient.comuna || '');
-        setCiudad(existingClient.ciudad || '');
-        setName(existingClient.name || '');
-        setEmail(existingClient.email || '');
-        setPhone(existingClient.phone || '');
-        setRutError('');
-      } else {
-        if (editingClientId) {
+      // Para el RUT genérico extranjero 55.555.555-5, no autocompletamos otra razón social existente
+      // para permitir crear múltiples clientes extranjeros con distinto nombre.
+      if (isForeignGenericRut(formatted)) {
+        if (isAutoMatchedByRut) {
           setEditingClientId(null);
+          setIsAutoMatchedByRut(false);
+        }
+      } else if (!editingClientId || isAutoMatchedByRut) {
+        const existingClient = clients.find(c => {
+          const cCleaned = c.rut ? c.rut.split('.').join('').split('-').join('') : '';
+          return cCleaned === cleaned;
+        });
+
+        if (existingClient) {
+          setEditingClientId(existingClient.id);
+          setIsAutoMatchedByRut(true);
+          setCompany(existingClient.company || '');
+          
+          const targetMCId = existingClient.mainClientId || existingClient.realClient || '';
+          const matchedMC = mainClients.find(mc => mc.id === targetMCId || mc.name.toLowerCase() === targetMCId.toLowerCase());
+          setSelectedMainClientId(matchedMC ? matchedMC.id : targetMCId);
+          setMainClientSearchText(matchedMC ? matchedMC.name : (existingClient.mainClientName || existingClient.realClient || ''));
+          setIsMainClientDropdownOpen(false);
+
+          setGiro(existingClient.giro || '');
+          setAddress(existingClient.address || '');
+          setComuna(existingClient.comuna || '');
+          setCiudad(existingClient.ciudad || '');
+          setName(existingClient.name || '');
+          setEmail(existingClient.email || '');
+          setPhone(existingClient.phone || '');
+          setRutError('');
+        } else {
+          if (isAutoMatchedByRut) {
+            setEditingClientId(null);
+            setIsAutoMatchedByRut(false);
+          }
         }
       }
     }
@@ -257,6 +269,7 @@ export default function CRM({
 
   const handleCloseModal = () => {
     setEditingClientId(null);
+    setIsAutoMatchedByRut(false);
     setRut('');
     setCompany('');
     setSelectedMainClientId('');
@@ -275,6 +288,7 @@ export default function CRM({
 
   const handleOpenEdit = (client) => {
     setEditingClientId(client.id);
+    setIsAutoMatchedByRut(false);
     setRut(client.rut || '');
     setCompany(client.company || '');
     
@@ -314,6 +328,41 @@ export default function CRM({
         message: 'El RUT ingresado no es válido.'
       });
       return;
+    }
+
+    const cleanedRut = rut.split('.').join('').split('-').join('').toUpperCase();
+    const cleanedCompany = company.trim().toLowerCase();
+
+    if (isForeignGenericRut(rut)) {
+      const duplicateForeign = clients.find(c => {
+        if (c.id === editingClientId) return false;
+        const cRut = c.rut ? c.rut.split('.').join('').split('-').join('').toUpperCase() : '';
+        const cComp = (c.company || '').trim().toLowerCase();
+        return cRut === cleanedRut && cComp === cleanedCompany;
+      });
+      if (duplicateForeign) {
+        setNotification({
+          type: 'error',
+          title: 'Razón Social Duplicada',
+          message: 'Ya existe una razón social extranjera (RUT 55.555.555-5) registrada con este mismo nombre.'
+        });
+        return;
+      }
+    } else {
+      const duplicateNational = clients.find(c => {
+        if (c.id === editingClientId) return false;
+        const cRut = c.rut ? c.rut.split('.').join('').split('-').join('').toUpperCase() : '';
+        return cRut === cleanedRut;
+      });
+      if (duplicateNational) {
+        setRutError('RUT ya registrado');
+        setNotification({
+          type: 'error',
+          title: 'RUT Duplicado',
+          message: `El RUT ${rut} ya se encuentra registrado bajo la razón social "${duplicateNational.company}".`
+        });
+        return;
+      }
     }
     
     // Find matching Main Client
