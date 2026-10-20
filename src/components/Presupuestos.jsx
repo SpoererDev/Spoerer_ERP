@@ -338,6 +338,8 @@ export default function Presupuestos({
   const [ordenCompra, setOrdenCompra] = useState('');
   const [anio, setAnio] = useState('');
   const [valorProyecto, setValorProyecto] = useState(0);
+  const [montoActivo, setMontoActivo] = useState(0);
+  const [isMontoActivoCustomized, setIsMontoActivoCustomized] = useState(false);
   const [cliente, setCliente] = useState('');
   const [billingTable, setBillingTable] = useState([]);
   const [validationError, setValidationError] = useState('');
@@ -971,6 +973,7 @@ export default function Presupuestos({
   const addMonthsToDateString = (dateStr, monthsToAdd) => addMonthsSafely(dateStr, monthsToAdd);
 
   const [rawValorProyecto, setRawValorProyecto] = useState(undefined);
+  const [rawMontoActivo, setRawMontoActivo] = useState(undefined);
 
   const generateInitialBillingTable = (startDate, totalVal) => {
     const parsedTotalVal = parseFloat(totalVal) || 0;
@@ -998,6 +1001,18 @@ export default function Presupuestos({
     const { display, numeric } = parseAndFormatInstallmentAmountInput(val, curr);
     setRawValorProyecto(display);
     setValorProyecto(numeric);
+    if (!isMontoActivoCustomized) {
+      setMontoActivo(numeric);
+      setRawMontoActivo(undefined);
+    }
+  };
+
+  const handleMontoActivoChange = (val) => {
+    const curr = approvingQuote?.currency || 'UF';
+    const { display, numeric } = parseAndFormatInstallmentAmountInput(val, curr);
+    setRawMontoActivo(display);
+    setMontoActivo(numeric);
+    setIsMontoActivoCustomized(true);
   };
 
   const handleRowChange = (index, field, value) => {
@@ -1289,8 +1304,14 @@ export default function Presupuestos({
       taxPercent: existing?.taxPercent !== undefined ? existing.taxPercent : approvingTaxPercent
     };
 
+    const parsedValorProyecto = parseFloat(valorProyecto) || 0;
+    const parsedMontoActivo = (montoActivo !== undefined && montoActivo !== null && !isNaN(parseFloat(montoActivo)))
+      ? parseFloat(montoActivo)
+      : parsedValorProyecto;
+
     const budgetForm = {
-      amount: parseFloat(valorProyecto) || 0,
+      amount: parsedValorProyecto,
+      activeAmount: parsedMontoActivo,
       title: descripcion || '',
       currency: approvingQuote?.currency || 'UF',
       billingCompany: approvingQuote?.billingCompany || 'Spoerer',
@@ -1324,6 +1345,8 @@ export default function Presupuestos({
       setPreviewFile(null);
       setDocxHtml('');
       setOrdenCompra('');
+      setRawMontoActivo(undefined);
+      setIsMontoActivoCustomized(false);
     } catch (err) {
       setValidationError(err.message || 'Error al aprobar presupuesto.');
     } finally {
@@ -1407,7 +1430,14 @@ export default function Presupuestos({
         const todayDate = new Date().toISOString().split('T')[0];
         const currentYear = new Date().getFullYear();
         setAnio(currentYear);
-        setValorProyecto(quote.amount || 0);
+        const initialTotalVal = quote.amount || 0;
+        const initialActiveVal = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
+          ? parseFloat(quote.activeAmount)
+          : initialTotalVal;
+        setValorProyecto(initialTotalVal);
+        setMontoActivo(initialActiveVal);
+        setRawMontoActivo(undefined);
+        setIsMontoActivoCustomized(Math.abs(initialActiveVal - initialTotalVal) >= 0.01);
 
         const clientNameVal = quote.mainClientName || quote.clientName || quote.company || '';
         setCliente(clientNameVal);
@@ -4178,19 +4208,52 @@ export default function Presupuestos({
                           </div>
                         </div>
 
-                        {/* Fila: Valor Presupuesto */}
-                        <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto ({approvingQuote?.currency || 'UF'})</label>
-                          <input
-                            className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
-                            type="text"
-                            inputMode="decimal"
-                            value={rawValorProyecto !== undefined ? rawValorProyecto : formatInstallmentAmountDisplay(valorProyecto, approvingQuote?.currency || 'UF')}
-                            onChange={(e) => handleValorProyectoChange(e.target.value)}
-                            onBlur={() => setRawValorProyecto(undefined)}
-                            placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
-                            required
-                          />
+                        {/* Fila: Valor Presupuesto y Monto Activo */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
+                          <div className="flex flex-col gap-xs">
+                            <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Valor del Presupuesto ({approvingQuote?.currency || 'UF'})</label>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-secondary"
+                              type="text"
+                              inputMode="decimal"
+                              value={rawValorProyecto !== undefined ? rawValorProyecto : formatInstallmentAmountDisplay(valorProyecto, approvingQuote?.currency || 'UF')}
+                              onChange={(e) => handleValorProyectoChange(e.target.value)}
+                              onBlur={() => setRawValorProyecto(undefined)}
+                              placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
+                              required
+                            />
+                          </div>
+                          <div className="flex flex-col gap-xs">
+                            <div className="flex items-center justify-between gap-1">
+                              <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold" title="Monto activo del presupuesto para estadísticas de productividad">
+                                Monto Activo ({approvingQuote?.currency || 'UF'})
+                              </label>
+                              {isMontoActivoCustomized && Math.abs((parseFloat(montoActivo) || 0) - (parseFloat(valorProyecto) || 0)) >= 0.01 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMontoActivo(valorProyecto);
+                                    setRawMontoActivo(undefined);
+                                    setIsMontoActivoCustomized(false);
+                                  }}
+                                  className="text-[11px] text-secondary hover:underline font-semibold cursor-pointer"
+                                  title="Igualar al valor total del presupuesto"
+                                >
+                                  Igualar al total
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary"
+                              type="text"
+                              inputMode="decimal"
+                              value={rawMontoActivo !== undefined ? rawMontoActivo : formatInstallmentAmountDisplay(montoActivo, approvingQuote?.currency || 'UF')}
+                              onChange={(e) => handleMontoActivoChange(e.target.value)}
+                              onBlur={() => setRawMontoActivo(undefined)}
+                              placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
+                              required
+                            />
+                          </div>
                         </div>
 
                         {/* Fila: Orden de Compra (OC) */}

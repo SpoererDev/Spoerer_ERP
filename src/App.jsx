@@ -405,6 +405,19 @@ export default function App() {
     }
   };
 
+  const handleUpdateBudgetActiveAmount = async (budgetId, activeAmount) => {
+    try {
+      const updatedBudget = await supabaseService.updateBudgetActiveAmount(budgetId, activeAmount);
+      if (updatedBudget) {
+        setQuotes(prev => prev.map(q => q.id === budgetId ? updatedBudget : q));
+      }
+      return updatedBudget;
+    } catch (err) {
+      console.error("Error al actualizar monto activo del presupuesto:", err);
+      throw err;
+    }
+  };
+
   // PROJECTS ACTIONS
   const handleSaveProject = async (updatedProject) => {
     try {
@@ -819,6 +832,7 @@ export default function App() {
               onSaveProject={handleSaveProject}
               onDeleteProject={handleDeleteProject}
               onSaveInstallments={handleSaveInstallments}
+              onUpdateBudgetActiveAmount={handleUpdateBudgetActiveAmount}
               searchTerm={proyectosSearch}
               setSearchTerm={setProyectosSearch}
               tipoFilter={proyectosTipoFilter}

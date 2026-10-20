@@ -36,6 +36,7 @@ export default function Proyectos({
   onSaveProject,
   onDeleteProject,
   onSaveInstallments,
+  onUpdateBudgetActiveAmount,
   searchTerm,
   setSearchTerm,
   tipoFilter,
@@ -157,6 +158,7 @@ export default function Proyectos({
   const [editEncargado, setEditEncargado] = useState('');
   const [editBillingCompany, setEditBillingCompany] = useState('Spoerer');
   const [editTaxPercent, setEditTaxPercent] = useState('19');
+  const [editBudgetActiveAmounts, setEditBudgetActiveAmounts] = useState({});
   const [disassociatingBudgetId, setDisassociatingBudgetId] = useState(null);
 
   const adminUsers = useMemo(() => {
@@ -418,6 +420,17 @@ export default function Proyectos({
       ? project.taxPercent
       : (project.billingCompany === 'FPF' ? 0 : 19);
     setEditTaxPercent(String(defaultTax));
+
+    const projBudgets = (budgets || []).filter(b => b.projectId === project.id);
+    const initialActiveMap = {};
+    projBudgets.forEach(b => {
+      const totalAmt = parseFloat(b.amount) || 0;
+      const activeAmt = (b.activeAmount !== undefined && b.activeAmount !== null && !isNaN(parseFloat(b.activeAmount)))
+        ? parseFloat(b.activeAmount)
+        : totalAmt;
+      initialActiveMap[b.id] = String(activeAmt);
+    });
+    setEditBudgetActiveAmounts(initialActiveMap);
   };
 
   // Save project general parameters edit
@@ -464,6 +477,20 @@ export default function Proyectos({
         tipo: editTipo || null,
         encargado: editEncargado || null
       });
+
+      if (onUpdateBudgetActiveAmount) {
+        const projBudgets = (budgets || []).filter(b => b.projectId === editingProject.id);
+        await Promise.all(
+          projBudgets.map(b => {
+            const rawVal = editBudgetActiveAmounts[b.id];
+            const parsedNewActive = rawVal !== undefined && String(rawVal).trim() !== '' && !isNaN(parseFloat(String(rawVal).replace(',', '.')))
+              ? parseFloat(String(rawVal).replace(',', '.'))
+              : (parseFloat(b.amount) || 0);
+            return onUpdateBudgetActiveAmount(b.id, parsedNewActive);
+          })
+        );
+      }
+
       setNotification({
         type: 'success',
         title: 'Proyecto Guardado',
@@ -681,18 +708,25 @@ export default function Proyectos({
 
       // 1. Budget rows
       projectBudgets.forEach(budget => {
+        const totalAmt = parseFloat(budget.amount) || 0;
+        const activeAmt = (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
+          ? parseFloat(budget.activeAmount)
+          : totalAmt;
+
         rows.push({
           "Código de presupuesto": budget.quoteId || '',
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
           "Moneda": budget.currency || 'UF',
-          "Presupuesto": parseFloat(budget.amount) || 0,
+          "Presupuesto": totalAmt,
+          "Monto Activo": activeAmt,
           "Costo Extra": '',
           "Descripción": budget.title || '',
           "Comentario": '',
           "m2": parseFloat(project.superficie) || 0,
           "Rentabilidad esperada": (project.rentabilidad !== undefined && project.rentabilidad !== null) ? `${project.rentabilidad}%` : '',
           "Factura": '',
-          "Facturado": ''
+          "Facturado": '',
+          "Empresa Emisora": project.billingCompany || budget.billingCompany || 'Spoerer'
         });
       });
 
@@ -703,13 +737,15 @@ export default function Proyectos({
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
           "Moneda": cost.currency || 'UF',
           "Presupuesto": '',
+          "Monto Activo": '',
           "Costo Extra": parseFloat(cost.amount) || 0,
           "Descripción": cost.comment || '',
           "Comentario": '',
           "m2": parseFloat(cost.superficie) || 0,
           "Rentabilidad esperada": '',
           "Factura": '',
-          "Facturado": ''
+          "Facturado": '',
+          "Empresa Emisora": project.billingCompany || 'Spoerer'
         });
       });
     });
@@ -721,13 +757,15 @@ export default function Proyectos({
         "Proyecto",
         "Moneda",
         "Presupuesto",
+        "Monto Activo",
         "Costo Extra",
         "Descripción",
         "Comentario",
         "m2",
         "Rentabilidad esperada",
         "Factura",
-        "Facturado"
+        "Facturado",
+        "Empresa Emisora"
       ]
     });
 
@@ -1083,6 +1121,23 @@ export default function Proyectos({
               return acc;
             }, {});
 
+            const projectActiveTotalsByCurrency = projectBudgets.reduce((acc, b) => {
+              const curr = (b.currency || 'UF').toUpperCase();
+              const totalAmt = parseFloat(b.amount) || 0;
+              const activeAmt = (b.activeAmount !== undefined && b.activeAmount !== null && !isNaN(parseFloat(b.activeAmount)))
+                ? parseFloat(b.activeAmount)
+                : totalAmt;
+              acc[curr] = (acc[curr] || 0) + activeAmt;
+              return acc;
+            }, {});
+
+            const hasDifferentProjectActiveTotal = Object.keys(projectTotalsByCurrency).some(curr => {
+              const totalAmt = projectTotalsByCurrency[curr] || 0;
+              const activeAmt = projectActiveTotalsByCurrency[curr] ?? totalAmt;
+              const tolerance = curr === 'CLP' ? 1 : 0.01;
+              return Math.abs(activeAmt - totalAmt) >= tolerance;
+            });
+
             // Filter extra costs associated with this project
             const projectExtraCosts = extraCosts.filter(ec => ec.project_id === project.id);
             const projectExtraCostsByCurrency = projectExtraCosts.reduce((acc, c) => {
@@ -1178,6 +1233,14 @@ export default function Proyectos({
                           : '0 UF'}
                       </span>
                     </div>
+                    {hasDifferentProjectActiveTotal && (
+                      <div className="flex flex-col">
+                        <span className="text-label-sm text-on-surface-variant/80 uppercase">Monto Activo</span>
+                        <span className="font-bold text-body-md text-amber-600">
+                          {Object.entries(projectActiveTotalsByCurrency).map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ')}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex flex-col">
                       <span className="text-label-sm text-on-surface-variant/80 uppercase">Costos Extras</span>
                       <span className="font-bold text-body-md text-amber-600">
@@ -1295,6 +1358,13 @@ export default function Proyectos({
                         .filter(i => i.project_id === project.id && i.origin_budget_id === budget.id)
                         .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
 
+                      const budgetTotalAmt = parseFloat(budget.amount) || 0;
+                      const budgetActiveAmt = (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
+                        ? parseFloat(budget.activeAmount)
+                        : budgetTotalAmt;
+                      const budgetDiffTolerance = (budget.currency || 'UF').toUpperCase() === 'CLP' ? 1 : 0.01;
+                      const showBudgetActiveAmount = Math.abs(budgetActiveAmt - budgetTotalAmt) >= budgetDiffTolerance;
+
                       return (
                         <div key={budget.id} className="border border-slate-200 rounded-xl p-md space-y-md shadow-sm bg-slate-50/20">
                           {/* Budget Info Header */}
@@ -1332,9 +1402,22 @@ export default function Proyectos({
                                 <span className="text-xs bg-secondary/10 text-secondary font-bold px-2 py-0.5 rounded-full">
                                   {formatAmountWithCurrency(budget.amount, budget.currency)}
                                 </span>
+                                {showBudgetActiveAmount && (
+                                  <span className="text-xs bg-amber-500/10 text-amber-600 font-bold px-2 py-0.5 rounded-full">
+                                    Monto activo: {formatAmountWithCurrency(budgetActiveAmt, budget.currency)}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-body-sm text-on-surface-variant leading-relaxed flex flex-wrap items-center gap-x-base gap-y-1">
                                 <span><strong>Monto total:</strong> {formatAmountWithCurrency(budget.amount, budget.currency)} ({budget.validity})</span>
+                                {showBudgetActiveAmount && (
+                                  <>
+                                    <span className="text-outline-variant">•</span>
+                                    <span className="text-primary">
+                                      <strong>Monto activo:</strong> <span className="font-bold text-amber-600">{formatAmountWithCurrency(budgetActiveAmt, budget.currency)}</span>
+                                    </span>
+                                  </>
+                                )}
                                 {(() => {
                                   const targetId = budget.legalEntityId || budget.clientId;
                                   const found = clients.find(c => c.id === targetId && c.company) || (budget.company ? { company: budget.company } : null);
@@ -1697,6 +1780,81 @@ export default function Proyectos({
                     )}
                   </select>
                 </div>
+
+                {/* Sección: Monto Activo de Presupuesto(s) */}
+                {(() => {
+                  const editingProjBudgets = (budgets || []).filter(b => b.projectId === editingProject.id);
+                  if (editingProjBudgets.length === 0) return null;
+                  return (
+                    <div className="pt-sm border-t border-slate-200/60 space-y-sm">
+                      <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px] text-secondary">trending_up</span>
+                        Monto Activo {editingProjBudgets.length > 1 ? 'por Presupuesto' : 'del Presupuesto'}
+                      </label>
+                      <div className="space-y-2">
+                        {editingProjBudgets.map((b) => {
+                          const curr = b.currency || 'UF';
+                          const totalAmt = parseFloat(b.amount) || 0;
+                          const currentActiveStr = editBudgetActiveAmounts[b.id] !== undefined
+                            ? editBudgetActiveAmounts[b.id]
+                            : String(b.activeAmount ?? totalAmt);
+                          const currentActiveNum = parseFloat(String(currentActiveStr).replace(',', '.')) || 0;
+                          const isDiff = Math.abs(currentActiveNum - totalAmt) >= (curr === 'CLP' ? 1 : 0.01);
+
+                          return (
+                            <div key={b.id} className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2 text-xs">
+                                <span className="font-bold text-primary truncate" title={`Presupuesto #${b.quoteId} - ${b.title || ''}`}>
+                                  Presupuesto #{b.quoteId}{b.title ? ` - ${b.title}` : ''}
+                                </span>
+                                <span className="text-on-surface-variant flex-shrink-0">
+                                  Total: <strong className="text-secondary">{formatAmountWithCurrency(totalAmt, curr)}</strong>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="relative flex-1">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={currentActiveStr}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setEditBudgetActiveAmounts(prev => ({
+                                        ...prev,
+                                        [b.id]: val
+                                      }));
+                                    }}
+                                    className="w-full border border-slate-200 rounded-lg text-body-md py-1.5 pl-3 pr-12 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary"
+                                    placeholder={String(totalAmt)}
+                                  />
+                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">
+                                    {curr}
+                                  </span>
+                                </div>
+                                {isDiff && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditBudgetActiveAmounts(prev => ({
+                                        ...prev,
+                                        [b.id]: String(totalAmt)
+                                      }));
+                                    }}
+                                    className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-secondary font-semibold transition-all flex-shrink-0 cursor-pointer"
+                                    title="Igualar al monto total del presupuesto"
+                                  >
+                                    Igualar al total
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Footer Actions */}

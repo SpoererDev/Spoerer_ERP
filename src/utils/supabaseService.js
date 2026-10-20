@@ -106,6 +106,52 @@ export const formatAmountWithCurrency = (val, currency = 'UF', decimals = 2) => 
   })} ${curr}`;
 };
 
+// Helpers: Local fallback storage for active_amount if DB migration has not been executed yet
+const ACTIVE_AMOUNTS_STORAGE_KEY = 'spoerer_budget_active_amounts';
+
+const getLocalActiveAmountsFallback = () => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(ACTIVE_AMOUNTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const setLocalActiveAmountFallback = (budgetId, activeAmount) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage || !budgetId) return;
+    const map = getLocalActiveAmountsFallback();
+    map[budgetId] = activeAmount;
+    window.localStorage.setItem(ACTIVE_AMOUNTS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const removeLocalActiveAmountFallback = (budgetId) => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage || !budgetId) return;
+    const map = getLocalActiveAmountsFallback();
+    if (budgetId in map) {
+      delete map[budgetId];
+      window.localStorage.setItem(ACTIVE_AMOUNTS_STORAGE_KEY, JSON.stringify(map));
+    }
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const isMissingActiveAmountColumnError = (error) => {
+  if (!error) return false;
+  const msg = String(error.message || error.details || '').toLowerCase();
+  return (
+    (error.code === 'PGRST204' || error.code === '42703' || msg.includes('column') || msg.includes('schema cache')) &&
+    msg.includes('active_amount')
+  );
+};
+
 // Helper: Map budget fields between database and frontend
 const mapBudgetFromDb = (dbBudget) => {
   if (!dbBudget) return null;
@@ -117,6 +163,14 @@ const mapBudgetFromDb = (dbBudget) => {
         : '');
 
   const legalEntityCompany = dbBudget.clients ? dbBudget.clients.company_name : '';
+  const totalAmount = parseFloat(dbBudget.total_amount) || 0;
+  const fallbackMap = getLocalActiveAmountsFallback();
+  const hasDbActiveAmount = dbBudget.active_amount !== null && dbBudget.active_amount !== undefined && !isNaN(parseFloat(dbBudget.active_amount));
+  const activeAmount = hasDbActiveAmount
+    ? parseFloat(dbBudget.active_amount)
+    : (fallbackMap[dbBudget.id] !== undefined && fallbackMap[dbBudget.id] !== null && !isNaN(parseFloat(fallbackMap[dbBudget.id]))
+        ? parseFloat(fallbackMap[dbBudget.id])
+        : totalAmount);
 
   return {
     id: dbBudget.id,
@@ -130,7 +184,8 @@ const mapBudgetFromDb = (dbBudget) => {
     company: legalEntityCompany || mainClientName,
     title: dbBudget.title,
     date: dbBudget.date ? dbBudget.date.split('-').reverse().join('/') : '', // YYYY-MM-DD -> DD/MM/YYYY
-    amount: parseFloat(dbBudget.total_amount) || 0,
+    amount: totalAmount,
+    activeAmount: activeAmount,
     currency: dbBudget.currency || 'UF',
     billingCompany: dbBudget.billing_company || 'Spoerer',
     taxPercent: dbBudget.tax_percent !== null && dbBudget.tax_percent !== undefined ? parseFloat(dbBudget.tax_percent) : (dbBudget.billing_company === 'FPF' ? 0 : 19),
@@ -654,6 +709,29 @@ export const supabaseService = {
               }
             }
           }
+
+          // Auto-backfill active_amount for existing budgets if column exists and is null
+          if ('active_amount' in dbBudget) {
+            const fallbackMap = getLocalActiveAmountsFallback();
+            const hasLocalOverride = fallbackMap[dbBudget.id] !== undefined && fallbackMap[dbBudget.id] !== null && !isNaN(parseFloat(fallbackMap[dbBudget.id]));
+            if (dbBudget.active_amount === null || dbBudget.active_amount === undefined || hasLocalOverride) {
+              const targetActive = hasLocalOverride
+                ? parseFloat(fallbackMap[dbBudget.id])
+                : (parseFloat(dbBudget.total_amount) || 0);
+              dbBudget.active_amount = targetActive;
+              try {
+                const { error: backfillErr } = await supabase
+                  .from('budgets')
+                  .update({ active_amount: targetActive })
+                  .eq('id', dbBudget.id);
+                if (!backfillErr && hasLocalOverride) {
+                  removeLocalActiveAmountFallback(dbBudget.id);
+                }
+              } catch (e) {
+                console.error("Auto-backfill active_amount error:", e);
+              }
+            }
+          }
         }
       }
 
@@ -686,7 +764,7 @@ export const supabaseService = {
       // 1. Retrieve the existing budget to see if status changed or files deleted
       const { data: oldBudget } = await supabase
         .from('budgets')
-        .select('status, backup_files, project_id, budget_number')
+        .select('*')
         .eq('id', quote.id)
         .single();
 
@@ -710,15 +788,27 @@ export const supabaseService = {
       // 2. Upload any newly added files
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
+      // Determine active_amount: by default equals totalAmount unless budget is Approved and had a customized activeAmount
+      const isApprovedStatus = (quote.status || 'Borrador') === 'Aprobado' || (quote.status || 'Borrador') === 'Aprovado';
+      const oldTotalAmount = oldBudget ? (parseFloat(oldBudget.total_amount) || 0) : totalAmount;
+      const oldActiveAmount = oldBudget && oldBudget.active_amount !== null && oldBudget.active_amount !== undefined
+        ? parseFloat(oldBudget.active_amount)
+        : (quote.activeAmount !== undefined && quote.activeAmount !== null ? parseFloat(quote.activeAmount) : oldTotalAmount);
+      const hadCustomActive = isApprovedStatus && Math.abs(oldActiveAmount - oldTotalAmount) >= 0.01;
+      const targetActiveAmount = (quote.activeAmount !== undefined && quote.activeAmount !== null && (isApprovedStatus || Math.abs(parseFloat(quote.activeAmount) - oldTotalAmount) >= 0.01))
+        ? (hadCustomActive || Math.abs(parseFloat(quote.activeAmount) - oldTotalAmount) >= 0.01 ? parseFloat(quote.activeAmount) : totalAmount)
+        : totalAmount;
+
       const budgetData = {
         budget_number: budgetNumber,
         client_id: quote.clientId || quote.legalEntityId || null,
         main_client_id: quote.mainClientId || null,
         legal_entity_id: quote.legalEntityId || quote.clientId || null,
-        project_id: quote.projectId || (oldBudget ? oldBudget.project_id : null),
+        project_id: quote.projectId !== undefined ? quote.projectId : (oldBudget ? oldBudget.project_id : null),
         title: quote.title,
         date: formattedDate,
         total_amount: totalAmount,
+        active_amount: targetActiveAmount,
         currency: quote.currency || 'UF',
         billing_company: quote.billingCompany || (oldBudget ? oldBudget.billing_company : 'Spoerer'),
         tax_percent: quote.taxPercent !== undefined && quote.taxPercent !== null ? parseFloat(quote.taxPercent) : (oldBudget?.tax_percent !== undefined ? parseFloat(oldBudget.tax_percent) : (quote.billingCompany === 'FPF' ? 0 : 19)),
@@ -727,17 +817,36 @@ export const supabaseService = {
         backup_files: finalFiles
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('budgets')
         .update(budgetData)
         .eq('id', quote.id)
         .select();
+
+      if (error && isMissingActiveAmountColumnError(error)) {
+        setLocalActiveAmountFallback(quote.id, targetActiveAmount);
+        const { active_amount: _unused, ...fallbackBudgetData } = budgetData;
+        const retryRes = await supabase
+          .from('budgets')
+          .update(fallbackBudgetData)
+          .eq('id', quote.id)
+          .select();
+        data = retryRes.data;
+        error = retryRes.error;
+      } else if (!error) {
+        removeLocalActiveAmountFallback(quote.id);
+      }
+
       if (error) throw error;
       savedBudget = data[0];
     } else {
       // Insert Budget
       // 1. Upload files directly to the target status folder
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
+
+      const targetActiveAmount = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
+        ? parseFloat(quote.activeAmount)
+        : totalAmount;
 
       const budgetData = {
         client_id: quote.clientId || quote.legalEntityId || null,
@@ -747,6 +856,7 @@ export const supabaseService = {
         title: quote.title,
         date: formattedDate,
         total_amount: totalAmount,
+        active_amount: targetActiveAmount,
         currency: quote.currency || 'UF',
         billing_company: quote.billingCompany || 'Spoerer',
         tax_percent: quote.taxPercent !== undefined && quote.taxPercent !== null ? parseFloat(quote.taxPercent) : (quote.billingCompany === 'FPF' ? 0 : 19),
@@ -769,10 +879,24 @@ export const supabaseService = {
         }
       }
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('budgets')
         .insert([budgetData])
         .select();
+
+      if (error && isMissingActiveAmountColumnError(error)) {
+        const { active_amount: _unused, ...fallbackBudgetData } = budgetData;
+        const retryRes = await supabase
+          .from('budgets')
+          .insert([fallbackBudgetData])
+          .select();
+        data = retryRes.data;
+        error = retryRes.error;
+        if (!error && data && data[0]) {
+          setLocalActiveAmountFallback(data[0].id, targetActiveAmount);
+        }
+      }
+
       if (error) throw error;
       savedBudget = data[0];
     }
@@ -1395,15 +1519,33 @@ export const supabaseService = {
       budgetUpdateData.total_amount = frozenTotalAmount;
     }
 
+    if (budgetForm && budgetForm.activeAmount !== undefined && budgetForm.activeAmount !== null && !isNaN(parseFloat(budgetForm.activeAmount))) {
+      budgetUpdateData.active_amount = parseFloat(budgetForm.activeAmount);
+    } else {
+      budgetUpdateData.active_amount = budgetUpdateData.total_amount;
+    }
+
     if (budgetForm && budgetForm.title !== undefined) {
       budgetUpdateData.title = budgetForm.title;
     }
 
-    const { error: budgetError } = await supabase
+    let { error: budgetError } = await supabase
       .from('budgets')
       .update(budgetUpdateData)
       .eq('id', budgetId);
-    
+
+    if (budgetError && isMissingActiveAmountColumnError(budgetError)) {
+      setLocalActiveAmountFallback(budgetId, budgetUpdateData.active_amount);
+      const { active_amount: _unused, ...fallbackBudgetUpdateData } = budgetUpdateData;
+      const retryRes = await supabase
+        .from('budgets')
+        .update(fallbackBudgetUpdateData)
+        .eq('id', budgetId);
+      budgetError = retryRes.error;
+    } else if (!budgetError) {
+      removeLocalActiveAmountFallback(budgetId);
+    }
+
     if (budgetError) throw budgetError;
 
     // Retrieve fresh budgets and installments to sync states
@@ -1423,6 +1565,32 @@ export const supabaseService = {
       budget: freshBudget ? mapBudgetFromDb(freshBudget) : null,
       installments: freshInsts ? freshInsts.map(mapInstallmentFromDb) : []
     };
+  },
+
+  async updateBudgetActiveAmount(budgetId, activeAmount) {
+    const parsedActive = parseFloat(activeAmount);
+    const finalActive = isNaN(parsedActive) ? 0 : Math.round(parsedActive * 100) / 100;
+
+    let { data, error } = await supabase
+      .from('budgets')
+      .update({ active_amount: finalActive })
+      .eq('id', budgetId)
+      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)');
+
+    if (error && isMissingActiveAmountColumnError(error)) {
+      setLocalActiveAmountFallback(budgetId, finalActive);
+      const retryRes = await supabase
+        .from('budgets')
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
+        .eq('id', budgetId);
+      data = retryRes.data;
+      error = retryRes.error;
+    } else if (!error) {
+      removeLocalActiveAmountFallback(budgetId);
+    }
+
+    if (error) throw error;
+    return data && data[0] ? mapBudgetFromDb(data[0]) : null;
   },
 
   async disassociateBudget(budgetId) {

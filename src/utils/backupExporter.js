@@ -163,21 +163,25 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       const fullProjTitle = `${proj.project_number || ''}-${proj.project_name || ''}${clientName ? ` - ${clientName}` : ''}`;
 
       projBudgets.forEach(budg => {
+        const totalAmt = parseFloat(budg.total_amount) || 0;
+        const activeAmt = (budg.active_amount !== null && budg.active_amount !== undefined && !isNaN(parseFloat(budg.active_amount)))
+          ? parseFloat(budg.active_amount)
+          : totalAmt;
+
         proyectosRows.push({
           "Código de presupuesto": budg.budget_number || '',
           "Proyecto": fullProjTitle,
           "Moneda": budg.currency || 'UF',
-          "Presupuesto": parseFloat(budg.total_amount) || 0,
-          "Presupuesto (UF)": parseFloat(budg.total_amount) || 0,
+          "Presupuesto": totalAmt,
+          "Monto Activo": activeAmt,
           "Costo Extra": '',
-          "Costo Extra (UF)": '',
           "Descripción": budg.title || '',
           "Comentario": '',
           "m2": parseFloat(proj.superficie) || 0,
           "Rentabilidad esperada": (proj.rentabilidad !== undefined && proj.rentabilidad !== null) ? `${proj.rentabilidad}%` : '',
           "Factura": '',
           "Facturado": '',
-          "Empresa Emisora": budg.billing_company || proj.billing_company || 'Spoerer'
+          "Empresa Emisora": proj.billing_company || budg.billing_company || 'Spoerer'
         });
       });
 
@@ -187,9 +191,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
           "Proyecto": fullProjTitle,
           "Moneda": cost.currency || 'UF',
           "Presupuesto": '',
-          "Presupuesto (UF)": '',
+          "Monto Activo": '',
           "Costo Extra": parseFloat(cost.amount) || 0,
-          "Costo Extra (UF)": parseFloat(cost.amount) || 0,
           "Descripción": cost.comment || '',
           "Comentario": '',
           "m2": parseFloat(cost.superficie) || 0,
@@ -203,8 +206,19 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
 
     const wsProyectos = XLSX.utils.json_to_sheet(proyectosRows, {
       header: [
-        "Código de presupuesto", "Proyecto", "Moneda", "Presupuesto", "Presupuesto (UF)", "Costo Extra", "Costo Extra (UF)",
-        "Descripción", "Comentario", "m2", "Rentabilidad esperada", "Factura", "Facturado", "Empresa Emisora"
+        "Código de presupuesto",
+        "Proyecto",
+        "Moneda",
+        "Presupuesto",
+        "Monto Activo",
+        "Costo Extra",
+        "Descripción",
+        "Comentario",
+        "m2",
+        "Rentabilidad esperada",
+        "Factura",
+        "Facturado",
+        "Empresa Emisora"
       ]
     });
 
@@ -215,6 +229,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
     // Sanitize JSON fields for Excel
     const sanitizedBudgets = budgets.map(b => ({
       ...b,
+      active_amount: (b.active_amount !== null && b.active_amount !== undefined) ? b.active_amount : b.total_amount,
       backup_files: b.backup_files ? JSON.stringify(b.backup_files) : ''
     }));
     const wsBudgets = XLSX.utils.json_to_sheet(sanitizedBudgets);
