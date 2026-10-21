@@ -711,7 +711,7 @@ export default function Presupuestos({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectedMainClient, mainClients]);
 
-  const [subtotal, setSubtotal] = useState('1.200,00');
+  const [subtotal, setSubtotal] = useState('');
   const [taxPercent, setTaxPercent] = useState(19);
   const [tax, setTax] = useState(0);
   const [total, setTotal] = useState(0);
@@ -765,7 +765,7 @@ export default function Presupuestos({
   const handleSubtotalBlur = (e) => {
     const val = e.target.value;
     if (!val || val.trim() === '') {
-      setSubtotal(quoteCurrency === 'CLP' ? '0' : '0,00');
+      setSubtotal('');
       return;
     }
     const num = parseSubtotal(val, quoteCurrency);
@@ -1486,7 +1486,7 @@ export default function Presupuestos({
     setQuoteCurrency('UF');
     setBillingCompany('Spoerer');
     setTaxPercent(19);
-    setSubtotal(formatToChileanNumber(1200.00, 2)); // default value
+    setSubtotal('');
     setBackupFiles([]);
     setEditBillingTable([]);
     setIsExistingQuote(false);
@@ -1821,6 +1821,15 @@ export default function Presupuestos({
       return;
     }
 
+    if (subtotal === '' || subtotal === null || subtotal === undefined || String(subtotal).trim() === '') {
+      setNotification({
+        type: 'error',
+        title: 'Error de Validación',
+        message: 'Por favor ingrese el subtotal del presupuesto.'
+      });
+      return;
+    }
+
     const mainClientObj = mainClients.find(mc => mc.id === selectedMainClient) || { name: selectedMainClient, id: null };
     const legalEntityObj = clients.find(c => c.id === selectedLegalEntity) || null;
 
@@ -1957,7 +1966,7 @@ export default function Presupuestos({
       setQuoteCurrency('UF');
       setBillingCompany('Spoerer');
       setTaxPercent(19);
-      setSubtotal(formatToChileanNumber(0, 2));
+      setSubtotal('');
       setBackupFiles([]);
       setEditBillingTable([]);
       setQuoteId('');
@@ -3168,7 +3177,6 @@ export default function Presupuestos({
                             type="text"
                             value={quoteTitle}
                             onChange={(e) => setQuoteTitle(e.target.value)}
-                            placeholder="Ej: Licencias e Implementación de Servidores"
                             disabled={!isClientSelected}
                             required={isClientSelected}
                           />
@@ -3286,9 +3294,11 @@ export default function Presupuestos({
                                 disabled={!isClientSelected}
                                 onClick={() => {
                                   if (curr === quoteCurrency) return;
-                                  const currentNum = parseSubtotal(subtotal, quoteCurrency);
                                   setQuoteCurrency(curr);
-                                  setSubtotal(formatToChileanNumber(currentNum, curr === 'CLP' ? 0 : 2));
+                                  if (subtotal !== '' && subtotal !== null && subtotal !== undefined && String(subtotal).trim() !== '') {
+                                    const currentNum = parseSubtotal(subtotal, quoteCurrency);
+                                    setSubtotal(formatToChileanNumber(currentNum, curr === 'CLP' ? 0 : 2));
+                                  }
                                 }}
                                 className={`px-2.5 py-0.5 rounded-md text-label-xs font-bold transition-all ${quoteCurrency === curr
                                   ? 'bg-[#091426] text-white shadow-xs'
@@ -3303,7 +3313,7 @@ export default function Presupuestos({
 
                         {/* Fila 4: Subtotal Neto */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal ({quoteCurrency})</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Subtotal ({quoteCurrency}) *</label>
                           <div className="relative rounded-lg shadow-sm">
                             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                               <span className="text-slate-500 text-body-xs font-bold">{quoteCurrency}</span>
@@ -3319,7 +3329,7 @@ export default function Presupuestos({
                               onChange={handleSubtotalChange}
                               onFocus={handleSubtotalFocus}
                               onBlur={handleSubtotalBlur}
-                              placeholder={quoteCurrency === 'CLP' ? '0' : '0,00'}
+                              placeholder="0,00"
                               disabled={!isClientSelected}
                               required={isClientSelected}
                             />
