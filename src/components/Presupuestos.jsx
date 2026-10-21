@@ -564,7 +564,7 @@ export default function Presupuestos({
   const [selectedClient, setSelectedClient] = useState('');
   const [issueDate, setIssueDate] = useState(getTodayDDMMYYYY());
   const [validity, setValidity] = useState(30);
-  const [quoteTitle, setQuoteTitle] = useState('Servicios ERP');
+  const [quoteTitle, setQuoteTitle] = useState('');
   const [quoteCurrency, setQuoteCurrency] = useState('UF');
   const [billingCompany, setBillingCompany] = useState('Spoerer');
   const [backupFiles, setBackupFiles] = useState([]);
@@ -1482,7 +1482,7 @@ export default function Presupuestos({
     setSelectedClient('');
     setIssueDate(getTodayDDMMYYYY());
     setValidity(30);
-    setQuoteTitle('Servicios ERP');
+    setQuoteTitle('');
     setQuoteCurrency('UF');
     setBillingCompany('Spoerer');
     setTaxPercent(19);
@@ -1812,6 +1812,15 @@ export default function Presupuestos({
       return;
     }
 
+    if (!quoteTitle || !quoteTitle.trim()) {
+      setNotification({
+        type: 'error',
+        title: 'Error de Validación',
+        message: 'Por favor ingrese el título del presupuesto.'
+      });
+      return;
+    }
+
     const mainClientObj = mainClients.find(mc => mc.id === selectedMainClient) || { name: selectedMainClient, id: null };
     const legalEntityObj = clients.find(c => c.id === selectedLegalEntity) || null;
 
@@ -1911,7 +1920,7 @@ export default function Presupuestos({
       clientId: targetClientId,
       clientName: mainClientName, // Display main client name in budget list as requested
       company: companyName,
-      title: quoteTitle,
+      title: quoteTitle.trim(),
       date: ensureDDMMYYYY(issueDate),
       amount: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency),
       currency: quoteCurrency,
@@ -1920,7 +1929,7 @@ export default function Presupuestos({
       validity: `${validity} días`,
       status: finalStatus,
       items: [
-        { id: 1, description: quoteTitle || 'Servicios ERP', qty: 1, price: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency) }
+        { id: 1, description: quoteTitle.trim(), qty: 1, price: quoteCurrency === 'CLP' ? Math.round(parseSubtotal(subtotal, quoteCurrency)) : parseSubtotal(subtotal, quoteCurrency) }
       ],
       backupFiles: backupFiles,
       projectId: projectIdToLink
@@ -1944,7 +1953,7 @@ export default function Presupuestos({
       setSelectedLegalEntity('');
       setSelectedClient('');
       setValidity(30);
-      setQuoteTitle('Servicios ERP');
+      setQuoteTitle('');
       setQuoteCurrency('UF');
       setBillingCompany('Spoerer');
       setTaxPercent(19);
@@ -3150,7 +3159,7 @@ export default function Presupuestos({
 
                         {/* Fila 2: Título / Proyecto */}
                         <div className="flex flex-col gap-xs">
-                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Título de presupuesto</label>
+                          <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Título de presupuesto *</label>
                           <input
                             className={`w-full border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all ${!isClientSelected
                               ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200'
