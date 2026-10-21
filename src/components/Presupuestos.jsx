@@ -557,6 +557,7 @@ export default function Presupuestos({
 
   // New quote form state
   const [quoteId, setQuoteId] = useState('');
+  const [isQuoteIdFocused, setIsQuoteIdFocused] = useState(false);
   const [currentBudgetUuid, setCurrentBudgetUuid] = useState(null);
   const [selectedMainClient, setSelectedMainClient] = useState('');
   const [selectedLegalEntity, setSelectedLegalEntity] = useState('');
@@ -1489,12 +1490,14 @@ export default function Presupuestos({
     setBackupFiles([]);
     setEditBillingTable([]);
     setIsExistingQuote(false);
+    setIsQuoteIdFocused(false);
     setIsModalOpen(true);
   };
 
   // Open modal to edit an existing quote
   const handleEditQuote = (quote) => {
     setQuoteId(quote.quoteId);
+    setIsQuoteIdFocused(false);
     setCurrentBudgetUuid(quote.id);
     setQuoteCurrency(quote.currency || 'UF');
     setBillingCompany(quote.billingCompany || 'Spoerer');
@@ -1548,73 +1551,17 @@ export default function Presupuestos({
     setIsModalOpen(true);
   };
 
-  // Auto-detect if quoteId exists and load it
-  useEffect(() => {
-    if (!isModalOpen || !quoteId) return;
-
-    // Check if the padded quoteId matches an existing quote
-    const paddedId = quoteId.padStart(4, '0');
-    const existing = quotes.find(q => q.quoteId === quoteId || q.quoteId === paddedId);
-
-    if (existing) {
-      if (!currentBudgetUuid || currentBudgetUuid === existing.id) {
-        setIsExistingQuote(true);
-        setCurrentBudgetUuid(existing.id);
-        setQuoteCurrency(existing.currency || 'UF');
-        setBillingCompany(existing.billingCompany || 'Spoerer');
-        const existingTax = existing.taxPercent !== undefined && existing.taxPercent !== null
-          ? parseFloat(existing.taxPercent)
-          : (existing.billingCompany === 'FPF' ? 0 : 19);
-        setTaxPercent(existingTax);
-
-        const matchedMC = mainClients.find(mc =>
-          (existing.mainClientId && mc.id === existing.mainClientId) ||
-          (existing.mainClientName && mc.name.toLowerCase() === existing.mainClientName.toLowerCase()) ||
-          (existing.clientName && mc.name.toLowerCase() === existing.clientName.toLowerCase())
-        );
-        const targetMainId = matchedMC ? matchedMC.id : (existing.mainClientId || existing.clientName || '');
-        setSelectedMainClient(targetMainId);
-
-        const matchedLE = clients.find(c =>
-          (existing.legalEntityId && c.id === existing.legalEntityId) ||
-          (existing.clientId && c.id === existing.clientId)
-        );
-        const targetLegalId = matchedLE ? matchedLE.id : (existing.legalEntityId || existing.clientId || '');
-        setSelectedLegalEntity(targetLegalId);
-        setSelectedClient(targetMainId || targetLegalId);
-
-        setIssueDate(ensureDDMMYYYY(existing.date) || getTodayDDMMYYYY());
-
-        const valDays = existing.validity ? parseInt(existing.validity) || 30 : 30;
-        setValidity(valDays);
-        setQuoteTitle(existing.title || '');
-
-        const initialSubtotal = existing.items && existing.items.length > 0
-          ? existing.items.reduce((sum, item) => sum + (item.qty * item.price), 0)
-          : existing.amount;
-        setSubtotal(formatToChileanNumber(initialSubtotal || 0, (existing.currency === 'CLP' ? 0 : 2)));
-
-        setBackupFiles(existing.backupFiles || []);
-
-        if (existing.status === 'Aprobado' || existing.status === 'Aprovado') {
-          const pTable = findQuoteBillingTable(existing.id);
-          if (pTable) {
-            setEditBillingTable(pTable);
-          } else {
-            setEditBillingTable([]);
-          }
-        } else {
-          setEditBillingTable([]);
-        }
-      }
-    } else {
-      if (!currentBudgetUuid) {
-        setIsExistingQuote(false);
-        setCurrentBudgetUuid(null);
-        setEditBillingTable([]);
-      }
-    }
-  }, [quoteId, isModalOpen, quotes, clients, mainClients]);
+  const cleanQuoteDigits = (quoteId || '').replace(/\D/g, '');
+  const isQuoteIdReadyToCheck = cleanQuoteDigits.length > 0 && (cleanQuoteDigits.length >= 4 || !isQuoteIdFocused);
+  const isDuplicateQuoteId = isQuoteIdReadyToCheck && quotes.some(q => {
+    if (q.id === currentBudgetUuid) return false;
+    const qDigits = (q.quoteId || '').replace(/\D/g, '');
+    if (!qDigits) return false;
+    return (
+      qDigits.padStart(4, '0') === cleanQuoteDigits.padStart(4, '0') ||
+      parseInt(qDigits, 10) === parseInt(cleanQuoteDigits, 10)
+    );
+  });
 
   // Helper to convert file to Base64 (needed for Gemini PDF upload)
   const fileToBase64 = (file) => {
@@ -1872,8 +1819,8 @@ export default function Presupuestos({
     const companyName = legalEntityObj ? legalEntityObj.company : mainClientName;
     const targetClientId = legalEntityObj ? legalEntityObj.id : null;
 
-    const formattedId = quoteId.replace(/\D/g, '').padStart(4, '0');
-    if (!formattedId) {
+    const cleanDigits = (quoteId || '').replace(/\D/g, '');
+    if (!cleanDigits) {
       setNotification({
         type: 'error',
         title: 'Error de Validación',
@@ -1881,9 +1828,30 @@ export default function Presupuestos({
       });
       return;
     }
+    const formattedId = cleanDigits.padStart(4, '0');
+    setQuoteId(formattedId);
+    setIsQuoteIdFocused(false);
+
+    const duplicateQuote = quotes.find(q => {
+      if (q.id === currentBudgetUuid) return false;
+      const qDigits = (q.quoteId || '').replace(/\D/g, '');
+      if (!qDigits) return false;
+      return (
+        qDigits.padStart(4, '0') === formattedId ||
+        parseInt(qDigits, 10) === parseInt(cleanDigits, 10)
+      );
+    });
+    if (duplicateQuote) {
+      setNotification({
+        type: 'error',
+        title: 'Número de Presupuesto Existente',
+        message: `El número de presupuesto #${formattedId} ya existe. Por favor ingrese un número de presupuesto válido.`
+      });
+      return;
+    }
 
     // Determine status (preserve existing quote status, or default to Borrador)
-    const existingQuote = quotes.find(q => q.quoteId === formattedId || q.id === currentBudgetUuid);
+    const existingQuote = currentBudgetUuid ? quotes.find(q => q.id === currentBudgetUuid) : null;
     const finalStatus = existingQuote ? existingQuote.status : 'Borrador';
 
     // If approved, validate sum of installments
@@ -1932,16 +1900,6 @@ export default function Presupuestos({
           console.error("Error al crear proyecto desde presupuesto:", err);
         }
       }
-    }
-
-    const duplicateQuote = quotes.find(q => (q.quoteId === formattedId || q.quoteId === quoteId) && q.id !== currentBudgetUuid);
-    if (duplicateQuote) {
-      setNotification({
-        type: 'error',
-        title: 'Número de Presupuesto Duplicado',
-        message: `El número de presupuesto #${formattedId} ya pertenece a otro presupuesto. Por favor utilice un número diferente.`
-      });
-      return;
     }
 
     const newQuote = {
@@ -2050,7 +2008,7 @@ export default function Presupuestos({
   const totalRejectedUSD = rejectedQuotes.filter(q => q.currency === 'USD').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
   const totalRejectedCLP = rejectedQuotes.filter(q => q.currency === 'CLP').reduce((sum, q) => sum + (parseFloat(q.amount) || 0), 0);
 
-  const existingQuoteObj = quotes.find(q => q.quoteId === quoteId || q.quoteId === quoteId.padStart(4, '0') || q.id === currentBudgetUuid);
+  const existingQuoteObj = currentBudgetUuid ? quotes.find(q => q.id === currentBudgetUuid) : null;
 
   const availableUsersToSelect = (users || [])
     .filter(u => u.status === 'Active')
@@ -2942,12 +2900,12 @@ export default function Presupuestos({
                   {isExistingQuote ? (
                     <>
                       <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span className="font-bold text-emerald-600">Editando Presupuesto Existente #{quoteId.padStart(4, '0')}</span>
+                      <span className="font-bold text-emerald-600">Editando Presupuesto Existente #{quoteId || '----'}</span>
                     </>
                   ) : (
                     <>
                       <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                      <span>Creando Nuevo Presupuesto #{quoteId.padStart(4, '0')}</span>
+                      <span>Creando Nuevo Presupuesto #{quoteId || '----'}</span>
                     </>
                   )}
                 </p>
@@ -3010,21 +2968,36 @@ export default function Presupuestos({
                           <div className="flex flex-col gap-xs col-span-1">
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">N° Presupuesto</label>
                             <input
-                              className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                              className={`w-full rounded-lg text-body-md py-2 px-3 outline-none transition-all border ${
+                                isDuplicateQuoteId
+                                  ? 'border-red-500 bg-red-50/40 text-red-700 font-bold focus:ring-2 focus:ring-red-500/20 focus:border-red-500'
+                                  : 'border-slate-200 bg-white focus:ring-1 focus:ring-secondary focus:border-secondary'
+                              }`}
                               type="text"
                               value={quoteId}
+                              onFocus={() => setIsQuoteIdFocused(true)}
                               onChange={(e) => {
-                                const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                const val = e.target.value.replace(/\D/g, '').slice(0, 6);
                                 setQuoteId(val);
                               }}
                               onBlur={() => {
+                                setIsQuoteIdFocused(false);
                                 if (quoteId) {
-                                  setQuoteId(quoteId.padStart(4, '0'));
+                                  const digits = quoteId.replace(/\D/g, '');
+                                  if (digits) {
+                                    setQuoteId(digits.padStart(4, '0'));
+                                  }
                                 }
                               }}
                               placeholder="Ej: 0685"
                               required
                             />
+                            {isDuplicateQuoteId && (
+                              <span className="text-xs font-bold text-red-600 flex items-start gap-1 mt-0.5 animate-fade-in">
+                                <span className="material-symbols-outlined text-[15px] flex-shrink-0 mt-0.5">error</span>
+                                <span>El N° de presupuesto #{cleanQuoteDigits.padStart(4, '0')} ya existe. Debe ingresar un número válido.</span>
+                              </span>
+                            )}
                           </div>
 
                           {/* Cliente Principal con Búsqueda Filtrable */}
@@ -3614,10 +3587,18 @@ export default function Presupuestos({
                     </button>
                     <button
                       type="submit"
-                      disabled={!isClientSelected || isSaving}
-                      className={`px-lg py-2 bg-secondary text-white rounded transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${!isClientSelected || isSaving ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'hover:brightness-110'
+                      disabled={!isClientSelected || isSaving || isDuplicateQuoteId || !cleanQuoteDigits}
+                      className={`px-lg py-2 bg-secondary text-white rounded transition-all font-bold shadow-lg shadow-secondary/20 active:scale-95 flex items-center gap-2 ${!isClientSelected || isSaving || isDuplicateQuoteId || !cleanQuoteDigits ? 'opacity-50 cursor-not-allowed bg-slate-400 shadow-none' : 'hover:brightness-110'
                         }`}
-                      title={!isClientSelected ? 'Seleccione un cliente para guardar el presupuesto' : ''}
+                      title={
+                        isDuplicateQuoteId
+                          ? 'El número de presupuesto ya existe. Ingrese un número válido.'
+                          : !cleanQuoteDigits
+                            ? 'Ingrese un número de presupuesto válido.'
+                            : !isClientSelected
+                              ? 'Seleccione un cliente para guardar el presupuesto'
+                              : ''
+                      }
                     >
                       {isSaving ? (
                         <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
