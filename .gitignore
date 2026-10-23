@@ -41,7 +41,9 @@ build
 *.csv
 .agents/
 Respaldo/
-supabase/
+
+# Supabase CLI temporary files (functions and SQL are versioned)
+supabase/.temp/
 
 
 
