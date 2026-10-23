@@ -5,9 +5,12 @@ import { exportExcelFile } from '../utils/exportHelper';
 import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { validateRut, formatRut, isForeignGenericRut } from '../utils/validation';
-import { formatAmountWithCurrency } from '../utils/supabaseService';
+import { formatAmountWithCurrency, supabaseService, ACTIVE_DTE_STATUSES } from '../utils/supabaseService';
 import { printFilteredBillingInstallments } from '../utils/billingPrintHelper';
-import { compareNumQuota } from '../utils/billingHelpers';
+import { compareNumQuota, fetchIndicatorRate } from '../utils/billingHelpers';
+import NuboxInvoicePanel from './NuboxInvoicePanel';
+import FilePreviewModal from './FilePreviewModal';
+import ClientEmailModal from './ClientEmailModal';
 
 export default function Facturacion({
   projects,
@@ -29,6 +32,12 @@ export default function Facturacion({
   encargadoFilter = 'Todos',
   setEncargadoFilter,
   users = [],
+  dteDocuments = [],
+  nuboxConfig = { companies: [], environment: null },
+  onDteDocumentChange,
+  clientEmails = [],
+  notificationSettings = [],
+  onClientEmailSent,
   searchTerm,
   setSearchTerm
 }) {
@@ -291,6 +300,10 @@ export default function Facturacion({
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [emitComment, setEmitComment] = useState('');
   const [emitTaxPercent, setEmitTaxPercent] = useState('19');
+  const [emitMode, setEmitMode] = useState('manual'); // 'nubox' | 'manual'
+  const [nuboxUnavailableReason, setNuboxUnavailableReason] = useState('');
+  const [previewFile, setPreviewFile] = useState(null); // { url, title, name } shown in FilePreviewModal
+  const [emailInstallment, setEmailInstallment] = useState(null); // installment shown in ClientEmailModal
 
   // Register Payment Form
   const [actualPaymentDate, setActualPaymentDate] = useState('');
@@ -417,21 +430,8 @@ export default function Facturacion({
     setIsFetchingUf(true);
     setUfFetchError(false);
     try {
-      const parts = dateStr.split('-');
-      if (parts.length !== 3) throw new Error('Formato de fecha no válido');
-      const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; // YYYY-MM-DD to DD-MM-YYYY
-      const endpoint = currency === 'USD' 
-        ? `https://mindicador.cl/api/dolar/${formattedDate}` 
-        : `https://mindicador.cl/api/uf/${formattedDate}`;
-      const res = await fetch(endpoint);
-      if (!res.ok) throw new Error(`Error al conectar con el servidor de ${currency}`);
-      const data = await res.json();
-      if (data.serie && data.serie.length > 0) {
-        const rate = data.serie[0].valor;
-        setUfRate(rate.toString());
-      } else {
-        throw new Error('Sin datos para esa fecha');
-      }
+      const rate = await fetchIndicatorRate(dateStr, currency);
+      setUfRate(rate.toString());
     } catch (err) {
       console.error(`Error fetching rate for date (${currency}):`, err);
       setUfFetchError(true);
@@ -1087,7 +1087,34 @@ export default function Facturacion({
           : ((installment.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19)));
     setEmitTaxPercent(String(defaultTax));
 
+    // Nubox is the default when the issuing company is enabled; manual registration stays available as fallback.
+    const company = installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
+    const unavailableReason = isForeignGenericRut(razonSocial.rut)
+      ? 'Cliente extranjero (RUT genérico): la factura se registra manualmente.'
+      : !nuboxConfig.companies.includes(company)
+        ? `${company} no está habilitada para emitir con Nubox: registre la factura manualmente.`
+        : '';
+    const latestDte = dteDocuments.find(d => d.installmentId === installment.id);
+    const hasActiveDte = latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status);
+    setNuboxUnavailableReason(hasActiveDte ? '' : unavailableReason);
+    setEmitMode(hasActiveDte || !unavailableReason ? 'nubox' : 'manual');
+
     setIsEmitModalOpen(true);
+  };
+
+  const getLatestDte = (installmentId) => dteDocuments.find(d => d.installmentId === installmentId) || null;
+
+  const openDtePdf = async (dte) => {
+    try {
+      setPreviewFile({
+        url: await supabaseService.getInvoicePdfUrl(dte.pdfPath),
+        title: `Factura electrónica N° ${dte.folio} (Nubox)`,
+        name: dte.pdfPath.split('/').pop()
+      });
+    } catch (err) {
+      console.error('Error al abrir PDF de factura:', err);
+      alert('No se pudo abrir el PDF de la factura.');
+    }
   };
 
   const openPaymentModal = (installment) => {
@@ -1109,6 +1136,11 @@ export default function Facturacion({
     e.preventDefault();
     if (!invoiceNumber.trim()) {
       alert("Por favor, ingrese el número de factura.");
+      return;
+    }
+    const latestDte = getLatestDte(selectedInstallment.id);
+    if (latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status)) {
+      alert("Esta cuota ya tiene una factura en proceso o emitida en Nubox.");
       return;
     }
     const curr = (selectedInstallment?.currency || 'UF').toUpperCase();
@@ -1885,7 +1917,26 @@ export default function Facturacion({
                                         </span>
                                       </td>
                                       <td className="px-md py-md font-medium text-on-surface-variant">
-                                        {inst.invoiceNumber || '-'}
+                                        {(() => {
+                                          const dte = getLatestDte(inst.id);
+                                          if (dte && ['sending', 'queued', 'pending_sii'].includes(dte.status)) {
+                                            return (
+                                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap" title={dte.emissionStatusName || 'Enviando a Nubox'}>
+                                                <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
+                                                En proceso SII
+                                              </span>
+                                            );
+                                          }
+                                          if (dte && ['rejected', 'error'].includes(dte.status) && !inst.invoiceNumber) {
+                                            return (
+                                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap" title={dte.errors.map(e => e.message).join(' ')}>
+                                                <span className="material-symbols-outlined text-[12px]">error</span>
+                                                Rechazada
+                                              </span>
+                                            );
+                                          }
+                                          return inst.invoiceNumber || '-';
+                                        })()}
                                       </td>
                                       <td className="px-md py-md text-on-surface-variant whitespace-nowrap">
                                         {formatDate(inst.actualInvoiceDate)}
@@ -1922,56 +1973,65 @@ export default function Facturacion({
                                       </td>
                                       <td className="px-md py-md text-center">
                                         <div className="flex justify-center items-center gap-xs">
+                                          {(() => {
+                                            const dte = getLatestDte(inst.id);
+                                            return dte?.status === 'issued' && dte.pdfPath ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => openDtePdf(dte)}
+                                                className="inline-flex items-center text-emerald-700 hover:text-emerald-800 p-1 bg-emerald-50 rounded transition-colors"
+                                                title={`Factura electrónica N° ${dte.folio} (Nubox)`}
+                                              >
+                                                <span className="material-symbols-outlined text-[16px]">verified</span>
+                                              </button>
+                                            ) : null;
+                                          })()}
                                           {inst.invoiceFileUrl ? (
-                                            <a
-                                              href={inst.invoiceFileUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewFile({ url: inst.invoiceFileUrl, title: `Factura - Cuota ${inst.numQuota}` })}
                                               className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors"
-                                              title="Descargar Factura (PDF)"
+                                              title="Ver Factura (PDF)"
                                             >
                                               <span className="material-symbols-outlined text-[16px]">receipt_long</span>
-                                            </a>
+                                            </button>
                                           ) : null}
                                           {inst.paymentBackupUrl ? (
-                                            <a
-                                              href={inst.paymentBackupUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewFile({ url: inst.paymentBackupUrl, title: `Comprobante de Pago - Cuota ${inst.numQuota}` })}
                                               className="inline-flex items-center text-secondary hover:text-secondary-fixed p-1 bg-surface-container-high rounded transition-colors"
                                               title="Ver Comprobante de Pago"
                                             >
                                               <span className="material-symbols-outlined text-[16px]">receipt</span>
-                                            </a>
+                                            </button>
                                           ) : null}
                                           {inst.ocFileUrl ? (
-                                            <a
-                                              href={inst.ocFileUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
+                                            <button
+                                              type="button"
+                                              onClick={() => setPreviewFile({ url: inst.ocFileUrl, title: `Orden de Compra - Cuota ${inst.numQuota}` })}
                                               className="inline-flex items-center text-amber-700 hover:text-amber-800 p-1 bg-amber-50 rounded transition-colors"
                                               title="Ver Orden de Compra"
                                             >
                                               <span className="material-symbols-outlined text-[16px]">assignment</span>
-                                            </a>
+                                            </button>
                                           ) : null}
                                           {inst.otherFiles && inst.otherFiles.length > 0 && (
                                             inst.otherFiles.map((file, fIdx) => (
-                                              <a
+                                              <button
+                                                type="button"
                                                 key={file.url || fIdx}
-                                                href={file.url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                                onClick={() => setPreviewFile({ url: file.url, title: file.name || 'Documento', name: file.name })}
                                                 className="inline-flex items-center text-purple-700 hover:text-purple-800 p-1 bg-purple-50 rounded transition-colors"
                                                 title={`Ver otro documento: ${file.name || 'Documento'}`}
                                               >
                                                 <span className="material-symbols-outlined text-[16px]">
                                                   {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
                                                 </span>
-                                              </a>
+                                              </button>
                                             ))
                                           )}
-                                          {!inst.invoiceFileUrl && !inst.paymentBackupUrl && !inst.ocFileUrl && (!inst.otherFiles || inst.otherFiles.length === 0) ? (
+                                          {!inst.invoiceFileUrl && !inst.paymentBackupUrl && !inst.ocFileUrl && (!inst.otherFiles || inst.otherFiles.length === 0) && !getLatestDte(inst.id)?.pdfPath ? (
                                             <span className="text-outline">-</span>
                                           ) : null}
                                         </div>
@@ -2011,7 +2071,7 @@ export default function Facturacion({
                                                   }`}
                                               >
                                                 <span className="material-symbols-outlined text-[14px]">send</span>
-                                                <span>Emitir Factura</span>
+                                                <span>{['sending', 'queued', 'pending_sii'].includes(getLatestDte(inst.id)?.status) ? 'Ver emisión' : 'Emitir Factura'}</span>
                                               </button>
                                             );
                                           })()
@@ -2034,6 +2094,22 @@ export default function Facturacion({
                                             <span>Detalles</span>
                                           </button>
                                         )}
+                                        {(() => {
+                                          const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
+                                          return (
+                                            <button
+                                              type="button"
+                                              onClick={() => setEmailInstallment(inst)}
+                                              className="relative inline-flex items-center ml-xs p-1 border border-outline-variant text-secondary rounded hover:bg-surface-container-low transition-all active:scale-95 align-middle"
+                                              title={sentCount ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})` : 'Enviar correo'}
+                                            >
+                                              <span className="material-symbols-outlined text-[16px]">mail</span>
+                                              {sentCount > 0 && (
+                                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
+                                              )}
+                                            </button>
+                                          );
+                                        })()}
                                       </td>
                                     </tr>
                                   );
@@ -2059,8 +2135,8 @@ export default function Facturacion({
       {/* --- MODAL A: Emitir Factura --- */}
       {isEmitModalOpen && selectedInstallment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
-          <div className="relative bg-white w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up text-left border border-outline-variant/30">
-            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+          <div className={`relative bg-white w-full ${emitMode === 'nubox' ? 'max-w-3xl' : 'max-w-md'} max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up text-left border border-outline-variant/30`}>
+            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-20">
               <div>
                 <h2 className="font-headline-md text-headline-md text-primary font-bold flex items-center gap-2">
                   <span className="material-symbols-outlined text-secondary">send</span>
@@ -2068,7 +2144,11 @@ export default function Facturacion({
                 </h2>
                 <p className="text-body-md text-on-surface-variant flex items-center gap-2">
                   <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                  <span>Registrar folio y emisión de factura para la cuota</span>
+                  <span>
+                    {emitMode === 'nubox'
+                      ? `Cuota ${selectedInstallment.numQuota} · ${formatAmountWithCurrency(selectedInstallment.uf, selectedInstallment.currency || 'UF')} · ${instBillingCompany}`
+                      : 'Registrar folio y emisión de factura para la cuota'}
+                  </span>
                 </p>
               </div>
               <button
@@ -2081,6 +2161,55 @@ export default function Facturacion({
               </button>
             </div>
 
+            {(() => {
+              const latestDte = getLatestDte(selectedInstallment.id);
+              const hasActiveDte = latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status);
+              return (
+                <>
+                  {!hasActiveDte && (
+                    <div className="px-lg pt-md">
+                      <div className="grid grid-cols-2 gap-1 p-1 bg-surface-container-low rounded-lg border border-outline-variant/40">
+                        {[
+                          { mode: 'nubox', icon: 'cloud_upload', label: 'Emitir con Nubox (SII)' },
+                          { mode: 'manual', icon: 'edit_note', label: 'Registro manual' }
+                        ].map(opt => (
+                          <button
+                            key={opt.mode}
+                            type="button"
+                            onClick={() => setEmitMode(opt.mode)}
+                            disabled={isSaving || (opt.mode === 'nubox' && !!nuboxUnavailableReason)}
+                            className={`flex items-center justify-center gap-xs py-1.5 rounded text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${emitMode === opt.mode ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant hover:text-primary'}`}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">{opt.icon}</span>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      {nuboxUnavailableReason && (
+                        <p className="text-[11px] text-amber-700 mt-1">{nuboxUnavailableReason}</p>
+                      )}
+                    </div>
+                  )}
+                  {emitMode === 'nubox' && (
+                    <NuboxInvoicePanel
+                      key={selectedInstallment.id}
+                      installment={selectedInstallment}
+                      budget={budgets.find(b => b.id === selectedInstallment.origin_budget_id)}
+                      project={projects.find(p => p.id === selectedInstallment.project_id)}
+                      razonSocial={instRazonSocial}
+                      totalQuotas={installments.filter(i => i.origin_budget_id === selectedInstallment.origin_budget_id && i.status !== 'Anulada').length}
+                      defaultTaxPercent={numericTaxPercent}
+                      environment={nuboxConfig.environment}
+                      existingDocument={latestDte}
+                      onDocumentChange={onDteDocumentChange}
+                      onClose={() => setIsEmitModalOpen(false)}
+                    />
+                  )}
+                </>
+              );
+            })()}
+
+            {emitMode === 'manual' && (
             <form onSubmit={handleSaveEmit} className="p-lg space-y-lg text-left">
               <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-xs animate-fade-in text-body-md text-primary">
                 <p className="flex justify-between items-center">
@@ -2311,6 +2440,7 @@ export default function Facturacion({
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
@@ -2684,6 +2814,7 @@ export default function Facturacion({
           initialInstallments={activeBudgetForInstallments.installments}
           clients={clients}
           legalEntityId={activeBudgetForInstallments?.budget?.legalEntityId || activeBudgetForInstallments?.budget?.clientId || null}
+          dteDocuments={dteDocuments}
           onSave={async (updated) => {
             await onSaveInstallments(activeBudgetForInstallments.budget.id, updated);
           }}
@@ -3059,6 +3190,25 @@ export default function Facturacion({
             </div>
           </div>
         </div>
+      )}
+
+      <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+
+      {emailInstallment && (
+        <ClientEmailModal
+          installment={emailInstallment}
+          installments={installments}
+          projects={projects}
+          budgets={budgets}
+          clients={clients}
+          mainClients={mainClients}
+          users={users}
+          dteDocuments={dteDocuments}
+          clientEmails={clientEmails}
+          notificationSettings={notificationSettings}
+          onClose={() => setEmailInstallment(null)}
+          onSent={onClientEmailSent}
+        />
       )}
     </div>
   );

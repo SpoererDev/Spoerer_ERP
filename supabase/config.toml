@@ -1,3 +1,15 @@
 [functions.notify-budget-approved]
 # The worker validates a private token stored in Vault before accessing the queue.
 verify_jwt = false
+
+[functions.nubox-issue]
+# Requires the ERP user's JWT; the function also checks the profile is Active.
+verify_jwt = true
+
+[functions.nubox-sync]
+# Called by pg_cron with the Vault worker token, or by the ERP with a user JWT (validated in code).
+verify_jwt = false
+
+[functions.send-client-email]
+# Requires the ERP user's JWT; the function also checks the profile is Active.
+verify_jwt = true

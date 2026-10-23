@@ -34,6 +34,9 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [installments, setInstallments] = useState([]); // Flat billing installments
   const [extraCosts, setExtraCosts] = useState([]); // Flat extra costs
+  const [dteDocuments, setDteDocuments] = useState([]); // Electronic invoices issued via Nubox
+  const [nuboxConfig, setNuboxConfig] = useState({ companies: [], environment: null });
+  const [clientEmails, setClientEmails] = useState([]); // E-mails sent to clients from Facturación
   const [users, setUsers] = useState([]); // Public profiles
 
   // Temporary mock invoice state for the billing tab (future expansion)
@@ -185,7 +188,7 @@ export default function App() {
         }
 
         // 2. Cargar datos de Supabase
-        const [mainCls, cls, bgs, prjs, insts, costs, usrs, notifSettings] = await Promise.all([
+        const [mainCls, cls, bgs, prjs, insts, costs, usrs, notifSettings, dtes] = await Promise.all([
           supabaseService.getMainClients(),
           supabaseService.getClients(),
           supabaseService.getBudgets(),
@@ -193,8 +196,12 @@ export default function App() {
           supabaseService.getInstallments(),
           supabaseService.getExtraCosts(),
           supabaseService.getProfiles(),
-          supabaseService.getNotificationSettings()
+          supabaseService.getNotificationSettings(),
+          supabaseService.getDteDocuments()
         ]);
+        setDteDocuments(dtes);
+        supabaseService.getNuboxConfig().then(setNuboxConfig);
+        supabaseService.getClientEmails().then(setClientEmails);
         setMainClients(mainCls);
         setClients(cls);
         setQuotes(bgs);
@@ -460,6 +467,33 @@ export default function App() {
     }
   };
 
+  // Nubox updates installments and clients server-side; refresh the affected rows in state.
+  const handleDteDocumentChange = async (doc, { clientUpdated = false } = {}) => {
+    setDteDocuments(prev => [doc, ...prev.filter(d => d.id !== doc.id)]);
+    try {
+      if (doc.status === 'issued' && doc.installmentId) {
+        const freshInst = await supabaseService.getInstallment(doc.installmentId);
+        setInstallments(prev => prev.map(i => i.id === freshInst.id ? freshInst : i));
+      }
+      if (clientUpdated) setClients(await supabaseService.getClients());
+    } catch (err) {
+      console.error("Error al refrescar datos de facturación:", err);
+    }
+  };
+
+  // While invoices are being processed by the SII, refresh them periodically (pg_cron updates the database).
+  const hasPendingDte = dteDocuments.some(d => ['sending', 'queued', 'pending_sii'].includes(d.status));
+  useEffect(() => {
+    if (!hasPendingDte) return;
+    const timer = setInterval(async () => {
+      const fresh = await supabaseService.getDteDocuments();
+      const newlyIssued = fresh.filter(d => d.status === 'issued' && dteDocuments.find(o => o.id === d.id)?.status !== 'issued');
+      setDteDocuments(fresh);
+      if (newlyIssued.length > 0) setInstallments(await supabaseService.getInstallments());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [hasPendingDte, dteDocuments]);
+
   const handleCreateInstallment = async (installmentData) => {
     try {
       const newInst = await supabaseService.createInstallment(installmentData);
@@ -547,7 +581,8 @@ export default function App() {
       if (newInsts.length > 0) {
         await Promise.all(newInsts.map(inst => 
           supabaseService.createInstallment({
-            project_id: inst.project_id || originalInsts[0]?.project_id || null,
+            // The budget knows its project even when no installments remain to copy it from.
+            project_id: inst.project_id || originalInsts[0]?.project_id || quotes.find(q => q.id === budgetId)?.projectId || null,
             origin_budget_id: inst.origin_budget_id || budgetId,
             numQuota: inst.numQuota,
             date: inst.date,
@@ -785,6 +820,12 @@ export default function App() {
               clients={clients}
               mainClients={mainClients}
               users={users}
+              dteDocuments={dteDocuments}
+              nuboxConfig={nuboxConfig}
+              onDteDocumentChange={handleDteDocumentChange}
+              clientEmails={clientEmails}
+              notificationSettings={notificationSettings}
+              onClientEmailSent={(email) => setClientEmails(prev => [email, ...prev])}
               onUpdateInstallment={handleUpdateInstallment}
               onSaveInstallments={handleSaveInstallments}
               onSaveProject={handleSaveProject}
@@ -822,6 +863,7 @@ export default function App() {
               mainClients={mainClients}
               budgets={quotes}
               installments={installments}
+              dteDocuments={dteDocuments}
               extraCosts={extraCosts}
               users={users}
               onUpdateInstallment={handleUpdateInstallment}

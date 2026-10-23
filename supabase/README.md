@@ -52,3 +52,51 @@ Para replicar en otro proyecto, adaptar URL en `sql/budget_approval_notification
 Pruebas simuladas: `node supabase/functions/notify-budget-approved/worker.test.mjs`. No modifican presupuestos ni envían correos.
 
 
+
+# Facturación electrónica vía Nubox
+
+Edge Functions: `nubox-issue` (emite, requiere JWT de usuario activo) y `nubox-sync` (consulta estado y descarga PDF; la invoca pg_cron cada minuto con un token de Vault y el ERP mientras el modal está abierto). Código compartido en `functions/_shared/nubox.ts`. SQL de instalación: `sql/nubox_invoicing.sql`.
+
+Flujo: el modal arma la factura con datos de la cuota y del CRM → `nubox-issue` recalcula montos desde la base, registra el intento en `dte_documents` (estado `sending`, con su `idempotence_key`) y lo envía a Nubox → la emisión es asíncrona, por lo que `nubox-sync` consulta `GET /v1/sales/{id}` hasta que queda `issued` (cuota pasa a `Facturada` con el folio) o `rejected`. El PDF se guarda en el bucket privado `invoices` y se abre con URL firmada.
+
+Garantías: un índice único impide dos facturas activas por cuota; los reintentos reutilizan el mismo `x-idempotence-id` (Nubox lo recuerda 30 días); un trigger impide borrar cuotas con factura en el SII y la sincronización de presupuestos las conserva.
+
+Sólo las empresas con API key en Vault emiten por Nubox (hoy `Spoerer`). FPF, clientes con RUT genérico 55.555.555-5 o caídas de Nubox usan el registro manual del mismo modal.
+
+## Configurar credenciales (SQL Editor)
+
+```sql
+select vault.create_secret('<BaseUrl>', 'nubox_base_url');          -- UAT: https://api.test-nubox.com/nbxpymapi-uat
+select vault.create_secret('<token partner>', 'nubox_token');
+select vault.create_secret('<X-Api-Key Spoerer>', 'nubox_api_key_spoerer');
+-- Token interno con el que pg_cron invoca nubox-sync (valor aleatorio, no se comparte):
+select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'nubox_worker_token');
+```
+
+Si la URL contiene `test`/`uat`, el ERP muestra el aviso de ambiente de pruebas. Para pasar a producción, actualizar los tres secretos con `vault.update_secret`. Para habilitar FPF, crear `nubox_api_key_fpf` y agregarlo en `public.nubox_config()`.
+
+Monitorizar:
+
+```sql
+select status, count(*) from public.dte_documents group by status;
+select id, installment_number, status, emission_status_name, folio, errors, attempts from public.dte_documents order by created_at desc limit 20;
+```
+
+
+# Correos a clientes desde Facturación
+
+Edge Function: `send-client-email` (requiere JWT de usuario activo). SQL de instalación: `sql/client_emails.sql` (ya aplicado por MCP).
+
+Flujo: en Facturación, el botón de correo de cada cuota abre `ClientEmailModal`. El usuario elige una plantilla (`src/utils/clientEmailTemplates.js`), revisa destinatarios, copias, asunto, mensaje y adjuntos, y envía. La función valida los datos, arma el HTML (la tabla de `[TABLA DE PAGOS]` se recalcula desde la base), adjunta archivos y envía vía Resend. Cada intento queda en `public.client_emails` con estado `sent` o `failed`.
+
+- Remitente: `Secretaría Spoerer <secretaria@spoerer.cl>`, con copia oculta y `reply_to` a `secretaria@spoerer.cl`. Usa la misma API key de Resend (`budget_notification_resend_key`) mediante `public.client_email_config()`, que solo puede ejecutar service_role.
+- Adjuntos permitidos: PDF de la factura Nubox de las cuotas del correo, respaldos de la cuota (bucket `budgets`) o archivos subidos por el usuario al bucket privado `email-attachments/{uid}/`, que se borran tras un envío exitoso. Máximo 25 MB en total.
+- Copias por defecto: filas `client_email_*` de `notification_settings`, editables en Configuración de notificaciones.
+- Plantilla sugerida: `Por aprobar` → Consultar por aprobación; `Aprobada`/`Por facturar` sin OC → Solicitud de OC (con OC → Otro); `Facturada` → Enviar factura, o Solicitar cobro si ya se envió la factura.
+
+Monitorizar:
+
+```sql
+select status, template, count(*) from public.client_emails group by 1, 2;
+select created_at, template, subject, status, error from public.client_emails order by created_at desc limit 20;
+```

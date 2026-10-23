@@ -33,6 +33,19 @@ export default function NotificationSettingsModal({
       icon: 'request_quote',
       isAvailable: false
     },
+    // Default CC users for each e-mail template sent from Facturación (ClientEmailModal).
+    ...[
+      { id: 'client_email_approval_request', title: 'Correo: Consultar por aprobación', icon: 'how_to_reg' },
+      { id: 'client_email_oc_request', title: 'Correo: Solicitud de OC', icon: 'assignment' },
+      { id: 'client_email_invoice', title: 'Correo: Enviar factura', icon: 'forward_to_inbox' },
+      { id: 'client_email_payment_request', title: 'Correo: Solicitar cobro', icon: 'request_quote' },
+      { id: 'client_email_other', title: 'Correo: Otro', icon: 'mail' }
+    ].map(t => ({
+      ...t,
+      description: 'Usuarios que se agregan en copia por defecto al enviar este correo desde Facturación.',
+      category: 'Correos a clientes',
+      isAvailable: true
+    })),
     {
       id: 'payment_reminder',
       title: 'Recordatorio de Cobro',

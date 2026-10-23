@@ -301,6 +301,85 @@ const mapInstallmentFromDb = (dbInst) => {
   };
 };
 
+// Helper: Map electronic tax documents (Nubox / SII)
+const mapDteFromDb = (dbDoc) => ({
+  id: dbDoc.id,
+  installmentId: dbDoc.installment_id,
+  budgetId: dbDoc.budget_id,
+  projectId: dbDoc.project_id,
+  clientId: dbDoc.client_id,
+  installmentNumber: dbDoc.installment_number,
+  billingCompany: dbDoc.billing_company,
+  environment: dbDoc.environment,
+  documentType: dbDoc.document_type,
+  status: dbDoc.status,
+  nuboxId: dbDoc.nubox_id,
+  folio: dbDoc.folio || '',
+  emissionStatusName: dbDoc.emission_status_name || '',
+  emissionDate: dbDoc.emission_date || null,
+  dueDate: dbDoc.due_date || null,
+  exchangeRate: dbDoc.exchange_rate !== null ? parseFloat(dbDoc.exchange_rate) : null,
+  netAmount: parseFloat(dbDoc.net_amount) || 0,
+  exemptAmount: parseFloat(dbDoc.exempt_amount) || 0,
+  taxAmount: parseFloat(dbDoc.tax_amount) || 0,
+  totalAmount: parseFloat(dbDoc.total_amount) || 0,
+  description: dbDoc.description || '',
+  errors: Array.isArray(dbDoc.errors) ? dbDoc.errors : [],
+  pdfPath: dbDoc.pdf_path || null,
+  createdAt: dbDoc.created_at,
+  issuedAt: dbDoc.issued_at || null
+});
+
+// Helper: Map e-mails sent to clients from Facturación
+const mapClientEmailFromDb = (dbEmail) => ({
+  id: dbEmail.id,
+  template: dbEmail.template,
+  installmentIds: dbEmail.installment_ids || [],
+  projectId: dbEmail.project_id,
+  budgetId: dbEmail.budget_id,
+  subject: dbEmail.subject,
+  to: dbEmail.to_recipients || [],
+  cc: dbEmail.cc || [],
+  bodyText: dbEmail.body_text || '',
+  attachments: dbEmail.attachments || [],
+  status: dbEmail.status,
+  error: dbEmail.error || null,
+  sentBy: dbEmail.sent_by,
+  createdAt: dbEmail.created_at
+});
+
+// DTE statuses that lock an installment (invoice in progress or issued at the SII)
+export const ACTIVE_DTE_STATUSES = ['sending', 'queued', 'pending_sii', 'issued'];
+
+const invokeNuboxFunction = async (name, body) => {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    const details = await error.context?.json?.().catch(() => null);
+    throw new Error(details?.error || error.message);
+  }
+  return data;
+};
+
+// Installments with an active SII document must survive the delete-and-reinsert budget sync.
+const getLockedInstallmentIds = async (budgetId) => {
+  const { data, error } = await supabase
+    .from('dte_documents')
+    .select('installment_id')
+    .eq('budget_id', budgetId)
+    .in('status', ACTIVE_DTE_STATUSES);
+  if (error) return [];
+  return data.map(d => d.installment_id).filter(Boolean);
+};
+
+const deleteUnlockedBudgetInstallments = (budgetId, lockedIds) => {
+  let query = supabase
+    .from('billing_installments')
+    .delete()
+    .eq('origin_budget_id', budgetId);
+  if (lockedIds.length > 0) query = query.not('id', 'in', `(${lockedIds.join(',')})`);
+  return query;
+};
+
 // Helpers: Gracefully handle numeric(10,4) overflow on billing_installments.planned_amount_uf for amounts >= 1,000,000
 const applyInstallmentOverflowFallback = (row) => {
   if (!row || row.planned_amount_uf === undefined || row.planned_amount_uf === null) return row;
@@ -918,24 +997,24 @@ export const supabaseService = {
     // 2.5 Sync Billing Installments (Cuotas) if provided
     if (billingInstallments && savedBudget.id) {
       const projectId = savedBudget.project_id || null;
+      const lockedIds = await getLockedInstallmentIds(savedBudget.id);
 
       // Keep backup of existing installments in case insert fails
       const { data: existingInstsBackup } = await supabase
         .from('billing_installments')
         .select('*')
         .eq('origin_budget_id', savedBudget.id);
-      
-      // Delete existing installments linked to this budget
-      const { error: delError } = await supabase
-        .from('billing_installments')
-        .delete()
-        .eq('origin_budget_id', savedBudget.id);
-      
+
+      // Delete existing installments linked to this budget (except those invoiced through the SII)
+      const { error: delError } = await deleteUnlockedBudgetInstallments(savedBudget.id, lockedIds);
+
       if (delError) throw delError;
 
+      const editableInstallments = billingInstallments.filter(inst => !lockedIds.includes(inst.id));
+
       // Insert new/updated installments if they are provided
-      if (billingInstallments.length > 0) {
-        const installmentsToInsert = billingInstallments.map(inst => ({
+      if (editableInstallments.length > 0) {
+        const installmentsToInsert = editableInstallments.map(inst => ({
           project_id: projectId,
           origin_budget_id: savedBudget.id,
           installment_number: inst.numQuota,
@@ -969,8 +1048,9 @@ export const supabaseService = {
         const { error: insError } = await insertBillingInstallmentsSafely(installmentsToInsert);
         
         if (insError) {
-          if (existingInstsBackup && existingInstsBackup.length > 0) {
-            await supabase.from('billing_installments').insert(existingInstsBackup);
+          const backupToRestore = (existingInstsBackup || []).filter(inst => !lockedIds.includes(inst.id));
+          if (backupToRestore.length > 0) {
+            await supabase.from('billing_installments').insert(backupToRestore);
           }
           throw insError;
         }
@@ -1208,6 +1288,84 @@ export const supabaseService = {
     return data.map(mapInstallmentFromDb);
   },
 
+  async getInstallment(id) {
+    const { data, error } = await supabase
+      .from('billing_installments')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    return mapInstallmentFromDb(data);
+  },
+
+  // FACTURACIÓN ELECTRÓNICA (NUBOX)
+  async getDteDocuments() {
+    const { data, error } = await supabase
+      .from('dte_documents')
+      .select('*')
+      .order('created_at', { ascending: false });
+    // The table may not exist yet in environments without the Nubox migration.
+    if (error) {
+      console.warn('Documentos tributarios no disponibles:', error.message);
+      return [];
+    }
+    return data.map(mapDteFromDb);
+  },
+
+  async getNuboxConfig() {
+    try {
+      return await invokeNuboxFunction('nubox-issue', { action: 'config' });
+    } catch (err) {
+      console.warn('Nubox no disponible:', err.message);
+      return { companies: [], environment: null };
+    }
+  },
+
+  async issueNuboxInvoice(request) {
+    const result = await invokeNuboxFunction('nubox-issue', request);
+    return { document: mapDteFromDb(result.document), warning: result.warning || null };
+  },
+
+  async syncNuboxDocument(documentId) {
+    const result = await invokeNuboxFunction('nubox-sync', { documentId });
+    return result.document ? mapDteFromDb(result.document) : null;
+  },
+
+  async getInvoicePdfUrl(pdfPath) {
+    const { data, error } = await supabase.storage.from('invoices').createSignedUrl(pdfPath, 60 * 10);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
+  // CLIENT EMAILS (Edge Function send-client-email)
+  async getClientEmails() {
+    const { data, error } = await supabase
+      .from('client_emails')
+      .select('*')
+      .order('created_at', { ascending: false });
+    // The table may not exist yet in environments without the client e-mail migration.
+    if (error) {
+      console.warn('Historial de correos no disponible:', error.message);
+      return [];
+    }
+    return data.map(mapClientEmailFromDb);
+  },
+
+  async sendClientEmail(payload) {
+    const result = await invokeNuboxFunction('send-client-email', payload);
+    return mapClientEmailFromDb(result.email);
+  },
+
+  // Uploads a file for a single e-mail into the sender's folder of the private bucket.
+  async uploadEmailAttachment(file) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Sesión expirada. Vuelva a iniciar sesión.');
+    const path = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${sanitizeFileName(file.name)}`;
+    const { error } = await supabase.storage.from('email-attachments').upload(path, file);
+    if (error) throw error;
+    return { path, name: file.name };
+  },
+
   async updateInstallment(id, updates) {
     const dbUpdates = {};
     if (updates.numQuota !== undefined) dbUpdates.installment_number = updates.numQuota;
@@ -1402,13 +1560,11 @@ export const supabaseService = {
         .select('*')
         .eq('origin_budget_id', budgetId);
 
-      // First clean up any old installments for this budget to prevent duplicates
-      await supabase
-        .from('billing_installments')
-        .delete()
-        .eq('origin_budget_id', budgetId);
+      // First clean up any old installments for this budget to prevent duplicates (keeping SII-invoiced ones)
+      const lockedIds = await getLockedInstallmentIds(budgetId);
+      await deleteUnlockedBudgetInstallments(budgetId, lockedIds);
 
-      const installmentsToInsert = billingInstallments.map(inst => ({
+      const installmentsToInsert = billingInstallments.filter(inst => !lockedIds.includes(inst.id)).map(inst => ({
         project_id: project.id,
         origin_budget_id: budgetId,
         installment_number: inst.numQuota,
@@ -1439,11 +1595,14 @@ export const supabaseService = {
         total_amount_clp: inst.total_clp !== undefined ? inst.total_clp : null
       }));
 
-      const { error: instError } = await insertBillingInstallmentsSafely(installmentsToInsert);
-      
+      const { error: instError } = installmentsToInsert.length > 0
+        ? await insertBillingInstallmentsSafely(installmentsToInsert)
+        : { error: null };
+
       if (instError) {
-        if (existingInstsBackup && existingInstsBackup.length > 0) {
-          await supabase.from('billing_installments').insert(existingInstsBackup);
+        const backupToRestore = (existingInstsBackup || []).filter(inst => !lockedIds.includes(inst.id));
+        if (backupToRestore.length > 0) {
+          await supabase.from('billing_installments').insert(backupToRestore);
         }
         if (isNewProject && project?.id) {
           await supabase.from('projects').delete().eq('id', project.id);

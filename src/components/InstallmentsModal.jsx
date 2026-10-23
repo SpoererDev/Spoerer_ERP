@@ -131,9 +131,23 @@ export default function InstallmentsModal({
   billingCompany = 'Spoerer',
   taxPercent = 19,
   clients = [],
-  legalEntityId = null
+  legalEntityId = null,
+  dteDocuments = []
 }) {
   const [localInstallments, setLocalInstallments] = useState([]);
+
+  // PDF of the Nubox invoice issued for this installment (lives in the private "invoices" bucket).
+  const getIssuedDtePdf = (installmentId) =>
+    dteDocuments.find(d => d.installmentId === installmentId && d.status === 'issued' && d.pdfPath) || null;
+
+  const openDtePdf = async (dte) => {
+    try {
+      window.open(await supabaseService.getInvoicePdfUrl(dte.pdfPath), '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Error obteniendo PDF de la factura:', err);
+      alert('No se pudo abrir el PDF de la factura.');
+    }
+  };
   const [editingFileIdx, setEditingFileIdx] = useState(null);
   const [validationError, setValidationError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -1804,7 +1818,7 @@ export default function InstallmentsModal({
                             {/* Editar Respaldos */}
                             {(() => {
                               const hasBackups = Boolean(
-                                row.invoiceFileUrl || row.invoiceFileObject ||
+                                row.invoiceFileUrl || row.invoiceFileObject || getIssuedDtePdf(row.id) ||
                                 row.paymentBackupUrl || row.paymentBackupFileObject ||
                                 row.ocFileUrl || row.ocFileObject ||
                                 (row.otherFiles && row.otherFiles.length > 0) ||
@@ -2195,6 +2209,24 @@ export default function InstallmentsModal({
                   Documento de Factura (PDF)
                 </span>
 
+                {/* Factura emitida con Nubox: sólo lectura, el documento está en el SII */}
+                {getIssuedDtePdf(currentEditingRow.id) && (
+                  <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => openDtePdf(getIssuedDtePdf(currentEditingRow.id))}
+                      className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate pr-4"
+                    >
+                      <span className="material-symbols-outlined text-[18px] flex-shrink-0">picture_as_pdf</span>
+                      <span className="truncate">
+                        Factura Nubox{getIssuedDtePdf(currentEditingRow.id).folio ? ` N° ${getIssuedDtePdf(currentEditingRow.id).folio}` : ''}
+                        {getIssuedDtePdf(currentEditingRow.id).environment === 'uat' ? ' (prueba)' : ''}
+                      </span>
+                    </button>
+                    <span className="material-symbols-outlined text-[18px] text-emerald-600 flex-shrink-0" title="Emitida electrónicamente con Nubox">verified</span>
+                  </div>
+                )}
+
                 {/* Visualizar archivo existente */}
                 {currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile ? (
                   <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
@@ -2231,7 +2263,7 @@ export default function InstallmentsModal({
                       <span className="material-symbols-outlined text-[18px]">close</span>
                     </button>
                   </div>
-                ) : (
+                ) : getIssuedDtePdf(currentEditingRow.id) ? null : (
                   // Botón de carga
                   <div>
                     <label className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-lg cursor-pointer text-body-sm font-semibold text-slate-600 hover:text-slate-800 transition-all">
