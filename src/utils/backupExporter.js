@@ -89,7 +89,8 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
       facturacionRows.push({
         "Presupuesto #": budg ? budg.budget_number || '' : '',
         "Factura #": inst.invoice_number || '',
-        "Fecha": formatDateExcel(inst.scheduled_date),
+        "Fecha Planificada": formatDateExcel(inst.scheduled_date),
+        "Fecha Facturación": isInvoiced && inst.actual_invoice_date ? formatDateExcel(inst.actual_invoice_date) : '',
         "Año": yearVal,
         "Año Proy": proj ? proj.year || '' : '',
         "RUT": budgetRazonSocial ? budgetRazonSocial.rut || '' : '',
@@ -145,7 +146,7 @@ export const generateConsolidatedBackup = async ({ userName = 'Administrador', b
 
     const wsFacturacion = XLSX.utils.json_to_sheet(facturacionRows, {
       header: [
-        "Presupuesto #", "Factura #", "Fecha", "Año", "Año Proy", "RUT", "Razón Social",
+        "Presupuesto #", "Factura #", "Fecha Planificada", "Fecha Facturación", "Año", "Año Proy", "RUT", "Razón Social",
         "Giro", "Dirección", "Comuna", "Ciudad", "Contacto", "Obra", "OC", "Descripción", "Comentario",
         "Cuota", "TotCuota", "Moneda", "Monto", "UF", "$", "F-Pago", "Estado F#", "Tipo", "Cliente",
         "N° Proyecto", "Revisor", "Firma", "Gerente Proyecto", "Ingeniero", "Dibujante", "M2", "Total Presupuesto", "Total UF", "Empresa Emisora"

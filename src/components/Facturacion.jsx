@@ -797,11 +797,13 @@ export default function Facturacion({
       // Check if invoiced (Facturada): status is 'Facturada' or 'Factura emitida' or 'Pagada'
       const isInvoiced = installment.status === 'Facturada' || installment.status === 'Factura emitida' || installment.status === 'Pagada';
       const isPaid = installment.status === 'Pagada';
+      const invoiceDateVal = installment.actualInvoiceDate || getLatestDte(installment.id)?.emissionDate || '';
 
       rows.push({
         "Presupuesto #": budget ? budget.quoteId || '' : '',
         "Factura #": installment.invoiceNumber || '',
-        "Fecha": formatDateExcel(installment.date),
+        "Fecha Planificada": formatDateExcel(installment.date),
+        "Fecha Facturación": isInvoiced && invoiceDateVal ? formatDateExcel(invoiceDateVal) : '',
         "Año": yearVal,
         "Año Proy": project ? project.anio || '' : '',
         "RUT": razonSocial ? razonSocial.rut || '' : '',
@@ -821,7 +823,6 @@ export default function Facturacion({
         "Monto": parseFloat(installment.uf) || 0,
         "UF": parseFloat(installment.uf) || 0,
         "$": isInvoiced ? parseFloat(installment.total_clp) || 0 : '',
-        "F-Factura": installment.actualInvoiceDate ? formatDateExcel(installment.actualInvoiceDate) : '',
         "F-Pago": isPaid ? formatDateExcel(installment.actualPaymentDate) : '',
         "Estado F#": installment.status || '',
         "Tipo": '',
@@ -861,7 +862,8 @@ export default function Facturacion({
       header: [
         "Presupuesto #",
         "Factura #",
-        "Fecha",
+        "Fecha Planificada",
+        "Fecha Facturación",
         "Año",
         "Año Proy",
         "RUT",
@@ -1093,7 +1095,7 @@ export default function Facturacion({
           : ((installment.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19)));
     setEmitTaxPercent(String(defaultTax));
 
-    // Nubox is the default when the issuing company is enabled; manual registration stays available as fallback.
+    // Manual registration is the default initial tab unless an active Nubox emission is already in progress.
     const company = installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
     const unavailableReason = isForeignGenericRut(razonSocial.rut)
       ? 'Cliente extranjero (RUT genérico): la factura se registra manualmente.'
@@ -1103,7 +1105,7 @@ export default function Facturacion({
     const latestDte = dteDocuments.find(d => d.installmentId === installment.id);
     const hasActiveDte = latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status);
     setNuboxUnavailableReason(hasActiveDte ? '' : unavailableReason);
-    setEmitMode(hasActiveDte || !unavailableReason ? 'nubox' : 'manual');
+    setEmitMode(hasActiveDte ? 'nubox' : 'manual');
 
     setIsEmitModalOpen(true);
   };
@@ -2164,7 +2166,7 @@ export default function Facturacion({
       {/* --- MODAL A: Emitir Factura --- */}
       {isEmitModalOpen && selectedInstallment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
-          <div className={`relative bg-white w-full ${emitMode === 'nubox' ? 'max-w-3xl' : 'max-w-md'} max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up text-left border border-outline-variant/30`}>
+          <div className={`relative bg-white w-full ${emitMode === 'nubox' ? 'max-w-3xl' : (manualEmitSuccess ? 'max-w-md' : 'max-w-xl')} max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up text-left border border-outline-variant/30`}>
             <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-20">
               <div>
                 <h2 className="font-headline-md text-headline-md text-primary font-bold flex items-center gap-2">
@@ -2312,7 +2314,7 @@ export default function Facturacion({
             )}
 
             {emitMode === 'manual' && !manualEmitSuccess && (
-            <form onSubmit={handleSaveEmit} className="p-lg space-y-lg text-left">
+            <form onSubmit={handleSaveEmit} className="p-lg space-y-md text-left">
               <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-xs animate-fade-in text-body-md text-primary">
                 <p className="flex justify-between items-center">
                   <span className="text-on-surface-variant font-medium">Cuota Nº:</span>
@@ -2332,133 +2334,143 @@ export default function Facturacion({
                 </p>
                 <p className="flex justify-between items-center border-t border-slate-200/40 pt-1 mt-1">
                   <span className="text-on-surface-variant font-medium">Razón Social:</span>
-                  <span className="font-bold text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-800 text-right max-w-[220px] truncate" title={instRazonSocial?.company || 'Sin Razón Social'}>
+                  <span className="font-bold text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-800 text-right max-w-[260px] truncate" title={instRazonSocial?.company || 'Sin Razón Social'}>
                     {instRazonSocial?.company || 'Sin Razón Social'} {instRazonSocial?.rut ? `(${instRazonSocial.rut})` : ''}
                   </span>
                 </p>
               </div>
 
-              {/* Folio Factura */}
-              <div className="space-y-xs">
-                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Número de Factura (Folio)</label>
-                <input
-                  type="text"
-                  className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
-                  value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="Ej: 1482"
-                  required
-                  disabled={isSaving}
-                />
-              </div>
-
-              {/* Fecha Emisión */}
-              <div className="space-y-xs">
-                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Fecha de Emisión Real</label>
-                <div className="relative flex items-center">
+              <div className="space-y-sm">
+                {/* Folio Factura */}
+                <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-center">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Número de Factura (Folio)
+                  </label>
                   <input
                     type="text"
-                    readOnly
-                    value={actualInvoiceDate ? actualInvoiceDate.split('-').reverse().join('/') : ''}
-                    className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white text-primary font-semibold pr-10"
-                    placeholder="dd/mm/yyyy"
-                  />
-                  <input
-                    type="date"
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                    value={actualInvoiceDate}
-                    onChange={(e) => setActualInvoiceDate(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="Ej: 1482"
                     required
                     disabled={isSaving}
                   />
-                  <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
-                    calendar_month
-                  </span>
                 </div>
-              </div>
 
-              {/* Valor UF / Dólar del día */}
-              {instCurrency !== 'CLP' ? (
-                <div className="space-y-xs">
-                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
-                    {instCurrency === 'USD' ? 'Valor del Dólar del día ($)' : 'Valor de la UF del día ($)'}
+                {/* Fecha Emisión */}
+                <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-center">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Fecha de Emisión Real
                   </label>
-                  <div className="relative">
+                  <div className="relative flex items-center">
                     <input
-                      type="number"
-                      className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
-                      value={ufRate}
-                      onChange={(e) => setUfRate(e.target.value)}
-                      placeholder={instCurrency === 'USD' ? 'Ej: 950' : 'Ej: 38250'}
+                      type="text"
+                      readOnly
+                      value={actualInvoiceDate ? actualInvoiceDate.split('-').reverse().join('/') : ''}
+                      className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 outline-none transition-all bg-white text-primary font-semibold pr-10"
+                      placeholder="dd/mm/yyyy"
+                    />
+                    <input
+                      type="date"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      value={actualInvoiceDate}
+                      onChange={(e) => setActualInvoiceDate(e.target.value)}
                       required
                       disabled={isSaving}
                     />
-                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-xs">
-                      {isFetchingUf ? (
-                        <span className="animate-spin text-outline-variant text-[18px] material-symbols-outlined">sync</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => fetchRateForDate(actualInvoiceDate, instCurrency)}
-                          className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
-                          title={`Recargar ${instCurrency === 'USD' ? 'Dólar' : 'UF'} de la fecha seleccionada`}
+                    <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-[20px]">
+                      calendar_month
+                    </span>
+                  </div>
+                </div>
+
+                {/* Valor UF / Dólar del día */}
+                {instCurrency !== 'CLP' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-start">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold sm:pt-2.5">
+                      {instCurrency === 'USD' ? 'Valor del Dólar del día ($)' : 'Valor de la UF del día ($)'}
+                    </label>
+                    <div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          className="w-full border border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                          value={ufRate}
+                          onChange={(e) => setUfRate(e.target.value)}
+                          placeholder={instCurrency === 'USD' ? 'Ej: 950' : 'Ej: 38250'}
+                          required
                           disabled={isSaving}
-                        >
-                          <span className="material-symbols-outlined text-[18px]">sync</span>
-                        </button>
+                        />
+                        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-xs">
+                          {isFetchingUf ? (
+                            <span className="animate-spin text-outline-variant text-[18px] material-symbols-outlined">sync</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => fetchRateForDate(actualInvoiceDate, instCurrency)}
+                              className="text-outline hover:text-primary transition-colors flex items-center justify-center p-1 rounded-full hover:bg-slate-50"
+                              title={`Recargar ${instCurrency === 'USD' ? 'Dólar' : 'UF'} de la fecha seleccionada`}
+                              disabled={isSaving}
+                            >
+                              <span className="material-symbols-outlined text-[18px]">sync</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {ufFetchError ? (
+                        <p className="text-[10px] text-amber-600 mt-1">
+                          No se pudo cargar {instCurrency === 'USD' ? 'el Dólar' : 'la UF'} automáticamente. Ingrésela manualmente.
+                        </p>
+                      ) : (
+                        !isFetchingUf && ufRate && (
+                          <p className="text-[10px] text-secondary font-semibold mt-1">
+                            {instCurrency === 'USD' ? 'Dólar cargado' : 'UF cargada'} automáticamente para la fecha de emisión
+                          </p>
+                        )
                       )}
                     </div>
                   </div>
-                  {ufFetchError ? (
-                    <p className="text-[10px] text-amber-600 mt-1">
-                      No se pudo cargar {instCurrency === 'USD' ? 'el Dólar' : 'la UF'} automáticamente para la fecha seleccionada. Ingrésela manualmente.
-                    </p>
-                  ) : (
-                    !isFetchingUf && ufRate && (
-                      <p className="text-[10px] text-secondary font-semibold mt-1">
-                        {instCurrency === 'USD' ? 'Dólar cargado' : 'UF cargada'} automáticamente para la fecha de emisión
-                      </p>
-                    )
-                  )}
-                </div>
-              ) : (
-                <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-lg flex items-center gap-2 text-xs text-slate-600">
-                  <span className="material-symbols-outlined text-[18px] text-secondary">info</span>
-                  <span>La cuota está pactada en Pesos Chilenos (CLP). No requiere tipo de cambio.</span>
-                </div>
-              )}
+                ) : (
+                  <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-lg flex items-center gap-2 text-xs text-slate-600">
+                    <span className="material-symbols-outlined text-[18px] text-secondary">info</span>
+                    <span>La cuota está pactada en Pesos Chilenos (CLP). No requiere tipo de cambio.</span>
+                  </div>
+                )}
 
-              {/* Tasa de IVA / Impuesto (%) */}
-              <div className="space-y-xs">
-                <div className="flex items-center justify-between">
-                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">
-                    IVA / Impuesto (%)
-                  </label>
-                  {isExempt && (
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
-                      Exento de IVA
-                    </span>
-                  )}
+                {/* Tasa de IVA / Impuesto (%) */}
+                <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-start">
+                  <div className="sm:pt-2.5 flex items-center gap-2 flex-wrap">
+                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                      IVA / Impuesto (%)
+                    </label>
+                    {isExempt && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
+                        Exento de IVA
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max="100"
+                        className="w-full border border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-8 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
+                        value={emitTaxPercent}
+                        onChange={(e) => setEmitTaxPercent(e.target.value)}
+                        placeholder="19"
+                        disabled={isSaving}
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm pointer-events-none">
+                        %
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Heredado del presupuesto ({emitTaxPercent}%). Puede ajustarlo si requiere otra tasa o está exenta.
+                    </p>
+                  </div>
                 </div>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    max="100"
-                    className="w-full border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-8 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
-                    value={emitTaxPercent}
-                    onChange={(e) => setEmitTaxPercent(e.target.value)}
-                    placeholder="19"
-                    disabled={isSaving}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm pointer-events-none">
-                    %
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-500">
-                  Heredado del presupuesto ({emitTaxPercent}%). Puede ajustarlo si esta factura requiere una tasa diferente o está exenta.
-                </p>
               </div>
 
               {/* Reactive calculated fields */}
@@ -2488,28 +2500,34 @@ export default function Facturacion({
               )}
 
               {/* Local File Upload for Invoice PDF */}
-              <div className="space-y-xs">
-                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Archivo Respaldo Factura (PDF / Imagen)</label>
-                <input
-                  type="file"
-                  accept=".pdf,image/*"
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:border-secondary focus:ring-1 focus:ring-secondary outline-none text-body-sm file:mr-md file:py-1 file:px-sm file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-secondary file:text-white hover:file:bg-secondary/90 cursor-pointer transition-all"
-                  onChange={(e) => setInvoiceFile(e.target.files[0])}
-                  disabled={isSaving}
-                />
-                {selectedInstallment.invoiceFileUrl && (
-                  <p className="text-[10px] text-on-surface-variant italic mt-1">
-                    Ya existe un archivo cargado. Seleccione uno nuevo solo si desea reemplazarlo.
-                  </p>
-                )}
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-center">
+                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                  Archivo Respaldo (PDF / Imagen)
+                </label>
+                <div>
+                  <input
+                    type="file"
+                    accept=".pdf,image/*"
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:border-secondary focus:ring-1 focus:ring-secondary outline-none text-body-sm file:mr-md file:py-1 file:px-sm file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-secondary file:text-white hover:file:bg-secondary/90 cursor-pointer transition-all"
+                    onChange={(e) => setInvoiceFile(e.target.files[0])}
+                    disabled={isSaving}
+                  />
+                  {selectedInstallment.invoiceFileUrl && (
+                    <p className="text-[10px] text-on-surface-variant italic mt-1">
+                      Ya existe un archivo cargado. Seleccione uno nuevo solo si desea reemplazarlo.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Comentarios */}
-              <div className="space-y-xs">
-                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold block">Comentario</label>
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-x-md gap-y-1 items-start">
+                <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold sm:pt-2">
+                  Comentario
+                </label>
                 <textarea
                   rows="2"
-                  className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                  className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                   value={emitComment}
                   onChange={(e) => setEmitComment(e.target.value)}
                   placeholder="Observaciones..."
