@@ -304,6 +304,8 @@ export default function Facturacion({
   const [nuboxUnavailableReason, setNuboxUnavailableReason] = useState('');
   const [previewFile, setPreviewFile] = useState(null); // { url, title, name } shown in FilePreviewModal
   const [emailInstallment, setEmailInstallment] = useState(null); // installment shown in ClientEmailModal
+  const [emailInitialTemplate, setEmailInitialTemplate] = useState(null);
+  const [manualEmitSuccess, setManualEmitSuccess] = useState(null);
 
   // Register Payment Form
   const [actualPaymentDate, setActualPaymentDate] = useState('');
@@ -1071,6 +1073,7 @@ export default function Facturacion({
     }
 
     setSelectedInstallment(installment);
+    setManualEmitSuccess(null);
     setInvoiceNumber(installment.invoiceNumber || '');
     setActualInvoiceDate(installment.actualInvoiceDate || new Date().toISOString().split('T')[0]);
     setUfRate('');
@@ -1172,7 +1175,9 @@ export default function Facturacion({
       };
 
       await onUpdateInstallment(selectedInstallment.id, updates);
-      setIsEmitModalOpen(false);
+      const updatedInst = { ...selectedInstallment, ...updates };
+      setSelectedInstallment(updatedInst);
+      setManualEmitSuccess(updatedInst);
     } catch (err) {
       console.error("Error al emitir factura:", err);
       alert("Error al emitir la factura: " + err.message);
@@ -2037,79 +2042,84 @@ export default function Facturacion({
                                         </div>
                                       </td>
                                       <td className="px-md py-md text-right">
-                                        {(inst.status === 'Por facturar' || inst.status === 'Aprobada' || inst.status === 'Por aprobar') && (
-                                          (() => {
-                                            const instRazon = inst.legalEntityId 
-                                              ? clients.find(c => c.id === inst.legalEntityId && c.company) 
-                                              : budgetRazonSocial;
-                                            const isDateConfirmed = Boolean(inst.dateConfirmed);
-                                            const hasRazonSocial = Boolean(instRazon);
-                                            const isReady = hasRazonSocial && isDateConfirmed;
+                                        <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
+                                          {(inst.status === 'Por facturar' || inst.status === 'Aprobada' || inst.status === 'Por aprobar') && (
+                                            (() => {
+                                              const instRazon = inst.legalEntityId 
+                                                ? clients.find(c => c.id === inst.legalEntityId && c.company) 
+                                                : budgetRazonSocial;
+                                              const isDateConfirmed = Boolean(inst.dateConfirmed);
+                                              const hasRazonSocial = Boolean(instRazon);
+                                              const isReady = hasRazonSocial && isDateConfirmed;
+                                              return (
+                                                <button
+                                                  onClick={() => {
+                                                    if (!hasRazonSocial) {
+                                                      setTargetBudgetForRazonSocial(budget);
+                                                      setTargetProjectForRazonSocial(project);
+                                                      setIsNoRazonSocialModalOpen(true);
+                                                    } else if (!isDateConfirmed) {
+                                                      setIsDateUnconfirmedModalOpen(true);
+                                                    } else {
+                                                      openEmitModal(inst);
+                                                    }
+                                                  }}
+                                                  title={
+                                                    !hasRazonSocial
+                                                      ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
+                                                      : !isDateConfirmed
+                                                        ? "No se puede facturar sin confirmar la fecha de la cuota."
+                                                        : "Emitir Factura"
+                                                  }
+                                                  className={`inline-flex items-center justify-center gap-xs h-7 px-2.5 rounded font-semibold transition-all text-[11px] leading-none active:scale-95 ${isReady
+                                                    ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
+                                                    : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
+                                                    }`}
+                                                >
+                                                  <span className="material-symbols-outlined text-[14px]">send</span>
+                                                  <span>{['sending', 'queued', 'pending_sii'].includes(getLatestDte(inst.id)?.status) ? 'Ver emisión' : 'Emitir Factura'}</span>
+                                                </button>
+                                              );
+                                            })()
+                                          )}
+                                          {(inst.status === 'Facturada' || inst.status === 'Factura emitida') && (
+                                            <button
+                                              onClick={() => openPaymentModal(inst)}
+                                              className="inline-flex items-center justify-center gap-xs h-7 px-2.5 bg-secondary text-white rounded hover:bg-secondary/90 font-semibold transition-all active:scale-95 text-[11px] leading-none"
+                                            >
+                                              <span className="material-symbols-outlined text-[14px]">price_check</span>
+                                              <span>Registrar Pago</span>
+                                            </button>
+                                          )}
+                                          {(inst.status === 'Pagada' || inst.status === 'Anulada') && (
+                                            <button
+                                              onClick={() => openDetailsModal(inst)}
+                                              className="inline-flex items-center justify-center gap-xs h-7 px-2.5 border border-outline text-on-surface-variant rounded hover:bg-surface-container-low font-semibold transition-all active:scale-95 text-[11px] leading-none"
+                                            >
+                                              <span className="material-symbols-outlined text-[14px]">visibility</span>
+                                              <span>Detalles</span>
+                                            </button>
+                                          )}
+                                          {(() => {
+                                            const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
                                             return (
                                               <button
+                                                type="button"
                                                 onClick={() => {
-                                                  if (!hasRazonSocial) {
-                                                    setTargetBudgetForRazonSocial(budget);
-                                                    setTargetProjectForRazonSocial(project);
-                                                    setIsNoRazonSocialModalOpen(true);
-                                                  } else if (!isDateConfirmed) {
-                                                    setIsDateUnconfirmedModalOpen(true);
-                                                  } else {
-                                                    openEmitModal(inst);
-                                                  }
+                                                  setEmailInitialTemplate(null);
+                                                  setEmailInstallment(inst);
                                                 }}
-                                                title={
-                                                  !hasRazonSocial
-                                                    ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
-                                                    : !isDateConfirmed
-                                                      ? "No se puede facturar sin confirmar la fecha de la cuota."
-                                                      : "Emitir Factura"
-                                                }
-                                                className={`inline-flex items-center gap-xs px-2 py-1 rounded font-semibold transition-all text-[11px] active:scale-95 ${isReady
-                                                  ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
-                                                  : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
-                                                  }`}
+                                                className="relative inline-flex items-center justify-center h-7 w-7 border border-outline-variant text-secondary rounded hover:bg-surface-container-low transition-all active:scale-95"
+                                                title={sentCount ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})` : 'Enviar correo'}
                                               >
-                                                <span className="material-symbols-outlined text-[14px]">send</span>
-                                                <span>{['sending', 'queued', 'pending_sii'].includes(getLatestDte(inst.id)?.status) ? 'Ver emisión' : 'Emitir Factura'}</span>
+                                                <span className="material-symbols-outlined text-[16px]">mail</span>
+                                                {sentCount > 0 && (
+                                                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
+                                                )}
                                               </button>
                                             );
-                                          })()
-                                        )}
-                                        {(inst.status === 'Facturada' || inst.status === 'Factura emitida') && (
-                                          <button
-                                            onClick={() => openPaymentModal(inst)}
-                                            className="inline-flex items-center gap-xs px-2 py-1 bg-secondary text-white rounded hover:bg-secondary/90 font-semibold transition-all active:scale-95 text-[11px]"
-                                          >
-                                            <span className="material-symbols-outlined text-[14px]">price_check</span>
-                                            <span>Registrar Pago</span>
-                                          </button>
-                                        )}
-                                        {(inst.status === 'Pagada' || inst.status === 'Anulada') && (
-                                          <button
-                                            onClick={() => openDetailsModal(inst)}
-                                            className="inline-flex items-center gap-xs px-2 py-1 border border-outline text-on-surface-variant rounded hover:bg-surface-container-low font-semibold transition-all active:scale-95 text-[11px]"
-                                          >
-                                            <span className="material-symbols-outlined text-[14px]">visibility</span>
-                                            <span>Detalles</span>
-                                          </button>
-                                        )}
-                                        {(() => {
-                                          const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
-                                          return (
-                                            <button
-                                              type="button"
-                                              onClick={() => setEmailInstallment(inst)}
-                                              className="relative inline-flex items-center ml-xs p-1 border border-outline-variant text-secondary rounded hover:bg-surface-container-low transition-all active:scale-95 align-middle"
-                                              title={sentCount ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})` : 'Enviar correo'}
-                                            >
-                                              <span className="material-symbols-outlined text-[16px]">mail</span>
-                                              {sentCount > 0 && (
-                                                <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
-                                              )}
-                                            </button>
-                                          );
-                                        })()}
+                                          })()}
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -2153,7 +2163,10 @@ export default function Facturacion({
               </div>
               <button
                 type="button"
-                onClick={() => setIsEmitModalOpen(false)}
+                onClick={() => {
+                  setIsEmitModalOpen(false);
+                  setManualEmitSuccess(null);
+                }}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all text-on-surface-variant"
                 disabled={isSaving}
               >
@@ -2166,7 +2179,7 @@ export default function Facturacion({
               const hasActiveDte = latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status);
               return (
                 <>
-                  {!hasActiveDte && (
+                  {!hasActiveDte && !manualEmitSuccess && (
                     <div className="px-lg pt-md">
                       <div className="grid grid-cols-2 gap-1 p-1 bg-surface-container-low rounded-lg border border-outline-variant/40">
                         {[
@@ -2202,6 +2215,19 @@ export default function Facturacion({
                       environment={nuboxConfig.environment}
                       existingDocument={latestDte}
                       onDocumentChange={onDteDocumentChange}
+                      onSendInvoiceEmail={(doc) => {
+                        const latestInst = installments.find(i => i.id === selectedInstallment.id) || selectedInstallment;
+                        const instForEmail = {
+                          ...latestInst,
+                          status: 'Facturada',
+                          invoiceNumber: doc?.folio ? String(doc.folio) : latestInst.invoiceNumber,
+                          actualInvoiceDate: doc?.emissionDate || latestInst.actualInvoiceDate,
+                          total_clp: doc?.totalAmount ?? latestInst.total_clp
+                        };
+                        setIsEmitModalOpen(false);
+                        setEmailInitialTemplate('invoice');
+                        setEmailInstallment(instForEmail);
+                      }}
                       onClose={() => setIsEmitModalOpen(false)}
                     />
                   )}
@@ -2209,7 +2235,64 @@ export default function Facturacion({
               );
             })()}
 
-            {emitMode === 'manual' && (
+            {emitMode === 'manual' && manualEmitSuccess && (
+              <div className="p-lg space-y-md text-center animate-fade-in">
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mx-auto shadow-sm mb-2">
+                  <span className="material-symbols-outlined text-[36px]">verified</span>
+                </div>
+                <h3 className="font-headline-sm text-headline-sm text-primary font-bold">
+                  Factura N° {manualEmitSuccess.invoiceNumber} registrada
+                </h3>
+                <div className="bg-slate-50 p-md rounded-xl border border-slate-100 text-left space-y-sm text-body-sm">
+                  <p className="flex justify-between items-center">
+                    <span className="text-on-surface-variant font-medium">Cuota Nº:</span>
+                    <span className="font-bold text-primary">{manualEmitSuccess.numQuota}</span>
+                  </p>
+                  <p className="flex justify-between items-center">
+                    <span className="text-on-surface-variant font-medium">Fecha de Emisión:</span>
+                    <span className="font-semibold text-primary">{formatDate(manualEmitSuccess.actualInvoiceDate)}</span>
+                  </p>
+                  <p className="flex justify-between items-center">
+                    <span className="text-on-surface-variant font-medium">Total Facturado:</span>
+                    <span className="font-bold text-secondary font-mono">{formatCLP(manualEmitSuccess.total_clp)}</span>
+                  </p>
+                  {instRazonSocial && (
+                    <p className="flex justify-between items-center border-t border-slate-200/60 pt-1.5 mt-1.5">
+                      <span className="text-on-surface-variant font-medium">Receptor:</span>
+                      <span className="font-semibold text-primary text-right max-w-[220px] truncate">{instRazonSocial.company}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="pt-lg flex justify-end gap-md border-t border-outline-variant/30 sticky bottom-0 bg-white z-10">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const instToSend = manualEmitSuccess;
+                      setIsEmitModalOpen(false);
+                      setManualEmitSuccess(null);
+                      setEmailInitialTemplate('invoice');
+                      setEmailInstallment(instToSend);
+                    }}
+                    className="bg-secondary text-white px-lg py-sm rounded-lg font-semibold shadow-sm hover:brightness-110 active:scale-95 transition-all flex items-center gap-xs"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">mail</span>
+                    <span>Enviar factura</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEmitModalOpen(false);
+                      setManualEmitSuccess(null);
+                    }}
+                    className="bg-primary text-white px-xl py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all"
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {emitMode === 'manual' && !manualEmitSuccess && (
             <form onSubmit={handleSaveEmit} className="p-lg space-y-lg text-left">
               <div className="bg-slate-50/50 p-md rounded-xl border border-slate-200/60 space-y-xs animate-fade-in text-body-md text-primary">
                 <p className="flex justify-between items-center">
@@ -3197,6 +3280,7 @@ export default function Facturacion({
       {emailInstallment && (
         <ClientEmailModal
           installment={emailInstallment}
+          initialTemplate={emailInitialTemplate}
           installments={installments}
           projects={projects}
           budgets={budgets}
@@ -3206,7 +3290,10 @@ export default function Facturacion({
           dteDocuments={dteDocuments}
           clientEmails={clientEmails}
           notificationSettings={notificationSettings}
-          onClose={() => setEmailInstallment(null)}
+          onClose={() => {
+            setEmailInstallment(null);
+            setEmailInitialTemplate(null);
+          }}
           onSent={onClientEmailSent}
         />
       )}

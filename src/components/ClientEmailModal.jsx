@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseService } from '../utils/supabaseService';
 import {
   EMAIL_TEMPLATES,
@@ -58,6 +58,7 @@ const RecipientList = ({ recipients, onChange, addLabel }) => (
 
 export default function ClientEmailModal({
   installment,
+  initialTemplate,
   installments = [],
   projects = [],
   budgets = [],
@@ -108,17 +109,43 @@ export default function ClientEmailModal({
     };
   };
 
-  const [form, setForm] = useState(() => buildState(getDefaultTemplate(installment, clientEmails)));
-  const [respaldoUrls, setRespaldoUrls] = useState([]);
+  const defaultTpl = initialTemplate || getDefaultTemplate(installment, clientEmails);
+  const [form, setForm] = useState(() => buildState(defaultTpl));
+  const [respaldoUrls, setRespaldoUrls] = useState(() => {
+    const hasDtePdf = Boolean(getIssuedDte(dteDocuments, installment.id)?.pdfPath);
+    if (defaultTpl === 'invoice' && !hasDtePdf && installment.invoiceFileUrl) {
+      return [installment.invoiceFileUrl];
+    }
+    return [];
+  });
   const [uploads, setUploads] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
   const [sentEmail, setSentEmail] = useState(null);
+  const [isUserResized, setIsUserResized] = useState(false);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const observer = new MutationObserver(() => {
+      if (el.style.height || el.style.width) {
+        setIsUserResized(true);
+      }
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ['style'] });
+    return () => observer.disconnect();
+  }, []);
 
   const update = (changes) => setForm(prev => ({ ...prev, ...changes }));
 
   const handleTemplateChange = (templateId) => {
     if (form.edited && !window.confirm('Se reemplazará el asunto y el mensaje que editaste. ¿Continuar?')) return;
+    if (textareaRef.current) {
+      textareaRef.current.style.height = '';
+      textareaRef.current.style.width = '';
+    }
+    setIsUserResized(false);
     setForm(buildState(templateId));
     setError('');
   };
@@ -300,18 +327,19 @@ export default function ClientEmailModal({
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-md">
-            <div className="space-y-xs">
-              <label className={labelClass}>Mensaje</label>
+          <div className={`grid grid-cols-1 lg:grid-cols-2 gap-md ${isUserResized ? 'items-start' : 'items-stretch'}`}>
+            <div className="grid grid-rows-[auto_1fr] gap-xs">
+              <label className={`${labelClass} block`}>Mensaje</label>
               <textarea
-                className={`${inputClass} min-h-[320px] font-mono text-[13px] leading-relaxed`}
+                ref={textareaRef}
+                className={`${inputClass} h-full min-h-[320px] font-mono text-[13px] leading-relaxed resize-y`}
                 value={form.body}
                 onChange={(e) => update({ body: e.target.value, edited: true })}
               />
             </div>
-            <div className="space-y-xs">
-              <label className={labelClass}>Vista previa</label>
-              <div className="min-h-[320px] border border-outline-variant rounded-lg p-md bg-surface-container-low text-body-sm text-slate-800 whitespace-pre-wrap break-words">
+            <div className="grid grid-rows-[auto_1fr] gap-xs">
+              <label className={`${labelClass} block`}>Vista previa</label>
+              <div className="h-full min-h-[320px] border border-outline-variant rounded-lg p-md bg-surface-container-low text-body-sm text-slate-800 whitespace-pre-wrap break-words">
                 {bodyBefore}
                 {bodyAfter !== null && (
                   <>

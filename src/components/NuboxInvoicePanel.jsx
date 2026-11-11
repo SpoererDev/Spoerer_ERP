@@ -52,6 +52,7 @@ export default function NuboxInvoicePanel({
   environment,
   existingDocument,
   onDocumentChange,
+  onSendInvoiceEmail,
   onClose
 }) {
   const currency = (installment.currency || 'UF').toUpperCase();
@@ -310,6 +311,16 @@ export default function NuboxInvoicePanel({
               <span className="material-symbols-outlined text-[18px]">open_in_new</span>
               Abrir PDF
             </a>
+          )}
+          {onSendInvoiceEmail && (
+            <button
+              type="button"
+              onClick={() => onSendInvoiceEmail(doc)}
+              className="bg-secondary text-white px-lg py-sm rounded-lg font-semibold shadow-sm hover:brightness-110 active:scale-95 transition-all flex items-center gap-xs"
+            >
+              <span className="material-symbols-outlined text-[18px]">mail</span>
+              Enviar factura
+            </button>
           )}
           <button type="button" onClick={onClose} className={primaryButtonClass}>Cerrar</button>
         </div>
