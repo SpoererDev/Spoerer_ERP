@@ -66,3 +66,80 @@ language sql security definer set search_path = '' as $$
 $$;
 revoke all on function public.client_email_config() from public, anon, authenticated;
 grant execute on function public.client_email_config() to service_role;
+
+-- Registrar que la factura de una cuota fue enviada por otro medio (sin enviar correo por Resend).
+create or replace function public.register_external_invoice_send(p_installment_id uuid)
+returns public.client_emails
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_inst record;
+  v_row public.client_emails;
+begin
+  if v_user_id is null or not exists (
+    select 1 from public.profiles p where p.id = v_user_id and p.status = 'Active'
+  ) then
+    raise exception 'No autorizado';
+  end if;
+
+  select id, project_id, origin_budget_id, installment_number, invoice_number
+    into v_inst
+    from public.billing_installments
+   where id = p_installment_id;
+
+  if not found then
+    raise exception 'Cuota no encontrada';
+  end if;
+
+  insert into public.client_emails (
+    template,
+    installment_ids,
+    project_id,
+    budget_id,
+    subject,
+    to_recipients,
+    cc,
+    body_text,
+    attachments,
+    status,
+    resend_id,
+    sent_by
+  ) values (
+    'invoice',
+    array[v_inst.id],
+    v_inst.project_id,
+    v_inst.origin_budget_id,
+    case
+      when v_inst.invoice_number is not null and v_inst.invoice_number <> ''
+        then 'Envío por otro medio · Factura N° ' || v_inst.invoice_number
+      else 'Envío de factura por otro medio'
+    end,
+    '[]'::jsonb,
+    '[]'::jsonb,
+    'Se registró que la factura asociada a la cuota fue enviada al cliente por otro medio.',
+    jsonb_build_array(
+      jsonb_build_object(
+        'name', case
+          when v_inst.invoice_number is not null and v_inst.invoice_number <> ''
+            then 'Factura_' || v_inst.invoice_number || '.pdf'
+          else 'Factura cuota ' || coalesce(v_inst.installment_number, '')
+        end,
+        'source', 'external_invoice',
+        'installmentId', v_inst.id
+      )
+    ),
+    'sent',
+    'external',
+    v_user_id
+  )
+  returning * into v_row;
+
+  return v_row;
+end;
+$$;
+
+revoke all on function public.register_external_invoice_send(uuid) from public, anon;
+grant execute on function public.register_external_invoice_send(uuid) to authenticated;

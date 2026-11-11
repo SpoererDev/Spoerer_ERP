@@ -68,9 +68,12 @@ export default function ClientEmailModal({
   dteDocuments = [],
   clientEmails = [],
   notificationSettings = [],
+  onPreviewFile,
   onClose,
   onSent
 }) {
+  const [activeTab, setActiveTab] = useState('compose'); // 'compose' | 'history'
+  const [expandedEmailId, setExpandedEmailId] = useState(null);
   const budget = budgets.find(b => b.id === installment.origin_budget_id) || null;
   const project = projects.find(p => p.id === (installment.project_id || budget?.projectId)) || null;
   const razonSocial = clients.find(c => c.id === (installment.legalEntityId || budget?.legalEntityId)) || null;
@@ -218,6 +221,103 @@ export default function ClientEmailModal({
     ? [form.body.slice(0, form.body.indexOf(PAYMENT_TABLE_TOKEN)), form.body.slice(form.body.indexOf(PAYMENT_TABLE_TOKEN) + PAYMENT_TABLE_TOKEN.length)]
     : [form.body, null];
 
+  const installmentHistory = useMemo(
+    () => (clientEmails || [])
+      .filter(e => Array.isArray(e.installmentIds) && e.installmentIds.includes(installment.id))
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)),
+    [clientEmails, installment.id]
+  );
+
+  const formatDateTime = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+  };
+
+  // Resolve attachment location dynamically from the database (dte_documents or billing_installments)
+  const resolveHistoryAttachment = (att) => {
+    if (!att) return null;
+    const targetInstId = att.installmentId || installment.id;
+    const targetInst = installments.find(i => i.id === targetInstId) || installment;
+    const dte = getIssuedDte(dteDocuments, targetInstId);
+
+    if (att.source === 'dte' || (att.source === 'external_invoice' && dte?.pdfPath)) {
+      if (dte?.pdfPath) {
+        return {
+          type: 'dte',
+          label: att.name || `Factura_${dte.folio}.pdf`,
+          pdfPath: dte.pdfPath,
+          title: `Factura electrónica N° ${dte.folio} (Nubox)`
+        };
+      }
+      return { type: 'none', label: att.name || 'Factura DTE' };
+    }
+
+    if (att.source === 'respaldo' || att.source === 'external_invoice') {
+      let url = null;
+      if (att.field === 'invoiceFileUrl' || att.source === 'external_invoice') {
+        url = targetInst?.invoiceFileUrl || null;
+      } else if (att.field === 'ocFileUrl') {
+        url = targetInst?.ocFileUrl || null;
+      } else if (att.field === 'paymentBackupUrl') {
+        url = targetInst?.paymentBackupUrl || null;
+      } else if (att.field === 'otherFiles') {
+        const otherList = Array.isArray(targetInst?.otherFiles) ? targetInst.otherFiles : [];
+        const matched = otherList.find(f => f?.name === att.name || fileNameFromUrl(f?.url) === att.name) || otherList[0];
+        url = matched?.url || null;
+      } else {
+        // Fallback matching by file name against current DB fields of the installment
+        const candidates = [
+          targetInst?.invoiceFileUrl,
+          targetInst?.ocFileUrl,
+          targetInst?.paymentBackupUrl,
+          ...(Array.isArray(targetInst?.otherFiles) ? targetInst.otherFiles.map(f => f?.url) : [])
+        ].filter(Boolean);
+        url = candidates.find(u => fileNameFromUrl(u) === att.name) || (att.source === 'respaldo' ? targetInst?.invoiceFileUrl : null);
+      }
+
+      if (url) {
+        return {
+          type: 'url',
+          label: att.name || fileNameFromUrl(url),
+          url,
+          title: att.name || `Documento - Cuota ${targetInst?.numQuota || ''}`
+        };
+      }
+    }
+
+    return { type: 'none', label: att.name || 'Adjunto' };
+  };
+
+  const handleOpenResolvedAttachment = async (resolved) => {
+    if (!resolved) return;
+    try {
+      if (resolved.type === 'dte' && resolved.pdfPath) {
+        const signedUrl = await supabaseService.getInvoicePdfUrl(resolved.pdfPath);
+        if (onPreviewFile) {
+          onPreviewFile({ url: signedUrl, title: resolved.title, name: resolved.label });
+        } else {
+          window.open(signedUrl, '_blank', 'noopener,noreferrer');
+        }
+      } else if (resolved.type === 'url' && resolved.url) {
+        if (onPreviewFile) {
+          onPreviewFile({ url: resolved.url, title: resolved.title, name: resolved.label });
+        } else {
+          window.open(resolved.url, '_blank', 'noopener,noreferrer');
+        }
+      }
+    } catch (err) {
+      console.error('Error abriendo documento desde la base de datos:', err);
+      alert('No se pudo abrir el documento adjunto.');
+    }
+  };
+
   if (sentEmail) {
     return (
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/40 backdrop-blur-sm p-4">
@@ -258,6 +358,163 @@ export default function ClientEmailModal({
           </button>
         </div>
 
+        <div className="px-lg pt-sm border-b border-outline-variant/40 bg-surface-container-low/40 flex items-center gap-xs">
+          <button
+            type="button"
+            onClick={() => setActiveTab('compose')}
+            className={`px-md py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTab === 'compose'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-primary'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[16px]">edit_square</span>
+            <span>Redactar correo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('history')}
+            className={`px-md py-2 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTab === 'history'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-on-surface-variant hover:text-primary'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[16px]">history</span>
+            <span>Historial de envíos</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+              installmentHistory.length > 0 ? 'bg-secondary-container text-primary' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {installmentHistory.length}
+            </span>
+          </button>
+        </div>
+
+        {activeTab === 'history' ? (
+          <>
+            <div className="p-lg space-y-md text-left">
+              {installmentHistory.length === 0 ? (
+                <div className="py-12 text-center text-on-surface-variant space-y-xs">
+                  <span className="material-symbols-outlined text-[36px] text-outline-variant">mark_email_Read</span>
+                  <p className="text-body-md font-medium">No hay correos ni envíos registrados para esta cuota.</p>
+                </div>
+              ) : (
+                <div className="space-y-sm">
+                  {installmentHistory.map((item) => {
+                    const isExternal = item.resendId === 'external' || (item.attachments || []).some(a => a?.source === 'external_invoice');
+                    const tplLabel = isExternal
+                      ? 'Envío por otro medio'
+                      : (EMAIL_TEMPLATES.find(t => t.id === item.template)?.label || item.template);
+                    const senderUser = users.find(u => u.id === item.sentBy);
+                    const senderName = senderUser?.name || (isExternal ? 'Registro del sistema' : 'Secretaría Spoerer');
+                    const isExpanded = expandedEmailId === item.id;
+                    const resolvedAttachments = (item.attachments || []).map(resolveHistoryAttachment).filter(Boolean);
+
+                    return (
+                      <div key={item.id} className="border border-outline-variant/60 rounded-xl bg-white shadow-2xs overflow-hidden">
+                        <div
+                          onClick={() => setExpandedEmailId(isExpanded ? null : item.id)}
+                          className="p-md flex flex-col sm:flex-row sm:items-center justify-between gap-sm cursor-pointer hover:bg-surface-container-low/50 transition-colors"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                                item.status === 'failed'
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : isExternal
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}>
+                                {item.status === 'failed' ? 'Fallido' : tplLabel}
+                              </span>
+                              <span className="text-xs font-bold text-primary truncate">{item.subject}</span>
+                            </div>
+                            <div className="text-[11px] text-on-surface-variant flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                              <span>Fecha: <strong>{formatDateTime(item.createdAt)}</strong></span>
+                              <span>Por: <strong>{senderName}</strong></span>
+                              {item.to && item.to.length > 0 && (
+                                <span>Para: <strong>{item.to.map(r => r.email).join(', ')}</strong></span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-xs self-end sm:self-center shrink-0">
+                            {resolvedAttachments.length > 0 && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                                <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                                {resolvedAttachments.length}
+                              </span>
+                            )}
+                            <span className={`material-symbols-outlined text-on-surface-variant transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                              expand_more
+                            </span>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="px-md pb-md pt-xs border-t border-outline-variant/30 bg-surface-container-low/30 space-y-sm text-body-sm">
+                            {item.cc && item.cc.length > 0 && (
+                              <p className="text-xs text-on-surface-variant">
+                                <span className="font-semibold">En copia (CC):</span> {item.cc.map(r => r.email).join(', ')}
+                              </p>
+                            )}
+                            {item.error && (
+                              <p className="text-xs text-error font-semibold">Error: {item.error}</p>
+                            )}
+                            <div>
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant block mb-1">Mensaje</span>
+                              <div className="p-sm rounded-lg border border-outline-variant/40 bg-white text-xs text-slate-800 whitespace-pre-wrap break-words">
+                                {item.bodyText || '—'}
+                              </div>
+                            </div>
+                            {resolvedAttachments.length > 0 && (
+                              <div>
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant block mb-1">
+                                  Documentos asociados (desde base de datos)
+                                </span>
+                                <div className="flex flex-wrap gap-xs">
+                                  {resolvedAttachments.map((att, idx) => (
+                                    att.type !== 'none' ? (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => handleOpenResolvedAttachment(att)}
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 border border-outline-variant text-xs font-semibold text-primary transition-all active:scale-95 shadow-2xs"
+                                      >
+                                        <span className="material-symbols-outlined text-[16px] text-secondary">
+                                          {att.type === 'dte' ? 'verified' : 'description'}
+                                        </span>
+                                        <span>{att.label}</span>
+                                        <span className="material-symbols-outlined text-[14px] text-on-surface-variant">open_in_new</span>
+                                      </button>
+                                    ) : (
+                                      <span
+                                        key={idx}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs text-on-surface-variant"
+                                      >
+                                        <span className="material-symbols-outlined text-[15px]">attach_file</span>
+                                        <span>{att.label}</span>
+                                      </span>
+                                    )
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="px-lg py-md flex justify-end gap-md border-t border-outline-variant/30 sticky bottom-0 bg-white z-10">
+              <button type="button" onClick={onClose} className="bg-primary text-white px-xl py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all">
+                Cerrar
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
         <div className="p-lg space-y-lg text-left">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
             <div className="space-y-xs">
@@ -428,6 +685,8 @@ export default function ClientEmailModal({
             {isSending ? 'Enviando...' : 'Enviar'}
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

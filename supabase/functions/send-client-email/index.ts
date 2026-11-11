@@ -128,21 +128,24 @@ Deno.serve(async (req: Request) => {
 
   // Resolve attachments only from the requested installments' documents or the user's own uploads.
   const attachments: { filename: string; content: string }[] = [];
-  const attachmentLog: { name: string; source: string }[] = [];
+  const attachmentLog: Record<string, unknown>[] = [];
   let totalBytes = 0;
   try {
     for (const request of attachmentRequests) {
       let bytes: Uint8Array;
       let filename: string;
+      let logMeta: Record<string, unknown>;
       if (request?.source === 'dte' && installmentIds.includes(request.installmentId)) {
         const dte = dteFor(request.installmentId);
         if (!dte?.pdf_path) throw new Error('La factura aún no tiene PDF disponible.');
         bytes = await download('invoices', dte.pdf_path);
         filename = `Factura_${dte.folio}.pdf`;
+        logMeta = { name: safeFileName(filename), source: 'dte', installmentId: request.installmentId, folio: dte.folio };
       } else if (request?.source === 'upload' && typeof request.path === 'string'
         && request.path.startsWith(`${profile.id}/`) && !request.path.includes('..')) {
         bytes = await download('email-attachments', request.path);
         filename = request.name || request.path.split('/').pop()!;
+        logMeta = { name: safeFileName(filename), source: 'upload' };
       } else if (request?.source === 'respaldo' && installmentIds.includes(request.installmentId)) {
         const inst = installments.find(i => i.id === request.installmentId)!;
         const allowed = [inst.invoice_file_url, inst.oc_file_url, inst.payment_backup_url, ...((inst.other_files ?? []) as any[]).map(f => f?.url)];
@@ -150,13 +153,21 @@ Deno.serve(async (req: Request) => {
         if (!path) throw new Error('Adjunto no permitido.');
         bytes = await download('budgets', path);
         filename = request.name || path.split('/').pop()!;
+        const field = request.url === inst.invoice_file_url
+          ? 'invoiceFileUrl'
+          : request.url === inst.oc_file_url
+            ? 'ocFileUrl'
+            : request.url === inst.payment_backup_url
+              ? 'paymentBackupUrl'
+              : 'otherFiles';
+        logMeta = { name: safeFileName(filename), source: 'respaldo', installmentId: request.installmentId, field };
       } else {
         throw new Error('Adjunto no permitido.');
       }
       totalBytes += bytes.byteLength;
       if (totalBytes > MAX_ATTACHMENT_BYTES) throw new Error('Los adjuntos superan 25 MB en total.');
       attachments.push({ filename: safeFileName(filename), content: encodeBase64(bytes) });
-      attachmentLog.push({ name: safeFileName(filename), source: request.source });
+      attachmentLog.push(logMeta);
     }
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : 'No se pudieron preparar los adjuntos.' }, 400);

@@ -11,6 +11,7 @@ import { compareNumQuota, fetchIndicatorRate } from '../utils/billingHelpers';
 import NuboxInvoicePanel from './NuboxInvoicePanel';
 import FilePreviewModal from './FilePreviewModal';
 import ClientEmailModal from './ClientEmailModal';
+import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
 
 export default function Facturacion({
   projects,
@@ -306,6 +307,8 @@ export default function Facturacion({
   const [emailInstallment, setEmailInstallment] = useState(null); // installment shown in ClientEmailModal
   const [emailInitialTemplate, setEmailInitialTemplate] = useState(null);
   const [manualEmitSuccess, setManualEmitSuccess] = useState(null);
+  const [invoicePromptInstallment, setInvoicePromptInstallment] = useState(null);
+  const [isRegisteringExternalSend, setIsRegisteringExternalSend] = useState(false);
 
   // Register Payment Form
   const [actualPaymentDate, setActualPaymentDate] = useState('');
@@ -2102,18 +2105,34 @@ export default function Facturacion({
                                           )}
                                           {(() => {
                                             const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
+                                            const isInvoicedStatus = inst.status === 'Facturada' || inst.status === 'Factura emitida';
+                                            const needsInvoiceSend = isInvoicedStatus && !hasInvoiceBeenSent(clientEmails, inst);
                                             return (
                                               <button
                                                 type="button"
                                                 onClick={() => {
-                                                  setEmailInitialTemplate(null);
-                                                  setEmailInstallment(inst);
+                                                  if (needsInvoiceSend) {
+                                                    setInvoicePromptInstallment(inst);
+                                                  } else {
+                                                    setEmailInitialTemplate(null);
+                                                    setEmailInstallment(inst);
+                                                  }
                                                 }}
-                                                className="relative inline-flex items-center justify-center h-7 w-7 border border-outline-variant text-secondary rounded hover:bg-surface-container-low transition-all active:scale-95"
-                                                title={sentCount ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})` : 'Enviar correo'}
+                                                className={`relative inline-flex items-center justify-center h-7 w-7 rounded transition-all active:scale-95 ${
+                                                  needsInvoiceSend
+                                                    ? 'bg-rose-100 border border-rose-300 text-rose-700 hover:bg-rose-200/80'
+                                                    : 'border border-outline-variant text-secondary hover:bg-surface-container-low'
+                                                }`}
+                                                title={
+                                                  needsInvoiceSend
+                                                    ? 'Factura pendiente de envío (clic para enviar o registrar envío)'
+                                                    : sentCount
+                                                      ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})`
+                                                      : 'Enviar correo'
+                                                }
                                               >
                                                 <span className="material-symbols-outlined text-[16px]">mail</span>
-                                                {sentCount > 0 && (
+                                                {!needsInvoiceSend && sentCount > 0 && (
                                                   <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
                                                 )}
                                               </button>
@@ -3275,7 +3294,80 @@ export default function Facturacion({
         </div>
       )}
 
-      <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      {/* Modal Prompt: Factura pendiente de envío */}
+      {invoicePromptInstallment && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col border border-outline-variant animate-scale-up text-left overflow-hidden">
+            <div className="px-lg py-md border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+              <h3 className="font-headline-sm text-headline-sm text-primary font-bold flex items-center gap-2">
+                <span className="material-symbols-outlined text-rose-600">mail</span>
+                Envío de Factura Pendiente
+              </h3>
+              <button
+                type="button"
+                onClick={() => setInvoicePromptInstallment(null)}
+                disabled={isRegisteringExternalSend}
+                className="p-2 hover:bg-surface-container rounded-full text-on-surface-variant transition-all"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="p-lg space-y-md text-center">
+              <div className="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center text-rose-600 mx-auto shadow-sm mb-2">
+                <span className="material-symbols-outlined text-[34px]">outgoing_mail</span>
+              </div>
+              <p className="text-body-md text-primary font-semibold">
+                No se ha registrado el envío de la factura asociada a la cuota {invoicePromptInstallment.numQuota}
+                {invoicePromptInstallment.invoiceNumber ? ` (Factura N° ${invoicePromptInstallment.invoiceNumber})` : ''}.
+              </p>
+              <p className="text-body-sm text-on-surface-variant">
+                ¿Desea enviar la factura por correo ahora o indicar que ya fue enviada por otro medio?
+              </p>
+            </div>
+
+            <div className="px-lg py-md bg-slate-50 border-t border-outline-variant/30 flex flex-col sm:flex-row justify-end gap-sm">
+              <button
+                type="button"
+                disabled={isRegisteringExternalSend}
+                onClick={async () => {
+                  setIsRegisteringExternalSend(true);
+                  try {
+                    const logged = await supabaseService.registerExternalInvoiceSend(invoicePromptInstallment.id);
+                    onClientEmailSent?.(logged);
+                    setInvoicePromptInstallment(null);
+                  } catch (err) {
+                    console.error('Error al registrar envío por otro medio:', err);
+                    alert(err.message || 'No se pudo registrar el envío por otro medio.');
+                  } finally {
+                    setIsRegisteringExternalSend(false);
+                  }
+                }}
+                className="px-md py-sm border border-outline-variant bg-white hover:bg-slate-100 rounded-lg font-semibold text-on-surface text-xs transition-all active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <span className={`material-symbols-outlined text-[16px] text-secondary ${isRegisteringExternalSend ? 'animate-spin' : ''}`}>
+                  {isRegisteringExternalSend ? 'sync' : 'check_circle'}
+                </span>
+                <span>{isRegisteringExternalSend ? 'Registrando...' : 'Ya se envió (otro medio)'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isRegisteringExternalSend}
+                onClick={() => {
+                  const targetInst = invoicePromptInstallment;
+                  setInvoicePromptInstallment(null);
+                  setEmailInitialTemplate('invoice');
+                  setEmailInstallment(targetInst);
+                }}
+                className="bg-primary text-white px-lg py-sm rounded-lg font-semibold text-xs shadow-sm hover:bg-primary-container active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">send</span>
+                <span>Enviar factura</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {emailInstallment && (
         <ClientEmailModal
@@ -3290,6 +3382,7 @@ export default function Facturacion({
           dteDocuments={dteDocuments}
           clientEmails={clientEmails}
           notificationSettings={notificationSettings}
+          onPreviewFile={(file) => setPreviewFile(file)}
           onClose={() => {
             setEmailInstallment(null);
             setEmailInitialTemplate(null);
@@ -3297,6 +3390,8 @@ export default function Facturacion({
           onSent={onClientEmailSent}
         />
       )}
+
+      <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
     </div>
   );
 }

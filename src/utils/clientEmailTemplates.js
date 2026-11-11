@@ -32,8 +32,29 @@ const formatNumber = (value, decimals = 0) =>
 export const getIssuedDte = (dteDocuments, installmentId) =>
   dteDocuments.find(d => d.installmentId === installmentId && d.status === 'issued') || null;
 
-export const hasInvoiceBeenSent = (clientEmails, installmentId) =>
-  clientEmails.some(e => e.template === 'invoice' && e.status === 'sent' && e.installmentIds.includes(installmentId));
+export const hasInvoiceAttachmentForInstallment = (email, instOrId) => {
+  const instId = typeof instOrId === 'object' ? instOrId?.id : instOrId;
+  const instObj = typeof instOrId === 'object' ? instOrId : null;
+  if (!email || email.status !== 'sent' || !instId || !Array.isArray(email.installmentIds) || !email.installmentIds.includes(instId)) {
+    return false;
+  }
+  if (email.resendId === 'external') return true;
+  const atts = Array.isArray(email.attachments) ? email.attachments : [];
+  return atts.some(a => {
+    if (!a) return false;
+    if (a.source === 'external_invoice') return true;
+    if (a.source === 'dte' && (!a.installmentId || a.installmentId === instId)) return true;
+    if (a.source === 'respaldo' && (!a.installmentId || a.installmentId === instId)) {
+      if (a.field === 'invoiceFileUrl') return true;
+      if (instObj?.invoiceFileUrl && a.url === instObj.invoiceFileUrl) return true;
+      if (!a.field && email.template === 'invoice') return true;
+    }
+    return false;
+  });
+};
+
+export const hasInvoiceBeenSent = (clientEmails, instOrId) =>
+  (clientEmails || []).some(e => hasInvoiceAttachmentForInstallment(e, instOrId));
 
 export const getDefaultTemplate = (inst, clientEmails) => {
   const hasOc = Boolean(inst.oc || inst.ocFileUrl);
@@ -44,7 +65,7 @@ export const getDefaultTemplate = (inst, clientEmails) => {
     case 'Por facturar':
       return hasOc ? 'other' : 'oc_request';
     case 'Facturada':
-      return hasInvoiceBeenSent(clientEmails, inst.id) ? 'payment_request' : 'invoice';
+      return hasInvoiceBeenSent(clientEmails, inst) ? 'payment_request' : 'invoice';
     default:
       return 'other';
   }

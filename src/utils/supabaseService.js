@@ -343,6 +343,7 @@ const mapClientEmailFromDb = (dbEmail) => ({
   bodyText: dbEmail.body_text || '',
   attachments: dbEmail.attachments || [],
   status: dbEmail.status,
+  resendId: dbEmail.resend_id || null,
   error: dbEmail.error || null,
   sentBy: dbEmail.sent_by,
   createdAt: dbEmail.created_at
@@ -1354,6 +1355,14 @@ export const supabaseService = {
   async sendClientEmail(payload) {
     const result = await invokeNuboxFunction('send-client-email', payload);
     return mapClientEmailFromDb(result.email);
+  },
+
+  async registerExternalInvoiceSend(installmentId) {
+    const { data, error } = await supabase.rpc('register_external_invoice_send', {
+      p_installment_id: installmentId
+    });
+    if (error) throw error;
+    return mapClientEmailFromDb(data);
   },
 
   // Uploads a file for a single e-mail into the sender's folder of the private bucket.
