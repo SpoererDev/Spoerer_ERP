@@ -1995,28 +1995,23 @@ export default function Facturacion({
                                       <td className="px-md py-md text-center">
                                         <div className="flex justify-center items-center gap-xs">
                                           {(() => {
+                                            // Un solo ícono de factura, venga el PDF de la emisión con Nubox o de un archivo adjunto.
                                             const dte = getLatestDte(inst.id);
-                                            return dte?.status === 'issued' && dte.pdfPath ? (
+                                            const dtePdf = dte?.status === 'issued' && dte.pdfPath ? dte : null;
+                                            if (!dtePdf && !inst.invoiceFileUrl) return null;
+                                            return (
                                               <button
                                                 type="button"
-                                                onClick={() => openDtePdf(dte)}
-                                                className="inline-flex items-center text-emerald-700 hover:text-emerald-800 p-1 bg-emerald-50 rounded transition-colors"
-                                                title={`Factura electrónica N° ${dte.folio} (Nubox)`}
+                                                onClick={() => (dtePdf
+                                                  ? openDtePdf(dtePdf)
+                                                  : setPreviewFile({ url: inst.invoiceFileUrl, title: `Factura - Cuota ${inst.numQuota}` }))}
+                                                className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors"
+                                                title={`Ver Factura${inst.invoiceNumber ? ` N° ${inst.invoiceNumber}` : ''} (PDF)`}
                                               >
-                                                <span className="material-symbols-outlined text-[16px]">verified</span>
+                                                <span className="material-symbols-outlined text-[16px]">receipt_long</span>
                                               </button>
-                                            ) : null;
+                                            );
                                           })()}
-                                          {inst.invoiceFileUrl ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => setPreviewFile({ url: inst.invoiceFileUrl, title: `Factura - Cuota ${inst.numQuota}` })}
-                                              className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors"
-                                              title="Ver Factura (PDF)"
-                                            >
-                                              <span className="material-symbols-outlined text-[16px]">receipt_long</span>
-                                            </button>
-                                          ) : null}
                                           {inst.paymentBackupUrl ? (
                                             <button
                                               type="button"
