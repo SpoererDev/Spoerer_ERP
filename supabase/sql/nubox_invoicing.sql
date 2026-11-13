@@ -95,43 +95,82 @@ create policy "Usuarios activos leen facturas" on storage.objects
     and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.status = 'Active')
   );
 
--- Secretos: nubox_base_url, nubox_token, nubox_api_key_spoerer y nubox_worker_token
--- se cargan manualmente en el SQL Editor (ver README).
+-- Secretos en Vault:
+--   Ambiente activo: nubox_mode ('uat' o 'production')
+--   UAT (pruebas):   nubox_base_url, nubox_token, nubox_api_key_spoerer
+--   Producción:      nubox_prod_base_url, nubox_prod_token, nubox_prod_api_key_spoerer
+--   Interno:         nubox_worker_token
+-- Se cargan manualmente en el SQL Editor (ver README).
 
-create function public.nubox_config() returns jsonb
+create or replace function public.nubox_config() returns jsonb
 language sql security definer set search_path = '' as $$
+  with mode as (
+    select case
+      when (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_mode') = 'production'
+        then 'production'
+      else 'uat'
+    end as env
+  )
   select jsonb_build_object(
-    'base_url', (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_base_url'),
-    'token', (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_token'),
+    'mode', mode.env,
+    'base_url', (
+      select decrypted_secret from vault.decrypted_secrets
+      where name = case when mode.env = 'production' then 'nubox_prod_base_url' else 'nubox_base_url' end
+    ),
+    'token', (
+      select decrypted_secret from vault.decrypted_secrets
+      where name = case when mode.env = 'production' then 'nubox_prod_token' else 'nubox_token' end
+    ),
     'api_keys', jsonb_build_object(
-      'Spoerer', (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_api_key_spoerer')
+      'Spoerer', (
+        select decrypted_secret from vault.decrypted_secrets
+        where name = case when mode.env = 'production' then 'nubox_prod_api_key_spoerer' else 'nubox_api_key_spoerer' end
+      )
     ),
     'worker_token', (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_worker_token')
-  );
+  )
+  from mode;
 $$;
 revoke all on function public.nubox_config() from public, anon, authenticated;
 grant execute on function public.nubox_config() to service_role;
 
-create function public.claim_dte_documents(target_id uuid default null) returns setof public.dte_documents
+create or replace function public.claim_dte_documents(target_id uuid default null) returns setof public.dte_documents
 language sql security definer set search_path = '' as $$
+  with active_mode as (
+    select case
+      when (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_mode') = 'production'
+        then 'production'
+      else 'uat'
+    end as env
+  )
   update public.dte_documents set locked_at = now(), attempts = attempts + 1
   where id in (
-    select id from public.dte_documents
-    where (status in ('sending', 'queued', 'pending_sii') or (status = 'issued' and pdf_path is null))
-      and (locked_at is null or locked_at < now() - interval '2 minutes')
-      and (case when target_id is null then next_check_at <= now() else id = target_id end)
-    order by next_check_at for update skip locked limit 20
+    select d.id from public.dte_documents d, active_mode m
+    where d.environment = m.env
+      and (d.status in ('sending', 'queued', 'pending_sii') or (d.status = 'issued' and d.pdf_path is null))
+      and (d.locked_at is null or d.locked_at < now() - interval '2 minutes')
+      and (case when target_id is null then d.next_check_at <= now() else d.id = target_id end)
+    order by d.next_check_at for update of d skip locked limit 20
   ) returning *;
 $$;
 revoke all on function public.claim_dte_documents(uuid) from public, anon, authenticated;
 grant execute on function public.claim_dte_documents(uuid) to service_role;
 
-create function nubox.invoke_sync() returns void
+create or replace function nubox.invoke_sync() returns void
 language plpgsql security definer set search_path = '' as $$
+declare
+  v_env text;
 begin
+  v_env := case
+    when (select decrypted_secret from vault.decrypted_secrets where name = 'nubox_mode') = 'production'
+      then 'production'
+    else 'uat'
+  end;
+
   if exists (
     select 1 from public.dte_documents
-    where (status in ('sending', 'queued', 'pending_sii') or (status = 'issued' and pdf_path is null))
+    where environment = v_env
+      and (status in ('sending', 'queued', 'pending_sii') or (status = 'issued' and pdf_path is null))
       and next_check_at <= now()
   ) then
     perform net.http_post(

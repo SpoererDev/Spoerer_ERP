@@ -53,7 +53,44 @@ Pruebas simuladas: `node supabase/functions/notify-budget-approved/worker.test.m
 
 
 
-# Facturación electrónica vía Nubox
+# Facturación electrónica vía Nubox — API clásica (activa)
+
+Edge Function: `nubox-classic` (requiere JWT de usuario activo). Código compartido en `functions/_shared/nubox_classic.ts`. SQL: `sql/nubox_classic.sql` (se aplica después de `sql/nubox_invoicing.sql`; reutiliza `dte_documents`, el bucket `invoices` y el trigger que protege cuotas facturadas).
+
+Flujo (síncrono, sin cola ni cron): el modal arma la factura con la cuota y el CRM → `nubox-classic` (`action: 'issue'`) recalcula montos en pesos desde la base, registra el intento en `dte_documents` (`provider = 'classic'`), autentica si hace falta, llama `POST /factura/documento/{rutEmpresa}/{numeroSerie}/rutFuncionario/1/emitir/ventaExtendido?emitir=...`, lee el folio de la respuesta (`... Folio: 1975`), deja la cuota `Facturada` con ese folio y descarga el PDF (`GET /factura/documento/{rut}/{serie}/{folio}/FAC-EL/pdf`) al bucket `invoices`. Si Nubox rechaza, el documento queda `rejected` con el mensaje literal de Nubox y el modal lo muestra. `action: 'pdf'` reintenta la descarga del PDF.
+
+Token: Nubox lo invalida tras 15 min sin uso. Se guarda solo en `public.nubox_classic_sessions` (RLS sin políticas, solo service_role) y se reutiliza si se usó hace menos de 13 min; si Nubox responde 401/403 o "token inválido" se re-autentica y se reintenta una vez.
+
+Borradores: el modal envía `emitir=false` por defecto (switch "Emitir documento definitivo" para `emitir=true`). Para efectos del ERP un borrador se trata como emitido (`is_draft = true`, badge "Borrador" en la columna Factura). Los borradores se eliminan manualmente en Nubox.
+
+Solo Spoerer emite por la API clásica; FPF y RUT genérico usan el registro manual.
+
+```sql
+-- Credenciales API clásica (SQL Editor). Los RUT van con dígito verificador.
+select vault.create_secret('https://api.nubox.com/Nubox.API', 'nubox_classic_base_url'); -- certificación: https://api.nubox.com/Nubox.API.cert
+select vault.create_secret('<usuario API clásica>', 'nubox_classic_user');
+select vault.create_secret('<contraseña API clásica>', 'nubox_classic_password');
+select vault.create_secret('76127237-3', 'nubox_classic_rut_empresa');
+select vault.create_secret('<RUT funcionario con DV>', 'nubox_classic_rut_funcionario');
+select vault.create_secret('SERVIFACTURA', 'nubox_classic_sistema'); -- opcional, es el valor por defecto
+
+-- Proveedor activo: 'classic' (por defecto si no existe) o 'pyme' para reactivar la integración de la API nueva.
+select vault.create_secret('classic', 'nubox_provider');
+-- select vault.update_secret(id, 'pyme') from vault.secrets where name = 'nubox_provider';
+```
+
+Monitorizar:
+
+```sql
+select id, installment_number, status, is_draft, folio, errors, response_text, pdf_path
+from public.dte_documents where provider = 'classic' order by created_at desc limit 20;
+select base_url, numero_serie, last_used_at, created_at from public.nubox_classic_sessions;
+```
+
+
+# Facturación electrónica vía Nubox — API nueva (respaldo)
+
+Integración desactivada mientras `nubox_provider` no sea `'pyme'` (`nubox-issue` rechaza la emisión y `nubox-sync` solo procesa documentos `provider = 'pyme'`). Para reactivarla: cambiar `nubox_provider` a `'pyme'` y cargar los secretos de abajo; el ERP cambia de panel automáticamente.
 
 Edge Functions: `nubox-issue` (emite, requiere JWT de usuario activo) y `nubox-sync` (consulta estado y descarga PDF; la invoca pg_cron cada minuto con un token de Vault y el ERP mientras el modal está abierto). Código compartido en `functions/_shared/nubox.ts`. SQL de instalación: `sql/nubox_invoicing.sql`.
 
@@ -63,17 +100,39 @@ Garantías: un índice único impide dos facturas activas por cuota; los reinten
 
 Sólo las empresas con API key en Vault emiten por Nubox (hoy `Spoerer`). FPF, clientes con RUT genérico 55.555.555-5 o caídas de Nubox usan el registro manual del mismo modal.
 
-## Configurar credenciales (SQL Editor)
+## Configurar credenciales y cambiar de ambiente (SQL Editor)
+
+Ambos ambientes (`uat` y `production`) coexisten en Vault y se alternan con el secreto `nubox_mode`:
 
 ```sql
-select vault.create_secret('<BaseUrl>', 'nubox_base_url');          -- UAT: https://api.test-nubox.com/nbxpymapi-uat
-select vault.create_secret('<token partner>', 'nubox_token');
-select vault.create_secret('<X-Api-Key Spoerer>', 'nubox_api_key_spoerer');
+-- Ambiente de pruebas (UAT):
+select vault.create_secret('https://api.test-nubox.com/nbxpymapi-uat', 'nubox_base_url');
+select vault.create_secret('<token partner UAT>', 'nubox_token');
+select vault.create_secret('<X-Api-Key Spoerer UAT>', 'nubox_api_key_spoerer');
+
+-- Ambiente de producción (se cargan una sola vez):
+select vault.create_secret('<BaseUrl Produccion>', 'nubox_prod_base_url');
+select vault.create_secret('<token partner Produccion>', 'nubox_prod_token');
+select vault.create_secret('<X-Api-Key Spoerer Produccion>', 'nubox_prod_api_key_spoerer');
+
+-- Switch de ambiente ('uat' o 'production'):
+select vault.create_secret('uat', 'nubox_mode');
+
 -- Token interno con el que pg_cron invoca nubox-sync (valor aleatorio, no se comparte):
 select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'nubox_worker_token');
 ```
 
-Si la URL contiene `test`/`uat`, el ERP muestra el aviso de ambiente de pruebas. Para pasar a producción, actualizar los tres secretos con `vault.update_secret`. Para habilitar FPF, crear `nubox_api_key_fpf` y agregarlo en `public.nubox_config()`.
+Para cambiar entre pruebas y producción sin tocar las llaves:
+
+```sql
+-- Pasar a PRODUCCIÓN:
+select vault.update_secret(id, 'production') from vault.secrets where name = 'nubox_mode';
+
+-- Volver a PRUEBAS (UAT):
+select vault.update_secret(id, 'uat') from vault.secrets where name = 'nubox_mode';
+```
+
+Para habilitar FPF, crear `nubox_api_key_fpf` / `nubox_prod_api_key_fpf` y agregarlos en `public.nubox_config()`.
 
 Monitorizar:
 
@@ -99,4 +158,19 @@ Monitorizar:
 ```sql
 select status, template, count(*) from public.client_emails group by 1, 2;
 select created_at, template, subject, status, error from public.client_emails order by created_at desc limit 20;
+```
+
+
+# Indicadores UF / dólar (CMF)
+
+Edge Function: `indicator-rates` (`verify_jwt = false`; valida el token de pg_cron o un usuario activo). SQL: `sql/indicator_rates.sql` (aplicado por MCP).
+
+- `public.indicator_rates` guarda UF y dólar observado por fecha. Lectura para usuarios activos; escritura solo de la función.
+- pg_cron `indicator-rates-sync` (09:15 y 13:15 hora Chile aprox.) carga desde la API de la CMF el año anterior, el año actual y la UF ya publicada hasta el día 9 del mes siguiente.
+- El ERP (`fetchIndicatorRate` → `supabaseService.getIndicatorRate`) lee la tabla; si falta la fecha llama a la función (`action: 'get'`), que consulta la CMF y, como respaldo, mindicador.cl. El dólar de fines de semana/feriados usa el último día hábil.
+- Secretos: `cmf_api_key` (api.cmfchile.cl) y `nubox_worker_token` (reutilizado para pg_cron).
+
+```sql
+select currency, count(*), min(rate_date), max(rate_date) from public.indicator_rates group by 1;
+select public.invoke_indicator_rates_sync(); -- recarga manual
 ```

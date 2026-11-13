@@ -313,6 +313,8 @@ const mapDteFromDb = (dbDoc) => ({
   environment: dbDoc.environment,
   documentType: dbDoc.document_type,
   status: dbDoc.status,
+  provider: dbDoc.provider || 'pyme',
+  isDraft: !!dbDoc.is_draft,
   nuboxId: dbDoc.nubox_id,
   folio: dbDoc.folio || '',
   emissionStatusName: dbDoc.emission_status_name || '',
@@ -348,6 +350,19 @@ const mapClientEmailFromDb = (dbEmail) => ({
   sentBy: dbEmail.sent_by,
   createdAt: dbEmail.created_at
 });
+
+// PostgREST returns at most 1000 rows per request: page through so whole tables load completely.
+// The query must have a deterministic order (add a unique column such as id as the last sort key).
+const PAGE_SIZE = 1000;
+const selectAll = async (buildQuery) => {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) return { data: rows, error: null };
+  }
+};
 
 // DTE statuses that lock an installment (invoice in progress or issued at the SII)
 export const ACTIVE_DTE_STATUSES = ['sending', 'queued', 'pending_sii', 'issued'];
@@ -597,10 +612,11 @@ export const supabaseService = {
   // MAIN CLIENTS CRM CRUD
   async getMainClients() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await selectAll(() => supabase
         .from('main_clients')
         .select('*')
-        .order('name', { ascending: true });
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }));
       
       if (error) {
         console.warn("Table main_clients not available or error:", error.message);
@@ -668,16 +684,18 @@ export const supabaseService = {
   // CLIENTS (Razones Sociales) CRM CRUD
   async getClients() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await selectAll(() => supabase
         .from('clients')
         .select('*, main_clients(*)')
-        .order('company_name', { ascending: true });
+        .order('company_name', { ascending: true })
+        .order('id', { ascending: true }));
       
       if (error) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('clients')
-          .select('*')
-          .order('company_name', { ascending: true });
+        const { data: fallbackData, error: fallbackError } = await selectAll(() => supabase
+        .from('clients')
+        .select('*')
+        .order('company_name', { ascending: true })
+        .order('id', { ascending: true }));
         if (fallbackError) throw fallbackError;
         return fallbackData.map(mapClientFromDb);
       }
@@ -741,17 +759,19 @@ export const supabaseService = {
   // BUDGETS CRUD
   async getBudgets() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await selectAll(() => supabase
         .from('budgets')
         .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*)), budget_items(*)')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
       
       let budgetsList = data;
       if (error) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('budgets')
-          .select('*, clients:clients!client_id(*), budget_items(*)')
-          .order('created_at', { ascending: false });
+        const { data: fallbackData, error: fallbackError } = await selectAll(() => supabase
+        .from('budgets')
+        .select('*, clients:clients!client_id(*), budget_items(*)')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
         if (fallbackError) throw fallbackError;
         budgetsList = fallbackData;
       }
@@ -1149,16 +1169,18 @@ export const supabaseService = {
 
   // PROJECTS CRUD
   async getProjects() {
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))')
-      .order('created_at', { ascending: false });
+    const { data, error } = await selectAll(() => supabase
+        .from('projects')
+        .select('*, main_clients(*), clients:clients!client_id(*, main_clients(*))')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
     
     if (error) {
-      const { data: fallbackData, error: fallbackError } = await supabase
+      const { data: fallbackData, error: fallbackError } = await selectAll(() => supabase
         .from('projects')
         .select('*, clients:clients!client_id(*)')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
       if (fallbackError) throw fallbackError;
       return fallbackData.map(mapProjectFromDb).filter(Boolean);
     }
@@ -1233,10 +1255,11 @@ export const supabaseService = {
 
   // EXTRA COSTS CRUD
   async getExtraCosts() {
-    const { data, error } = await supabase
-      .from('extra_costs')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const { data, error } = await selectAll(() => supabase
+        .from('extra_costs')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }));
     
     if (error) throw error;
     return data.map(mapExtraCostFromDb);
@@ -1280,10 +1303,11 @@ export const supabaseService = {
 
   // INSTALLMENTS CRUD
   async getInstallments() {
-    const { data, error } = await supabase
-      .from('billing_installments')
-      .select('*')
-      .order('scheduled_date', { ascending: true });
+    const { data, error } = await selectAll(() => supabase
+        .from('billing_installments')
+        .select('*')
+        .order('scheduled_date', { ascending: true })
+        .order('id', { ascending: true }));
     
     if (error) throw error;
     return data.map(mapInstallmentFromDb);
@@ -1301,10 +1325,11 @@ export const supabaseService = {
 
   // FACTURACIÓN ELECTRÓNICA (NUBOX)
   async getDteDocuments() {
-    const { data, error } = await supabase
-      .from('dte_documents')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await selectAll(() => supabase
+        .from('dte_documents')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
     // The table may not exist yet in environments without the Nubox migration.
     if (error) {
       console.warn('Documentos tributarios no disponibles:', error.message);
@@ -1313,13 +1338,35 @@ export const supabaseService = {
     return data.map(mapDteFromDb);
   },
 
+  // The active provider (classic API by default, or the 'pyme' backup) is decided server-side (Vault nubox_provider).
   async getNuboxConfig() {
     try {
-      return await invokeNuboxFunction('nubox-issue', { action: 'config' });
+      const classic = await invokeNuboxFunction('nubox-classic', { action: 'config' });
+      if (classic?.provider !== 'pyme') {
+        if (classic?.configError) console.warn('Nubox (API clásica) sin configurar:', classic.configError);
+        return { ...classic, provider: 'classic' };
+      }
+      const pyme = await invokeNuboxFunction('nubox-issue', { action: 'config' });
+      return { ...pyme, provider: 'pyme' };
     } catch (err) {
       console.warn('Nubox no disponible:', err.message);
-      return { companies: [], environment: null };
+      return { provider: 'classic', companies: [], environment: null };
     }
+  },
+
+  // Classic API: synchronous issuance. Nubox rejections come back as { document, error } (HTTP 200).
+  async issueNuboxClassicInvoice(request) {
+    const result = await invokeNuboxFunction('nubox-classic', { action: 'issue', ...request });
+    return {
+      document: result.document ? mapDteFromDb(result.document) : null,
+      error: result.error || null,
+      warning: result.warning || null
+    };
+  },
+
+  async retryNuboxClassicPdf(documentId) {
+    const result = await invokeNuboxFunction('nubox-classic', { action: 'pdf', documentId });
+    return { document: mapDteFromDb(result.document), warning: result.warning || null };
   },
 
   async issueNuboxInvoice(request) {
@@ -1332,6 +1379,29 @@ export const supabaseService = {
     return result.document ? mapDteFromDb(result.document) : null;
   },
 
+  // UF / dólar observado desde el caché public.indicator_rates (lo llena la Edge Function indicator-rates con la CMF).
+  // Si la fecha no está en caché, la función la consulta en línea. Lanza error si no hay valor.
+  async getIndicatorRate(dateStr, currency = 'UF') {
+    const code = currency === 'USD' ? 'USD' : 'UF';
+    let query = supabase.from('indicator_rates').select('value,rate_date').eq('currency', code);
+    if (code === 'UF') {
+      query = query.eq('rate_date', dateStr);
+    } else {
+      // El dólar no se publica fines de semana ni feriados: último valor de los 10 días previos.
+      const from = new Date(`${dateStr}T12:00:00Z`);
+      from.setUTCDate(from.getUTCDate() - 10);
+      query = query.lte('rate_date', dateStr).gte('rate_date', from.toISOString().slice(0, 10));
+    }
+    const { data } = await query.order('rate_date', { ascending: false }).limit(1);
+    if (data?.[0]) return parseFloat(data[0].value);
+
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Tiempo de espera agotado al obtener el valor ${code === 'USD' ? 'del dólar' : 'de la UF'}`)), 15000));
+    const result = await Promise.race([invokeNuboxFunction('indicator-rates', { action: 'get', date: dateStr, currency: code }), timeout]);
+    if (!(result?.value > 0)) throw new Error('Sin datos para esa fecha');
+    return parseFloat(result.value);
+  },
+
   async getInvoicePdfUrl(pdfPath) {
     const { data, error } = await supabase.storage.from('invoices').createSignedUrl(pdfPath, 60 * 10);
     if (error) throw error;
@@ -1340,10 +1410,11 @@ export const supabaseService = {
 
   // CLIENT EMAILS (Edge Function send-client-email)
   async getClientEmails() {
-    const { data, error } = await supabase
-      .from('client_emails')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await selectAll(() => supabase
+        .from('client_emails')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
     // The table may not exist yet in environments without the client e-mail migration.
     if (error) {
       console.warn('Historial de correos no disponible:', error.message);
@@ -1873,10 +1944,11 @@ export const supabaseService = {
 
   // PROFILES (USERS)
   async getProfiles() {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('name', { ascending: true });
+    const { data, error } = await selectAll(() => supabase
+        .from('profiles')
+        .select('*')
+        .order('name', { ascending: true })
+        .order('id', { ascending: true }));
     
     if (error) throw error;
     return data.map(p => ({
@@ -1935,10 +2007,11 @@ export const supabaseService = {
 
   // NOTIFICATION SETTINGS
   async getNotificationSettings() {
-    const { data, error } = await supabase
-      .from('notification_settings')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const { data, error } = await selectAll(() => supabase
+        .from('notification_settings')
+        .select('*')
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }));
     
     if (error) {
       console.warn('Error fetching notification_settings:', error);
@@ -2037,10 +2110,11 @@ export const supabaseService = {
 
   async getBackupLogs() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await selectAll(() => supabase
         .from('backup_logs')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true }));
 
       if (error) throw error;
       return data || [];
@@ -2140,15 +2214,15 @@ export const supabaseService = {
       { data: profiles },
       { data: notificationSettings }
     ] = await Promise.all([
-      supabase.from('main_clients').select('*'),
-      supabase.from('clients').select('*'),
-      supabase.from('budgets').select('*'),
-      supabase.from('budget_items').select('*'),
-      supabase.from('projects').select('*'),
-      supabase.from('extra_costs').select('*'),
-      supabase.from('billing_installments').select('*'),
-      supabase.from('profiles').select('*'),
-      supabase.from('notification_settings').select('*')
+      selectAll(() => supabase.from('main_clients').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('clients').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('budgets').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('budget_items').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('projects').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('extra_costs').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('billing_installments').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('profiles').select('*').order('id', { ascending: true })),
+      selectAll(() => supabase.from('notification_settings').select('*').order('id', { ascending: true }))
     ]);
 
     return {

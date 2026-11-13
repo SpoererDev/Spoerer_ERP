@@ -13,3 +13,11 @@ verify_jwt = false
 [functions.send-client-email]
 # Requires the ERP user's JWT; the function also checks the profile is Active.
 verify_jwt = true
+
+[functions.nubox-classic]
+# Active Nubox integration (classic API). Requires the ERP user's JWT; the function also checks the profile is Active.
+verify_jwt = true
+
+[functions.indicator-rates]
+# Called by pg_cron with the Vault worker token, or by the ERP with a user JWT (validated in code).
+verify_jwt = false

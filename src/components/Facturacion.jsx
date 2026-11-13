@@ -9,6 +9,7 @@ import { formatAmountWithCurrency, supabaseService, ACTIVE_DTE_STATUSES } from '
 import { printFilteredBillingInstallments } from '../utils/billingPrintHelper';
 import { compareNumQuota, fetchIndicatorRate } from '../utils/billingHelpers';
 import NuboxInvoicePanel from './NuboxInvoicePanel';
+import NuboxClassicPanel from './NuboxClassicPanel';
 import FilePreviewModal from './FilePreviewModal';
 import ClientEmailModal from './ClientEmailModal';
 import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
@@ -303,6 +304,8 @@ export default function Facturacion({
   const [emitTaxPercent, setEmitTaxPercent] = useState('19');
   const [emitMode, setEmitMode] = useState('manual'); // 'nubox' | 'manual'
   const [nuboxUnavailableReason, setNuboxUnavailableReason] = useState('');
+  // Active Nubox integration is chosen server-side (Vault nubox_provider): classic API by default, 'pyme' as backup.
+  const NuboxPanel = nuboxConfig?.provider === 'pyme' ? NuboxInvoicePanel : NuboxClassicPanel;
   const [previewFile, setPreviewFile] = useState(null); // { url, title, name } shown in FilePreviewModal
   const [emailInstallment, setEmailInstallment] = useState(null); // installment shown in ClientEmailModal
   const [emailInitialTemplate, setEmailInitialTemplate] = useState(null);
@@ -1945,6 +1948,14 @@ export default function Facturacion({
                                               </span>
                                             );
                                           }
+                                          if (dte?.status === 'issued' && dte.isDraft && inst.invoiceNumber === dte.folio) {
+                                            return (
+                                              <span className="inline-flex items-center gap-1 whitespace-nowrap" title="Generada como borrador en Nubox (emitir=false)">
+                                                {inst.invoiceNumber}
+                                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">Borrador</span>
+                                              </span>
+                                            );
+                                          }
                                           return inst.invoiceNumber || '-';
                                         })()}
                                       </td>
@@ -2225,7 +2236,7 @@ export default function Facturacion({
                     </div>
                   )}
                   {emitMode === 'nubox' && (
-                    <NuboxInvoicePanel
+                    <NuboxPanel
                       key={selectedInstallment.id}
                       installment={selectedInstallment}
                       budget={budgets.find(b => b.id === selectedInstallment.origin_budget_id)}

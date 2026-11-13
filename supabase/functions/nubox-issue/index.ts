@@ -36,6 +36,12 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Integración de respaldo: solo emite si nubox_provider = 'pyme' (la activa por defecto es la API clásica).
+  const { data: classic } = await db.rpc('nubox_classic_config');
+  if ((classic?.provider ?? 'classic') !== 'pyme') {
+    return json({ error: 'La emisión con la API nueva de Nubox está desactivada (nubox_provider).' }, 400);
+  }
+
   const { data: inst } = await db.from('billing_installments').select('*').eq('id', body.installmentId ?? '').maybeSingle();
   if (!inst) return json({ error: 'Cuota no encontrada' }, 404);
   if (INVOICED_STATUSES.includes(inst.status)) return json({ error: 'La cuota ya está facturada o anulada.' }, 409);

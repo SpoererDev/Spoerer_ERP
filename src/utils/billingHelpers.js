@@ -1,3 +1,5 @@
+import { supabaseService } from './supabaseService';
+
 /**
  * Utility functions for billing installments (quotas).
  */
@@ -24,21 +26,13 @@ export const compareNumQuota = (a, b) => {
 };
 
 /**
- * Fetches the UF or USD value for a date (YYYY-MM-DD) from mindicador.cl.
- * Throws when the service is unavailable or has no data for that date.
+ * Fetches the UF or USD value for a date (YYYY-MM-DD) from the Supabase cache (CMF data),
+ * falling back to an on-demand lookup in the indicator-rates Edge Function.
+ * Throws when no value is available for that date.
  */
 export const fetchIndicatorRate = async (dateStr, currency = 'UF') => {
-  const parts = String(dateStr || '').split('-');
-  if (parts.length !== 3) throw new Error('Formato de fecha no válido');
-  const formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`; // YYYY-MM-DD to DD-MM-YYYY
-  const endpoint = currency === 'USD'
-    ? `https://mindicador.cl/api/dolar/${formattedDate}`
-    : `https://mindicador.cl/api/uf/${formattedDate}`;
-  const res = await fetch(endpoint);
-  if (!res.ok) throw new Error(`Error al conectar con el servidor de ${currency}`);
-  const data = await res.json();
-  if (!data.serie || data.serie.length === 0) throw new Error('Sin datos para esa fecha');
-  return data.serie[0].valor;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))) throw new Error('Formato de fecha no válido');
+  return supabaseService.getIndicatorRate(dateStr, currency);
 };
 
 /**
