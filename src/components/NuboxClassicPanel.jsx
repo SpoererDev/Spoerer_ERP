@@ -80,8 +80,8 @@ export default function NuboxClassicPanel({
   const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [reference, setReference] = useState(installment.oc ? { type: '801', number: installment.oc, date: '' } : null);
   const [comment, setComment] = useState('');
-  // Por defecto se genera un borrador en Nubox (emitir=false); la emisión definitiva es opt-in.
-  const [emitir, setEmitir] = useState(false);
+  // Por defecto se emite el documento definitivo (emitir=true); desmarcarlo genera un borrador en Nubox.
+  const [emitir, setEmitir] = useState(true);
 
   const [validationErrors, setValidationErrors] = useState([]);
   const [submitError, setSubmitError] = useState('');

@@ -1098,7 +1098,7 @@ export default function Facturacion({
           : ((installment.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19)));
     setEmitTaxPercent(String(defaultTax));
 
-    // Manual registration is the default initial tab unless an active Nubox emission is already in progress.
+    // Decide whether this installment can be issued through Nubox.
     const company = installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
     const unavailableReason = isForeignGenericRut(razonSocial.rut)
       ? 'Cliente extranjero (RUT genérico): la factura se registra manualmente.'
@@ -1108,7 +1108,8 @@ export default function Facturacion({
     const latestDte = dteDocuments.find(d => d.installmentId === installment.id);
     const hasActiveDte = latestDte && ACTIVE_DTE_STATUSES.includes(latestDte.status);
     setNuboxUnavailableReason(hasActiveDte ? '' : unavailableReason);
-    setEmitMode(hasActiveDte ? 'nubox' : 'manual');
+    // Nubox is the default tab; manual registration only when Nubox can't be used for this installment.
+    setEmitMode(hasActiveDte || !unavailableReason ? 'nubox' : 'manual');
 
     setIsEmitModalOpen(true);
   };
