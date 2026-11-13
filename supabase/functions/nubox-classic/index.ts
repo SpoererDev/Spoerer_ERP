@@ -3,7 +3,8 @@
 import { corsHeaders, db, getActiveProfile, json, type DteDocument } from '../_shared/nubox.ts';
 import {
   NuboxClassicError, classicConfigProblems, classicEnvironment, classicFetch, cleanRut, getClassicConfig,
-  acceptedFolio, isValidRut, nuboxMessage, rutWithDash, splitGlosa, storeClassicPdf, updateClassicDocument,
+  acceptedFolio, fetchClassicPdf, isValidRut, nuboxMessage, rutWithDash, splitGlosa, storeClassicPdf, toBase64,
+  updateClassicDocument,
 } from '../_shared/nubox_classic.ts';
 
 const INVOICED_STATUSES = ['Facturada', 'Factura emitida', 'Facturado', 'Pagada', 'Pagado', 'Anulada'];
@@ -45,6 +46,14 @@ Deno.serve(async (req: Request) => {
       if (!doc) return json({ error: 'Documento no encontrado' }, 404);
       if (doc.status !== 'issued' || !doc.folio) return json({ error: 'El documento no tiene folio emitido.' }, 400);
       return json(await storeClassicPdf(config!, doc as DteDocument));
+    }
+    if (body.action === 'pdfByFolio') {
+      // PDF de cualquier factura ya emitida en Nubox (p. ej. emitida fuera del ERP), para adjuntarlo a la cuota.
+      const folio = String(body.folio ?? '').trim();
+      if (!/^\d{1,10}$/.test(folio)) return json({ error: 'Ingrese un folio numérico válido.' }, 400);
+      const documentType = String(body.documentType) === '34' ? '34' : '33';
+      const bytes = await fetchClassicPdf(config!, folio, documentType);
+      return json({ folio, documentType, fileName: `factura_${folio}.pdf`, contentBase64: toBase64(bytes) });
     }
     return await issue(body, profile.id);
   } catch (err) {

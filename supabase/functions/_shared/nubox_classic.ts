@@ -232,20 +232,31 @@ const updateDocument = async (id: string, updates: Record<string, unknown>) => {
   return data as DteDocument;
 };
 
+// PDF de un documento de venta por folio (documentType '33' afecta / '34' exenta).
+export const fetchClassicPdf = async (config: ClassicConfig, folio: string, documentType: string) => {
+  const rut = rutWithDash(config.rut_empresa);
+  const { response } = await classicFetch(
+    config,
+    (s) => `/factura/documento/${rut}/${s.numero_serie}/${folio}/${pdfDocumentType(documentType)}/pdf`,
+    { headers: { Accept: 'application/pdf' } },
+  );
+  const contentType = response.headers.get('Content-Type') ?? '';
+  if (!response.ok || !contentType.includes('pdf')) {
+    throw new NuboxClassicError(nuboxMessage(await response.text(), response.status), response.status);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+};
+
+export const toBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+};
+
 // Descarga el PDF desde Nubox y lo guarda en el bucket privado "invoices".
 export const storeClassicPdf = async (config: ClassicConfig, doc: DteDocument): Promise<{ document: DteDocument; warning?: string }> => {
   try {
-    const rut = rutWithDash(config.rut_empresa);
-    const { response } = await classicFetch(
-      config,
-      (s) => `/factura/documento/${rut}/${s.numero_serie}/${doc.folio}/${pdfDocumentType(doc.document_type)}/pdf`,
-      { headers: { Accept: 'application/pdf' } },
-    );
-    const contentType = response.headers.get('Content-Type') ?? '';
-    if (!response.ok || !contentType.includes('pdf')) {
-      throw new Error(nuboxMessage(await response.text(), response.status));
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await fetchClassicPdf(config, String(doc.folio), doc.document_type);
     const year = String(doc.emission_date ?? new Date().toISOString()).slice(0, 4);
     const suffix = doc.is_draft ? 'borrador' : 'classic';
     const path = `${doc.billing_company}/${doc.environment}/${year}/factura_${doc.folio}_${suffix}_${doc.id.slice(0, 8)}.pdf`;

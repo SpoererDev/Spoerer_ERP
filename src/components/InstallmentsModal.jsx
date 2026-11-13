@@ -149,6 +149,10 @@ export default function InstallmentsModal({
     }
   };
   const [editingFileIdx, setEditingFileIdx] = useState(null);
+  // Vista previa del PDF obtenido desde Nubox (por folio) antes de adjuntarlo a la cuota.
+  const [nuboxPdfPreview, setNuboxPdfPreview] = useState(null); // { idx, file, url }
+  const [nuboxPdfLoading, setNuboxPdfLoading] = useState(false);
+  const [nuboxPdfError, setNuboxPdfError] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1238,6 +1242,38 @@ export default function InstallmentsModal({
 
   const currentEditingRow = editingFileIdx !== null ? localInstallments[editingFileIdx] : null;
 
+  const closeNuboxPdfPreview = () => {
+    if (nuboxPdfPreview?.url) URL.revokeObjectURL(nuboxPdfPreview.url);
+    setNuboxPdfPreview(null);
+  };
+
+  const fetchInvoiceFromNubox = async (idx) => {
+    const row = localInstallments[idx];
+    const folio = String(row?.invoiceNumber || '').trim();
+    setNuboxPdfError('');
+    if (!/^\d+$/.test(folio)) {
+      setNuboxPdfError('Registre primero el N° de factura (folio) de la cuota.');
+      return;
+    }
+    setNuboxPdfLoading(true);
+    try {
+      const documentType = Number(row.taxPercent) === 0 ? '34' : '33';
+      const file = await supabaseService.fetchNuboxInvoicePdf(folio, documentType);
+      setNuboxPdfPreview({ idx, file, url: URL.createObjectURL(file) });
+    } catch (err) {
+      setNuboxPdfError(err.message || 'No se pudo obtener la factura desde Nubox.');
+    } finally {
+      setNuboxPdfLoading(false);
+    }
+  };
+
+  const attachNuboxPdf = () => {
+    if (!nuboxPdfPreview) return;
+    handleFieldChange(nuboxPdfPreview.idx, 'invoiceFileObject', nuboxPdfPreview.file);
+    handleFieldChange(nuboxPdfPreview.idx, 'deleteInvoiceFile', true);
+    closeNuboxPdfPreview();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary/40 backdrop-blur-sm p-4 text-slate-800">
       <div
@@ -2183,6 +2219,31 @@ export default function InstallmentsModal({
       </div>
 
       {/* Sub-modal: Editar Respaldos (z-[60]) */}
+      {nuboxPdfPreview && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4">
+          <div className="relative bg-white w-full max-w-3xl rounded-xl shadow-2xl flex flex-col border border-outline-variant p-lg space-y-md text-left animate-scale-up text-slate-800">
+            <div className="flex justify-between items-center border-b border-outline-variant/15 pb-2">
+              <h4 className="font-bold text-primary text-headline-sm flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-secondary">cloud_download</span>
+                <span>Factura N° {localInstallments[nuboxPdfPreview.idx]?.invoiceNumber} desde Nubox</span>
+              </h4>
+              <button type="button" onClick={closeNuboxPdfPreview} className="p-1 hover:bg-slate-100 rounded-full text-on-surface-variant transition-colors">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+            <iframe title="Vista previa factura Nubox" src={nuboxPdfPreview.url} className="w-full h-[60vh] rounded-lg border border-outline-variant" />
+            <p className="text-xs text-on-surface-variant">Revise que corresponda a la cuota {localInstallments[nuboxPdfPreview.idx]?.numQuota}. Se adjuntará como PDF de factura al guardar la facturación.</p>
+            <div className="flex justify-end gap-md border-t border-outline-variant/30 pt-md">
+              <button type="button" onClick={closeNuboxPdfPreview} className="px-lg py-sm font-semibold text-on-surface-variant hover:text-on-surface transition-all">Cancelar</button>
+              <button type="button" onClick={attachNuboxPdf} className="bg-primary text-white px-xl py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all flex items-center gap-xs">
+                <span className="material-symbols-outlined text-[18px]">attach_file</span>
+                Usar este PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingFileIdx !== null && currentEditingRow && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-primary/60 backdrop-blur-sm p-4">
           <div className="relative bg-white w-full max-w-lg max-h-[85vh] overflow-y-auto custom-scrollbar rounded-xl shadow-2xl flex flex-col border border-outline-variant p-lg space-y-md text-left animate-scale-up text-slate-800">
@@ -2264,8 +2325,9 @@ export default function InstallmentsModal({
                     </button>
                   </div>
                 ) : getIssuedDtePdf(currentEditingRow.id) ? null : (
-                  // Botón de carga
-                  <div>
+                  // Botones de carga: archivo local u obtener desde Nubox por folio
+                  <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-sm">
                     <label className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-lg cursor-pointer text-body-sm font-semibold text-slate-600 hover:text-slate-800 transition-all">
                       <span className="material-symbols-outlined text-[18px]">upload</span>
                       <span>Subir PDF Factura</span>
@@ -2281,6 +2343,21 @@ export default function InstallmentsModal({
                         }}
                       />
                     </label>
+                    <button
+                      type="button"
+                      onClick={() => fetchInvoiceFromNubox(editingFileIdx)}
+                      disabled={nuboxPdfLoading}
+                      title={currentEditingRow.invoiceNumber ? `Obtener la factura N° ${currentEditingRow.invoiceNumber} desde Nubox` : 'Registre el N° de factura para obtenerla desde Nubox'}
+                      className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-secondary-container/30 border border-dashed border-secondary/40 rounded-lg text-body-sm font-semibold text-secondary transition-all disabled:opacity-60"
+                    >
+                      <span className={`material-symbols-outlined text-[18px] ${nuboxPdfLoading ? 'animate-spin' : ''}`}>{nuboxPdfLoading ? 'sync' : 'cloud_download'}</span>
+                      <span>{nuboxPdfLoading ? 'Obteniendo...' : 'Obtener de Nubox'}</span>
+                    </button>
+                  </div>
+                  {nuboxPdfError && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
+                  {!nuboxPdfError && currentEditingRow.invoiceNumber && (
+                    <p className="text-[10px] text-on-surface-variant">Nubox: factura N° {currentEditingRow.invoiceNumber}</p>
+                  )}
                   </div>
                 )}
               </div>

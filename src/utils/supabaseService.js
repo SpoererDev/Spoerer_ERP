@@ -1364,6 +1364,16 @@ export const supabaseService = {
     };
   },
 
+  // Descarga desde Nubox el PDF de una factura ya emitida (por folio) y lo devuelve como File, sin guardarlo.
+  async fetchNuboxInvoicePdf(folio, documentType = '33') {
+    const result = await invokeNuboxFunction('nubox-classic', { action: 'pdfByFolio', folio: String(folio).trim(), documentType });
+    if (!result?.contentBase64) throw new Error('Nubox no devolvió el PDF de la factura.');
+    const binary = atob(result.contentBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], result.fileName || `factura_${folio}.pdf`, { type: 'application/pdf' });
+  },
+
   async retryNuboxClassicPdf(documentId) {
     const result = await invokeNuboxFunction('nubox-classic', { action: 'pdf', documentId });
     return { document: mapDteFromDb(result.document), warning: result.warning || null };
