@@ -130,7 +130,7 @@ const authenticate = async (config: ClassicConfig): Promise<Session> => {
   const session = { token, numero_serie: String(sistema.NumeroDeSerie) };
   const now = new Date().toISOString();
   const { error } = await db.from('nubox_classic_sessions').upsert({
-    base_url: baseUrlOf(config), ...session, rut_empresa: rutWithDash(config.rut_empresa),
+    base_url: baseUrlOf(config), ...session, rut_empresa: rutWithDash(config.rut_empresa), api_user: config.user,
     last_used_at: now, created_at: now,
   });
   if (error) console.error('session save failed', error.message);
@@ -140,8 +140,9 @@ const authenticate = async (config: ClassicConfig): Promise<Session> => {
 export const getSession = async (config: ClassicConfig, force = false): Promise<Session> => {
   if (!force) {
     const { data } = await db.from('nubox_classic_sessions')
-      .select('token,numero_serie,last_used_at').eq('base_url', baseUrlOf(config)).maybeSingle();
-    if (data && Date.now() - new Date(data.last_used_at).getTime() < SESSION_IDLE_MS) {
+      .select('token,numero_serie,last_used_at,api_user').eq('base_url', baseUrlOf(config)).maybeSingle();
+    // Si cambiaron las credenciales en Vault, el token guardado pertenece a otro usuario: se re-autentica.
+    if (data && data.api_user === config.user && Date.now() - new Date(data.last_used_at).getTime() < SESSION_IDLE_MS) {
       return { token: data.token, numero_serie: data.numero_serie };
     }
   }
@@ -190,8 +191,13 @@ export const classicFetch = async (
 };
 
 // "El DTE se cargo correctamente ... Folio: 1975" -> "1975"
+// Con emitir=true Nubox responde JSON: { "Folio": 1977, "MontoTotal": 4917, "UrlBoleta": "...", ... }.
 export function parseFolio(text: string) {
-  return text.match(/Folio\s*:\s*(\d+)/i)?.[1] ?? null;
+  try {
+    const folio = JSON.parse(text)?.Folio;
+    if (folio != null && /^\d+$/.test(String(folio)) && Number(folio) > 0) return String(folio);
+  } catch { /* texto plano */ }
+  return text.match(/"?Folio"?\s*:\s*"?(\d+)/i)?.[1] ?? null;
 }
 
 // Folio de una emisión aceptada. Con emitir=false Nubox responde HTTP de error y el texto
@@ -199,6 +205,7 @@ export function parseFolio(text: string) {
 export const acceptedFolio = (response: Response, text: string) => {
   const folio = parseFolio(text);
   if (!folio) return null;
+  // Borrador (emitir=false): HTTP de error con "El DTE se cargo correctamente ... Folio: N".
   return response.ok || /cargo correctamente/i.test(text) ? folio : null;
 };
 

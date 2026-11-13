@@ -25,6 +25,7 @@ create table if not exists public.nubox_classic_sessions (
   token text not null,
   numero_serie text not null,
   rut_empresa text,
+  api_user text,
   last_used_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
@@ -98,3 +99,6 @@ begin
   end if;
 end; $$;
 revoke all on function nubox.invoke_sync() from public, anon, authenticated;
+
+-- Usuario de Nubox dueño del token (si cambian las credenciales en Vault se fuerza una nueva autenticación).
+alter table public.nubox_classic_sessions add column if not exists api_user text;
