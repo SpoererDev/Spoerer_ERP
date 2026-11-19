@@ -14,6 +14,35 @@ import FilePreviewModal from './FilePreviewModal';
 import ClientEmailModal from './ClientEmailModal';
 import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
 
+const VIEW_MODE_STORAGE_KEY = 'spr_erp_facturacion_view';
+const CUOTA_COLUMNS_STORAGE_KEY = 'spr_erp_facturacion_cuota_columns';
+
+// Columnas que se pueden mostrar u ocultar en la vista de cuotas.
+// Presupuesto, Cuota, Fecha planificada, Monto, Estado y Acciones siempre se muestran.
+const CUOTA_OPTIONAL_COLUMNS = [
+  { key: 'presupuestoNombre', label: 'Nombre presupuesto' },
+  { key: 'descripcion', label: 'Descripción' },
+  { key: 'comentario', label: 'Comentario' },
+  { key: 'oc', label: 'OC' },
+  { key: 'empresa', label: 'Empresa' },
+  { key: 'folio', label: 'Folio factura' },
+  { key: 'fechaFacturacion', label: 'Fecha facturación' },
+  { key: 'clp', label: 'Total CLP' },
+  { key: 'fechaPago', label: 'Fecha pago' },
+  { key: 'respaldos', label: 'Respaldos' }
+];
+const DEFAULT_CUOTA_COLUMNS = ['descripcion', 'empresa', 'respaldos'];
+
+// Color de texto por estado de cuota (sin fondo) para la vista de cuotas
+const CUOTA_STATUS_TEXT_CLASS = {
+  'Pagada': 'text-emerald-700',
+  'Facturada': 'text-sky-700',
+  'Factura emitida': 'text-sky-700',
+  'Por facturar': 'text-amber-700',
+  'Aprobada': 'text-blue-700',
+  'Anulada': 'text-red-700'
+};
+
 export default function Facturacion({
   projects,
   budgets,
@@ -48,6 +77,55 @@ export default function Facturacion({
 
   // --- EXPANSION STATE ---
   const [expandedProjects, setExpandedProjects] = useState({});
+
+  // --- VISTA: 'proyectos' (tarjetas expandibles) | 'cuotas' (tabla de cuotas agrupada por proyecto) ---
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'cuotas' ? 'cuotas' : 'proyectos';
+    } catch {
+      return 'proyectos';
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode); } catch { /* sin almacenamiento */ }
+  }, [viewMode]);
+
+  // Proyectos contraídos en la vista de cuotas (por defecto todos visibles)
+  const [collapsedCuotaGroups, setCollapsedCuotaGroups] = useState({});
+
+  // Columnas visibles de la vista de cuotas
+  const [visibleCuotaColumns, setVisibleCuotaColumns] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(CUOTA_COLUMNS_STORAGE_KEY) || 'null');
+      if (Array.isArray(saved)) {
+        const known = CUOTA_OPTIONAL_COLUMNS.map(c => c.key);
+        return saved.filter(k => known.includes(k));
+      }
+    } catch { /* valor inválido: usar el defecto */ }
+    return DEFAULT_CUOTA_COLUMNS;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(CUOTA_COLUMNS_STORAGE_KEY, JSON.stringify(visibleCuotaColumns)); } catch { /* sin almacenamiento */ }
+  }, [visibleCuotaColumns]);
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const columnMenuRef = useRef(null);
+  useEffect(() => {
+    if (!isColumnMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target)) setIsColumnMenuOpen(false);
+    };
+    const handleEscape = (e) => { if (e.key === 'Escape') setIsColumnMenuOpen(false); };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isColumnMenuOpen]);
+  const isCuotaColumnVisible = (key) => visibleCuotaColumns.includes(key);
+  const toggleCuotaColumn = (key) => {
+    setVisibleCuotaColumns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
 
   // Sticky filter header offset measurement
   const filterHeaderRef = useRef(null);
@@ -734,6 +812,10 @@ export default function Facturacion({
   };
 
   const expandAll = () => {
+    if (viewMode === 'cuotas') {
+      setCollapsedCuotaGroups({});
+      return;
+    }
     const expansions = {};
     groupedData.forEach(item => {
       expansions[item.id] = true;
@@ -742,7 +824,19 @@ export default function Facturacion({
   };
 
   const collapseAll = () => {
+    if (viewMode === 'cuotas') {
+      const collapsed = {};
+      groupedData.forEach(item => {
+        collapsed[item.id] = true;
+      });
+      setCollapsedCuotaGroups(collapsed);
+      return;
+    }
     setExpandedProjects({});
+  };
+
+  const toggleCuotaGroup = (pId) => {
+    setCollapsedCuotaGroups(prev => ({ ...prev, [pId]: !prev[pId] }));
   };
 
   // Print Filtered Billing Installments
@@ -1252,6 +1346,444 @@ export default function Facturacion({
     }
   };
 
+  // --- CELDAS COMPARTIDAS ENTRE LA VISTA DE PROYECTOS Y LA DE CUOTAS ---
+  const getInstallmentBillingCompany = (inst, budget, project) =>
+    inst.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
+
+  const openBudgetInstallmentsModal = (bId, budget, title, amount, project) => {
+    const allBudgetInstallments = installments
+      .filter(i => i.origin_budget_id === bId)
+      .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
+
+    setActiveBudgetForInstallments({
+      budget: budget || { id: bId, quoteId: title, amount: amount },
+      installments: allBudgetInstallments,
+      project: project
+    });
+    setIsInstallmentsModalOpen(true);
+  };
+
+  const renderInvoiceFolio = (inst) => {
+    const dte = getLatestDte(inst.id);
+    if (dte && ['sending', 'queued', 'pending_sii'].includes(dte.status)) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap" title={dte.emissionStatusName || 'Enviando a Nubox'}>
+          <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
+          En proceso SII
+        </span>
+      );
+    }
+    if (dte && ['rejected', 'error'].includes(dte.status) && !inst.invoiceNumber) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap" title={dte.errors.map(e => e.message).join(' ')}>
+          <span className="material-symbols-outlined text-[12px]">error</span>
+          Rechazada
+        </span>
+      );
+    }
+    if (dte?.status === 'issued' && dte.isDraft && inst.invoiceNumber === dte.folio) {
+      return (
+        <span className="inline-flex items-center gap-1 whitespace-nowrap" title="Generada como borrador en Nubox (emitir=false)">
+          {inst.invoiceNumber}
+          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">Borrador</span>
+        </span>
+      );
+    }
+    return inst.invoiceNumber || '-';
+  };
+
+  const renderInvoiceClp = (inst, project) => {
+    if ((inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') && (inst.total_clp === null || inst.total_clp === undefined)) {
+      return <span className="text-outline">-</span>;
+    }
+    const rowTax = inst.taxPercent !== undefined && inst.taxPercent !== null
+      ? inst.taxPercent
+      : ((inst.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19);
+    return (
+      <div className="relative group/tooltip inline-block">
+        <span className="font-semibold underline decoration-dotted text-primary cursor-help">
+          {formatCLP(inst.total_clp)}
+        </span>
+        {/* Tooltip con desglose */}
+        <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block bg-slate-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50 whitespace-nowrap text-left border border-slate-800">
+          <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">
+            Cálculo de Pesos ({inst.billingCompany || project?.billingCompany || 'Spoerer'} {rowTax === 0 ? '0% IVA (Exento)' : `${rowTax}% IVA`})
+          </div>
+          <p className="flex justify-between gap-4"><span>Neto:</span> <span className="font-mono">{formatCLP(inst.net_clp)}</span></p>
+          <p className="flex justify-between gap-4"><span>{rowTax === 0 ? 'IVA (0% Exento):' : `IVA (${rowTax}%):`}</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
+          <p className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1 font-bold text-secondary-fixed-dim"><span>Total:</span> <span className="font-mono">{formatCLP(inst.total_clp)}</span></p>
+        </div>
+      </div>
+    );
+  };
+
+  // Íconos de respaldos de una cuota. `neutral` los muestra sin color (vista de cuotas).
+  const renderRespaldos = (inst, neutral = false) => {
+    const neutralClass = 'inline-flex items-center p-1 rounded text-slate-500 hover:text-primary hover:bg-surface-container-low transition-colors';
+    // Un solo ícono de factura, venga el PDF de la emisión con Nubox o de un archivo adjunto.
+    const dte = getLatestDte(inst.id);
+    const dtePdf = dte?.status === 'issued' && dte.pdfPath ? dte : null;
+    const hasAny = dtePdf || inst.invoiceFileUrl || inst.paymentBackupUrl || inst.ocFileUrl || (inst.otherFiles && inst.otherFiles.length > 0);
+    return (
+      <div className="flex justify-center items-center gap-xs">
+        {(dtePdf || inst.invoiceFileUrl) && (
+          <button
+            type="button"
+            onClick={() => (dtePdf
+              ? openDtePdf(dtePdf)
+              : setPreviewFile({ url: inst.invoiceFileUrl, title: `Factura - Cuota ${inst.numQuota}` }))}
+            className={neutral ? neutralClass : 'inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors'}
+            title={`Ver Factura${inst.invoiceNumber ? ` N° ${inst.invoiceNumber}` : ''} (PDF)`}
+          >
+            <span className="material-symbols-outlined text-[16px]">receipt_long</span>
+          </button>
+        )}
+        {inst.paymentBackupUrl ? (
+          <button
+            type="button"
+            onClick={() => setPreviewFile({ url: inst.paymentBackupUrl, title: `Comprobante de Pago - Cuota ${inst.numQuota}` })}
+            className={neutral ? neutralClass : 'inline-flex items-center text-secondary hover:text-secondary-fixed p-1 bg-surface-container-high rounded transition-colors'}
+            title="Ver Comprobante de Pago"
+          >
+            <span className="material-symbols-outlined text-[16px]">receipt</span>
+          </button>
+        ) : null}
+        {inst.ocFileUrl ? (
+          <button
+            type="button"
+            onClick={() => setPreviewFile({ url: inst.ocFileUrl, title: `Orden de Compra - Cuota ${inst.numQuota}` })}
+            className={neutral ? neutralClass : 'inline-flex items-center text-amber-700 hover:text-amber-800 p-1 bg-amber-50 rounded transition-colors'}
+            title="Ver Orden de Compra"
+          >
+            <span className="material-symbols-outlined text-[16px]">assignment</span>
+          </button>
+        ) : null}
+        {inst.otherFiles && inst.otherFiles.length > 0 && (
+          inst.otherFiles.map((file, fIdx) => (
+            <button
+              type="button"
+              key={file.url || fIdx}
+              onClick={() => setPreviewFile({ url: file.url, title: file.name || 'Documento', name: file.name })}
+              className={neutral ? neutralClass : 'inline-flex items-center text-purple-700 hover:text-purple-800 p-1 bg-purple-50 rounded transition-colors'}
+              title={`Ver otro documento: ${file.name || 'Documento'}`}
+            >
+              <span className="material-symbols-outlined text-[16px]">
+                {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+              </span>
+            </button>
+          ))
+        )}
+        {!hasAny ? <span className="text-outline">-</span> : null}
+      </div>
+    );
+  };
+
+  // Botón de acción según estado (Emitir Factura / Registrar Pago / Detalles) y botón de correo.
+  const renderInstallmentActions = (inst, budget, project, budgetRazonSocial) => {
+    const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
+    const isInvoicedStatus = inst.status === 'Facturada' || inst.status === 'Factura emitida';
+    const needsInvoiceSend = isInvoicedStatus && !hasInvoiceBeenSent(clientEmails, inst);
+    return (
+      <>
+        {(inst.status === 'Por facturar' || inst.status === 'Aprobada' || inst.status === 'Por aprobar') && (
+          (() => {
+            const instRazon = inst.legalEntityId
+              ? clients.find(c => c.id === inst.legalEntityId && c.company)
+              : budgetRazonSocial;
+            const isDateConfirmed = Boolean(inst.dateConfirmed);
+            const hasRazonSocial = Boolean(instRazon);
+            const isReady = hasRazonSocial && isDateConfirmed;
+            return (
+              <button
+                onClick={() => {
+                  if (!hasRazonSocial) {
+                    setTargetBudgetForRazonSocial(budget);
+                    setTargetProjectForRazonSocial(project);
+                    setIsNoRazonSocialModalOpen(true);
+                  } else if (!isDateConfirmed) {
+                    setIsDateUnconfirmedModalOpen(true);
+                  } else {
+                    openEmitModal(inst);
+                  }
+                }}
+                title={
+                  !hasRazonSocial
+                    ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
+                    : !isDateConfirmed
+                      ? "No se puede facturar sin confirmar la fecha de la cuota."
+                      : "Emitir Factura"
+                }
+                className={`inline-flex items-center justify-center gap-xs h-7 px-2.5 rounded font-semibold transition-all text-[11px] leading-none active:scale-95 ${isReady
+                  ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
+                  : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
+                  }`}
+              >
+                <span className="material-symbols-outlined text-[14px]">send</span>
+                <span>{['sending', 'queued', 'pending_sii'].includes(getLatestDte(inst.id)?.status) ? 'Ver emisión' : 'Emitir Factura'}</span>
+              </button>
+            );
+          })()
+        )}
+        {isInvoicedStatus && (
+          <button
+            onClick={() => openPaymentModal(inst)}
+            className="inline-flex items-center justify-center gap-xs h-7 px-2.5 bg-secondary text-white rounded hover:bg-secondary/90 font-semibold transition-all active:scale-95 text-[11px] leading-none"
+          >
+            <span className="material-symbols-outlined text-[14px]">price_check</span>
+            <span>Registrar Pago</span>
+          </button>
+        )}
+        {(inst.status === 'Pagada' || inst.status === 'Anulada') && (
+          <button
+            onClick={() => openDetailsModal(inst)}
+            className="inline-flex items-center justify-center gap-xs h-7 px-2.5 border border-outline text-on-surface-variant rounded hover:bg-surface-container-low font-semibold transition-all active:scale-95 text-[11px] leading-none"
+          >
+            <span className="material-symbols-outlined text-[14px]">visibility</span>
+            <span>Detalles</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            if (needsInvoiceSend) {
+              setInvoicePromptInstallment(inst);
+            } else {
+              setEmailInitialTemplate(null);
+              setEmailInstallment(inst);
+            }
+          }}
+          className={`relative inline-flex items-center justify-center h-7 w-7 rounded transition-all active:scale-95 ${
+            needsInvoiceSend
+              ? 'bg-rose-100 border border-rose-300 text-rose-700 hover:bg-rose-200/80'
+              : 'border border-outline-variant text-secondary hover:bg-surface-container-low'
+          }`}
+          title={
+            needsInvoiceSend
+              ? 'Factura pendiente de envío (clic para enviar o registrar envío)'
+              : sentCount
+                ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})`
+                : 'Enviar correo'
+          }
+          aria-label="Enviar correo"
+        >
+          <span className="material-symbols-outlined text-[16px]">mail</span>
+          {!needsInvoiceSend && sentCount > 0 && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
+          )}
+        </button>
+      </>
+    );
+  };
+
+  // --- VISTA DE CUOTAS: una tabla con las cuotas filtradas, agrupadas por proyecto ---
+  const formatTotalsByCurrency = (totals) => {
+    const entries = Object.entries(totals || {});
+    if (entries.length === 0) return formatAmountWithCurrency(0, 'UF');
+    return entries.map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' · ');
+  };
+
+  const renderCuotasView = () => {
+    const th = 'px-3 h-9 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/60 bg-surface-container-low whitespace-nowrap';
+    const td = 'px-3 h-11 text-[13px] text-slate-800 border-b border-slate-100 whitespace-nowrap';
+    const colsBeforeAmount = ['presupuestoNombre', 'descripcion', 'comentario', 'oc', 'empresa'].filter(isCuotaColumnVisible).length + 3;
+    const colsAfterAmount = ['folio', 'fechaFacturacion', 'clp', 'fechaPago', 'respaldos'].filter(isCuotaColumnVisible).length + 2;
+
+    const grandTotals = {};
+    let shownCount = 0;
+    groupedData.forEach(({ plannedTotalsByCurrency, budgets: projectBudgets }) => {
+      Object.entries(plannedTotalsByCurrency || {}).forEach(([curr, amt]) => {
+        grandTotals[curr] = (grandTotals[curr] || 0) + amt;
+      });
+      projectBudgets.forEach(b => { shownCount += b.installments.length; });
+    });
+
+    return (
+      <div className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[1100px]">
+            <thead>
+              <tr>
+                <th className={`${th} pl-11`}>Presup.</th>
+                {isCuotaColumnVisible('presupuestoNombre') && <th className={th}>Nombre presupuesto</th>}
+                <th className={th}>Cuota</th>
+                <th className={th}>Fecha plan.</th>
+                {isCuotaColumnVisible('descripcion') && <th className={th}>Descripción</th>}
+                {isCuotaColumnVisible('comentario') && <th className={th}>Comentario</th>}
+                {isCuotaColumnVisible('oc') && <th className={th}>OC</th>}
+                {isCuotaColumnVisible('empresa') && <th className={th}>Empresa</th>}
+                <th className={`${th} text-right`}>Monto</th>
+                <th className={th}>Estado</th>
+                {isCuotaColumnVisible('folio') && <th className={th}>Folio</th>}
+                {isCuotaColumnVisible('fechaFacturacion') && <th className={th}>Fecha fact.</th>}
+                {isCuotaColumnVisible('clp') && <th className={`${th} text-right`}>Total CLP</th>}
+                {isCuotaColumnVisible('fechaPago') && <th className={th}>Fecha pago</th>}
+                {isCuotaColumnVisible('respaldos') && <th className={`${th} text-center`}>Respaldos</th>}
+                {/* Acciones fija al borde derecho para que siga visible con desplazamiento horizontal */}
+                <th className={`${th} text-right sticky right-0 z-10`}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedData.map(({ id: pId, project, plannedTotalsByCurrency, budgets: projectBudgets }) => {
+                const isCollapsed = Boolean(collapsedCuotaGroups[pId]);
+                const rows = projectBudgets.flatMap(b => b.installments.map(inst => ({ inst, b })));
+                const projectLabel = `${project.projectNumber ? `${project.projectNumber} · ` : ''}${project.rawProjectName || project.projectName || 'Proyecto sin nombre'}`;
+                const hasNoBudgets = !budgets || budgets.filter(b => b.projectId === project.id).length === 0;
+
+                return (
+                  <React.Fragment key={pId}>
+                    <tr className="bg-slate-100/80">
+                      <td colSpan={colsBeforeAmount} className="px-3 h-9 border-b border-slate-200">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => toggleCuotaGroup(pId)}
+                            className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-200/80 hover:text-slate-800 transition-colors flex-shrink-0"
+                            aria-expanded={!isCollapsed}
+                            aria-label={isCollapsed ? 'Mostrar cuotas del proyecto' : 'Ocultar cuotas del proyecto'}
+                          >
+                            <span className="material-symbols-outlined text-[18px]">{isCollapsed ? 'chevron_right' : 'expand_more'}</span>
+                          </button>
+                          <span className="text-[13px] font-bold text-primary truncate" title={project.projectName || projectLabel}>{projectLabel}</span>
+                          {project.cliente && <span className="text-xs text-slate-500 truncate">{project.cliente}</span>}
+                          {hasNoBudgets && (
+                            <span className="material-symbols-outlined text-amber-500 text-[18px] flex-shrink-0 cursor-help" title="Este proyecto no tiene ningún presupuesto asociado">warning</span>
+                          )}
+                          <span className="ml-auto pl-3 text-xs text-slate-500 whitespace-nowrap">
+                            {rows.length} {rows.length === 1 ? 'cuota' : 'cuotas'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 h-9 border-b border-slate-200 text-right text-[13px] font-bold text-primary whitespace-nowrap">
+                        {formatTotalsByCurrency(plannedTotalsByCurrency)}
+                      </td>
+                      <td colSpan={colsAfterAmount} className="border-b border-slate-200"></td>
+                    </tr>
+
+                    {!isCollapsed && rows.map(({ inst, b }) => {
+                      const budget = b.budget;
+                      const budgetRazonSocial = getBudgetRazonSocial(budget);
+                      const totalQuotas = installments.filter(i => i.origin_budget_id === b.id && i.status !== 'Anulada').length;
+                      const isOverdue = inst.status === 'Por facturar' && inst.date && inst.date < todayStr;
+                      const company = getInstallmentBillingCompany(inst, budget, project);
+                      const specificRazon = inst.legalEntityId && inst.legalEntityId !== (budget?.legalEntityId || budget?.clientId)
+                        ? clients.find(c => c.id === inst.legalEntityId)
+                        : null;
+
+                      return (
+                        <tr key={inst.id} className="hover:bg-surface-container-lowest transition-colors">
+                          <td className={`${td} pl-11`}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-slate-700" title={specificRazon ? `${b.title} · Razón Social específica: ${specificRazon.company}` : b.title}>
+                                {budget?.quoteId || b.title}
+                              </span>
+                              {!budgetRazonSocial && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAssignRazonSocialModal(budget, project)}
+                                  className="inline-flex items-center text-amber-600 hover:text-amber-800 p-0.5 rounded hover:bg-amber-50 transition-colors"
+                                  title="Este presupuesto no tiene una Razón Social asignada para facturación. Clic para asignar."
+                                  aria-label="Asignar razón social"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">warning</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          {isCuotaColumnVisible('presupuestoNombre') && (
+                            <td className={`${td} text-slate-700 max-w-[280px] truncate`} title={budget?.title || ''}>{budget?.title || '-'}</td>
+                          )}
+                          <td className={`${td} tabular-nums text-slate-700`}>
+                            {inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}
+                          </td>
+                          <td
+                            className={`${td} select-none cursor-pointer ${isOverdue ? 'text-red-600 font-bold' : 'text-slate-700'}`}
+                            onDoubleClick={() => handleToggleDateConfirmed(inst)}
+                            title={inst.dateConfirmed ? 'Fecha confirmada (doble clic para desconfirmar)' : 'Fecha sin confirmar (doble clic para confirmar)'}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              {formatDate(inst.date)}
+                              <span className={`material-symbols-outlined text-[16px] ${inst.dateConfirmed ? 'text-secondary' : 'text-slate-400'}`}>
+                                {inst.dateConfirmed ? 'event_available' : 'event_busy'}
+                              </span>
+                            </span>
+                          </td>
+                          {isCuotaColumnVisible('descripcion') && (
+                            <td className={`${td} text-slate-700 max-w-[320px] truncate`} title={inst.description || ''}>{inst.description || '-'}</td>
+                          )}
+                          {isCuotaColumnVisible('comentario') && (
+                            <td className={`${td} text-slate-600 max-w-[240px] truncate`} title={inst.comment || ''}>{inst.comment || '-'}</td>
+                          )}
+                          {isCuotaColumnVisible('oc') && (
+                            <td className={`${td} text-slate-700`}>{inst.oc || '-'}</td>
+                          )}
+                          {isCuotaColumnVisible('empresa') && (
+                            <td className={td}>
+                              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${company === 'FPF' ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700'}`}>
+                                {company}
+                              </span>
+                            </td>
+                          )}
+                          <td className={`${td} text-right font-bold tabular-nums ${isOverdue ? 'text-red-600' : 'text-primary'}`}>
+                            {formatAmountWithCurrency(inst.uf, inst.currency || budget?.currency || 'UF')}
+                          </td>
+                          <td className={td}>
+                            <span className={`text-[11px] font-bold uppercase tracking-wide ${CUOTA_STATUS_TEXT_CLASS[inst.status] || 'text-slate-600'}`}>
+                              {inst.status || 'Por aprobar'}
+                            </span>
+                          </td>
+                          {isCuotaColumnVisible('folio') && (
+                            <td className={`${td} text-slate-700`}>{renderInvoiceFolio(inst)}</td>
+                          )}
+                          {isCuotaColumnVisible('fechaFacturacion') && (
+                            <td className={`${td} text-slate-700`}>{formatDate(inst.actualInvoiceDate)}</td>
+                          )}
+                          {isCuotaColumnVisible('clp') && (
+                            <td className={`${td} text-right`}>{renderInvoiceClp(inst, project)}</td>
+                          )}
+                          {isCuotaColumnVisible('fechaPago') && (
+                            <td className={`${td} text-slate-700`}>{formatDate(inst.actualPaymentDate)}</td>
+                          )}
+                          {isCuotaColumnVisible('respaldos') && (
+                            <td className={`${td} text-center`}>{renderRespaldos(inst, true)}</td>
+                          )}
+                          <td className={`${td} text-right sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)]`}>
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {renderInstallmentActions(inst, budget, project, budgetRazonSocial)}
+                              <button
+                                type="button"
+                                onClick={() => openBudgetInstallmentsModal(b.id, budget, b.title, b.amount, project)}
+                                className="inline-flex items-center justify-center h-7 w-7 rounded border border-outline-variant text-primary hover:bg-surface-container-low transition-all active:scale-95"
+                                title={`Editar cuotas del presupuesto ${budget?.quoteId || ''}`.trim()}
+                                aria-label="Editar cuotas"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">edit</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-surface-container-low">
+                <td colSpan={colsBeforeAmount} className="px-3 h-11 text-xs text-on-surface-variant">
+                  {shownCount} {shownCount === 1 ? 'cuota' : 'cuotas'} en {groupedData.length} {groupedData.length === 1 ? 'proyecto' : 'proyectos'}
+                </td>
+                <td className="px-3 h-11 text-right text-[13px] font-bold text-primary whitespace-nowrap">
+                  {formatTotalsByCurrency(grandTotals)}
+                </td>
+                <td colSpan={colsAfterAmount}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
@@ -1426,22 +1958,47 @@ export default function Facturacion({
 
         {/* SECTION B: Barra de Filtros y Búsqueda */}
         <div className="card-modern py-2.5 px-4 flex flex-col gap-2.5">
-          {/* Main Row: Buscar, Limpiar, Button Groups, and Toggle (+) */}
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
-            {/* Left Side: Buscar and Limpiar */}
-            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-              <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-                <div className="relative w-full">
-                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                  <input
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                    placeholder="N° Presupuesto, Factura, Proyecto o Cliente..."
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
+          {/* Main Row: vista y búsqueda a la izquierda; filtros rápidos y columnas a la derecha.
+              En pantallas angostas el bloque derecho baja a una segunda fila. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+            {/* Left Side: Vista (Proyectos / Cuotas), Buscar y Limpiar */}
+            <div className="flex flex-wrap items-center gap-2 flex-grow basis-[280px]">
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80" role="group" aria-label="Ver por">
+                {[
+                  { value: 'proyectos', label: 'Proyectos', icon: 'view_agenda' },
+                  { value: 'cuotas', label: 'Cuotas', icon: 'table_rows' }
+                ].map((v) => (
+                  <button
+                    key={v.value}
+                    type="button"
+                    onClick={() => setViewMode(v.value)}
+                    aria-pressed={viewMode === v.value}
+                    aria-label={`Ver por ${v.label}`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${viewMode === v.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                    title={v.value === 'cuotas' ? 'Ver cuotas en una tabla agrupada por proyecto' : 'Ver proyectos como tarjetas expandibles'}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">{v.icon}</span>
+                    {/* En pantallas medianas solo el ícono, para que los filtros quepan en una fila */}
+                    <span className="hidden min-[1800px]:inline">{v.label}</span>
+                  </button>
+                ))}
               </div>
+
+              <div className="relative flex-grow basis-[150px] min-w-[150px] max-w-xs">
+                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                  placeholder="N° Presupuesto, Factura, Proyecto o Cliente..."
+                  type="text"
+                  aria-label="Buscar"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+
               {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || situacionFilter !== 'Todas' || minAmountFilter > 0 || (maxAmountFilter !== null && maxAmountFilter < maxProjectUF)) && (
                 <button
                   onClick={() => {
@@ -1455,17 +2012,17 @@ export default function Facturacion({
                     setMinAmountFilter(0);
                     setMaxAmountFilter(null);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
-                  title="Limpiar Filtros"
+                  className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                  title="Limpiar filtros"
+                  aria-label="Limpiar filtros"
                 >
-                  <span className="material-symbols-outlined text-[16px]">clear_all</span>
-                  <span>Limpiar</span>
+                  <span className="material-symbols-outlined text-[18px]">clear_all</span>
                 </button>
               )}
             </div>
 
-            {/* Right Side: Filters (Only Button Groups + Toggle Button) */}
-            <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+            {/* Right Side: filtros rápidos (Vencimiento, Estado Cuota), toggle (+) y Columnas */}
+            <div className="flex flex-wrap items-center gap-3 ml-auto justify-end">
               {/* Temporal Filter Button Group */}
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
@@ -1480,7 +2037,7 @@ export default function Facturacion({
                       key={p.value}
                       type="button"
                       onClick={() => setTemporalFilter(p.value)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${temporalFilter === p.value
                         ? 'bg-[#091426] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                         }`}
@@ -1508,7 +2065,7 @@ export default function Facturacion({
                       key={s.value}
                       type="button"
                       onClick={() => setStatusFilter(s.value)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${statusFilter === s.value
                         ? 'bg-[#091426] text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
                         }`}
@@ -1535,6 +2092,68 @@ export default function Facturacion({
                   {isFilterExpanded ? '−' : '+'}
                 </span>
               </button>
+
+              {/* Expandir / contraer todo (alterna según el estado actual) */}
+              {groupedData.length > 0 && (() => {
+                const allExpanded = viewMode === 'cuotas'
+                  ? groupedData.every(item => !collapsedCuotaGroups[item.id])
+                  : groupedData.every(item => expandedProjects[item.id]);
+                const label = allExpanded ? 'Contraer todo' : 'Expandir todo';
+                return (
+                  <button
+                    type="button"
+                    onClick={allExpanded ? collapseAll : expandAll}
+                    className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                    title={label}
+                    aria-label={label}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{allExpanded ? 'unfold_less' : 'unfold_more'}</span>
+                  </button>
+                );
+              })()}
+
+              {viewMode === 'cuotas' && (
+                <div className="relative flex-shrink-0" ref={columnMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsColumnMenuOpen(prev => !prev)}
+                    className={`w-8 h-8 flex items-center justify-center border rounded-xl transition-all cursor-pointer active:scale-95 ${isColumnMenuOpen
+                      ? 'bg-[#091426] text-white border-[#091426]'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    title="Columnas visibles"
+                    aria-label="Columnas visibles"
+                    aria-expanded={isColumnMenuOpen}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">view_column</span>
+                  </button>
+                  {isColumnMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg z-40 py-2 animate-fade-in">
+                      <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Columnas visibles</p>
+                      {CUOTA_OPTIONAL_COLUMNS.map(col => (
+                        <label key={col.key} className="flex items-center gap-2.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isCuotaColumnVisible(col.key)}
+                            onChange={() => toggleCuotaColumn(col.key)}
+                            className="w-4 h-4 accent-secondary cursor-pointer"
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                      <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-3">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleCuotaColumns(DEFAULT_CUOTA_COLUMNS)}
+                          className="text-xs font-semibold text-secondary hover:underline cursor-pointer"
+                        >
+                          Restablecer columnas
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1672,7 +2291,9 @@ export default function Facturacion({
 
       {/* SECTION C: Lista de Facturación Agrupada (Jerárquica) */}
       <div className="space-y-md">
-        {groupedData.length > 0 ? (
+        {groupedData.length > 0 && viewMode === 'cuotas' ? (
+          renderCuotasView()
+        ) : groupedData.length > 0 ? (
           groupedData.map(({ id: pId, project, plannedTotalsByCurrency, budgets: projectBudgets }) => {
             const isExpanded = expandedProjects[pId];
 
@@ -1816,18 +2437,7 @@ export default function Facturacion({
                               </span>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const allBudgetInstallments = installments
-                                    .filter(i => i.origin_budget_id === bId)
-                                    .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
-
-                                  setActiveBudgetForInstallments({
-                                    budget: budget || { id: bId, quoteId: title, amount: amount },
-                                    installments: allBudgetInstallments,
-                                    project: project
-                                  });
-                                  setIsInstallmentsModalOpen(true);
-                                }}
+                                onClick={() => openBudgetInstallmentsModal(bId, budget, title, amount, project)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 border border-primary text-primary hover:bg-primary hover:text-white rounded text-xs font-semibold transition-all active:scale-95 shadow-xs"
                               >
                                 <span className="material-symbols-outlined text-[14px]">edit_calendar</span>
@@ -1931,222 +2541,23 @@ export default function Facturacion({
                                         </span>
                                       </td>
                                       <td className="px-md py-md font-medium text-on-surface-variant">
-                                        {(() => {
-                                          const dte = getLatestDte(inst.id);
-                                          if (dte && ['sending', 'queued', 'pending_sii'].includes(dte.status)) {
-                                            return (
-                                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap" title={dte.emissionStatusName || 'Enviando a Nubox'}>
-                                                <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>
-                                                En proceso SII
-                                              </span>
-                                            );
-                                          }
-                                          if (dte && ['rejected', 'error'].includes(dte.status) && !inst.invoiceNumber) {
-                                            return (
-                                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 whitespace-nowrap" title={dte.errors.map(e => e.message).join(' ')}>
-                                                <span className="material-symbols-outlined text-[12px]">error</span>
-                                                Rechazada
-                                              </span>
-                                            );
-                                          }
-                                          if (dte?.status === 'issued' && dte.isDraft && inst.invoiceNumber === dte.folio) {
-                                            return (
-                                              <span className="inline-flex items-center gap-1 whitespace-nowrap" title="Generada como borrador en Nubox (emitir=false)">
-                                                {inst.invoiceNumber}
-                                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">Borrador</span>
-                                              </span>
-                                            );
-                                          }
-                                          return inst.invoiceNumber || '-';
-                                        })()}
+                                        {renderInvoiceFolio(inst)}
                                       </td>
                                       <td className="px-md py-md text-on-surface-variant whitespace-nowrap">
                                         {formatDate(inst.actualInvoiceDate)}
                                       </td>
                                       <td className="px-md py-md text-right">
-                                        {(inst.status !== 'Facturada' && inst.status !== 'Factura emitida' && inst.status !== 'Pagada') && (inst.total_clp === null || inst.total_clp === undefined) ? (
-                                          <span className="text-outline">-</span>
-                                        ) : (
-                                          <div className="relative group/tooltip inline-block">
-                                            <span className="font-semibold underline decoration-dotted text-primary cursor-help">
-                                              {formatCLP(inst.total_clp)}
-                                            </span>
-                                            {/* Tooltip con desglose */}
-                                            {(() => {
-                                              const rowTax = inst.taxPercent !== undefined && inst.taxPercent !== null
-                                                ? inst.taxPercent
-                                                : ((inst.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19);
-                                              return (
-                                                <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tooltip:block bg-slate-900 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50 whitespace-nowrap text-left border border-slate-800">
-                                                  <div className="font-semibold text-slate-400 border-b border-slate-800 pb-1 mb-1">
-                                                    Cálculo de Pesos ({inst.billingCompany || project?.billingCompany || 'Spoerer'} {rowTax === 0 ? '0% IVA (Exento)' : `${rowTax}% IVA`})
-                                                  </div>
-                                                  <p className="flex justify-between gap-4"><span>Neto:</span> <span className="font-mono">{formatCLP(inst.net_clp)}</span></p>
-                                                  <p className="flex justify-between gap-4"><span>{rowTax === 0 ? 'IVA (0% Exento):' : `IVA (${rowTax}%):`}</span> <span className="font-mono">{formatCLP(inst.tax_clp)}</span></p>
-                                                  <p className="flex justify-between gap-4 border-t border-slate-800 pt-1 mt-1 font-bold text-secondary-fixed-dim"><span>Total:</span> <span className="font-mono">{formatCLP(inst.total_clp)}</span></p>
-                                                </div>
-                                              );
-                                            })()}
-                                          </div>
-                                        )}
+                                        {renderInvoiceClp(inst, project)}
                                       </td>
                                       <td className="px-md py-md text-on-surface-variant">
                                         {formatDate(inst.actualPaymentDate)}
                                       </td>
                                       <td className="px-md py-md text-center">
-                                        <div className="flex justify-center items-center gap-xs">
-                                          {(() => {
-                                            // Un solo ícono de factura, venga el PDF de la emisión con Nubox o de un archivo adjunto.
-                                            const dte = getLatestDte(inst.id);
-                                            const dtePdf = dte?.status === 'issued' && dte.pdfPath ? dte : null;
-                                            if (!dtePdf && !inst.invoiceFileUrl) return null;
-                                            return (
-                                              <button
-                                                type="button"
-                                                onClick={() => (dtePdf
-                                                  ? openDtePdf(dtePdf)
-                                                  : setPreviewFile({ url: inst.invoiceFileUrl, title: `Factura - Cuota ${inst.numQuota}` }))}
-                                                className="inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors"
-                                                title={`Ver Factura${inst.invoiceNumber ? ` N° ${inst.invoiceNumber}` : ''} (PDF)`}
-                                              >
-                                                <span className="material-symbols-outlined text-[16px]">receipt_long</span>
-                                              </button>
-                                            );
-                                          })()}
-                                          {inst.paymentBackupUrl ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => setPreviewFile({ url: inst.paymentBackupUrl, title: `Comprobante de Pago - Cuota ${inst.numQuota}` })}
-                                              className="inline-flex items-center text-secondary hover:text-secondary-fixed p-1 bg-surface-container-high rounded transition-colors"
-                                              title="Ver Comprobante de Pago"
-                                            >
-                                              <span className="material-symbols-outlined text-[16px]">receipt</span>
-                                            </button>
-                                          ) : null}
-                                          {inst.ocFileUrl ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => setPreviewFile({ url: inst.ocFileUrl, title: `Orden de Compra - Cuota ${inst.numQuota}` })}
-                                              className="inline-flex items-center text-amber-700 hover:text-amber-800 p-1 bg-amber-50 rounded transition-colors"
-                                              title="Ver Orden de Compra"
-                                            >
-                                              <span className="material-symbols-outlined text-[16px]">assignment</span>
-                                            </button>
-                                          ) : null}
-                                          {inst.otherFiles && inst.otherFiles.length > 0 && (
-                                            inst.otherFiles.map((file, fIdx) => (
-                                              <button
-                                                type="button"
-                                                key={file.url || fIdx}
-                                                onClick={() => setPreviewFile({ url: file.url, title: file.name || 'Documento', name: file.name })}
-                                                className="inline-flex items-center text-purple-700 hover:text-purple-800 p-1 bg-purple-50 rounded transition-colors"
-                                                title={`Ver otro documento: ${file.name || 'Documento'}`}
-                                              >
-                                                <span className="material-symbols-outlined text-[16px]">
-                                                  {file.name?.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
-                                                </span>
-                                              </button>
-                                            ))
-                                          )}
-                                          {!inst.invoiceFileUrl && !inst.paymentBackupUrl && !inst.ocFileUrl && (!inst.otherFiles || inst.otherFiles.length === 0) && !getLatestDte(inst.id)?.pdfPath ? (
-                                            <span className="text-outline">-</span>
-                                          ) : null}
-                                        </div>
+                                        {renderRespaldos(inst)}
                                       </td>
                                       <td className="px-md py-md text-right">
                                         <div className="inline-flex items-center justify-end gap-1.5 whitespace-nowrap">
-                                          {(inst.status === 'Por facturar' || inst.status === 'Aprobada' || inst.status === 'Por aprobar') && (
-                                            (() => {
-                                              const instRazon = inst.legalEntityId 
-                                                ? clients.find(c => c.id === inst.legalEntityId && c.company) 
-                                                : budgetRazonSocial;
-                                              const isDateConfirmed = Boolean(inst.dateConfirmed);
-                                              const hasRazonSocial = Boolean(instRazon);
-                                              const isReady = hasRazonSocial && isDateConfirmed;
-                                              return (
-                                                <button
-                                                  onClick={() => {
-                                                    if (!hasRazonSocial) {
-                                                      setTargetBudgetForRazonSocial(budget);
-                                                      setTargetProjectForRazonSocial(project);
-                                                      setIsNoRazonSocialModalOpen(true);
-                                                    } else if (!isDateConfirmed) {
-                                                      setIsDateUnconfirmedModalOpen(true);
-                                                    } else {
-                                                      openEmitModal(inst);
-                                                    }
-                                                  }}
-                                                  title={
-                                                    !hasRazonSocial
-                                                      ? "No se puede facturar sin Razón Social asignada. Haga clic para asignar una."
-                                                      : !isDateConfirmed
-                                                        ? "No se puede facturar sin confirmar la fecha de la cuota."
-                                                        : "Emitir Factura"
-                                                  }
-                                                  className={`inline-flex items-center justify-center gap-xs h-7 px-2.5 rounded font-semibold transition-all text-[11px] leading-none active:scale-95 ${isReady
-                                                    ? 'bg-primary text-white hover:bg-primary-container shadow-xs'
-                                                    : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-300 cursor-pointer'
-                                                    }`}
-                                                >
-                                                  <span className="material-symbols-outlined text-[14px]">send</span>
-                                                  <span>{['sending', 'queued', 'pending_sii'].includes(getLatestDte(inst.id)?.status) ? 'Ver emisión' : 'Emitir Factura'}</span>
-                                                </button>
-                                              );
-                                            })()
-                                          )}
-                                          {(inst.status === 'Facturada' || inst.status === 'Factura emitida') && (
-                                            <button
-                                              onClick={() => openPaymentModal(inst)}
-                                              className="inline-flex items-center justify-center gap-xs h-7 px-2.5 bg-secondary text-white rounded hover:bg-secondary/90 font-semibold transition-all active:scale-95 text-[11px] leading-none"
-                                            >
-                                              <span className="material-symbols-outlined text-[14px]">price_check</span>
-                                              <span>Registrar Pago</span>
-                                            </button>
-                                          )}
-                                          {(inst.status === 'Pagada' || inst.status === 'Anulada') && (
-                                            <button
-                                              onClick={() => openDetailsModal(inst)}
-                                              className="inline-flex items-center justify-center gap-xs h-7 px-2.5 border border-outline text-on-surface-variant rounded hover:bg-surface-container-low font-semibold transition-all active:scale-95 text-[11px] leading-none"
-                                            >
-                                              <span className="material-symbols-outlined text-[14px]">visibility</span>
-                                              <span>Detalles</span>
-                                            </button>
-                                          )}
-                                          {(() => {
-                                            const sentCount = clientEmails.filter(e => e.status === 'sent' && e.installmentIds.includes(inst.id)).length;
-                                            const isInvoicedStatus = inst.status === 'Facturada' || inst.status === 'Factura emitida';
-                                            const needsInvoiceSend = isInvoicedStatus && !hasInvoiceBeenSent(clientEmails, inst);
-                                            return (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  if (needsInvoiceSend) {
-                                                    setInvoicePromptInstallment(inst);
-                                                  } else {
-                                                    setEmailInitialTemplate(null);
-                                                    setEmailInstallment(inst);
-                                                  }
-                                                }}
-                                                className={`relative inline-flex items-center justify-center h-7 w-7 rounded transition-all active:scale-95 ${
-                                                  needsInvoiceSend
-                                                    ? 'bg-rose-100 border border-rose-300 text-rose-700 hover:bg-rose-200/80'
-                                                    : 'border border-outline-variant text-secondary hover:bg-surface-container-low'
-                                                }`}
-                                                title={
-                                                  needsInvoiceSend
-                                                    ? 'Factura pendiente de envío (clic para enviar o registrar envío)'
-                                                    : sentCount
-                                                      ? `Enviar correo (${sentCount} enviado${sentCount > 1 ? 's' : ''})`
-                                                      : 'Enviar correo'
-                                                }
-                                              >
-                                                <span className="material-symbols-outlined text-[16px]">mail</span>
-                                                {!needsInvoiceSend && sentCount > 0 && (
-                                                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-500 rounded-full border border-white"></span>
-                                                )}
-                                              </button>
-                                            );
-                                          })()}
+                                          {renderInstallmentActions(inst, budget, project, budgetRazonSocial)}
                                         </div>
                                       </td>
                                     </tr>
