@@ -2109,6 +2109,80 @@ export default function Presupuestos({
     });
   }, [filteredQuotes, sortField, sortDirection]);
 
+  const closeDocumentPreview = () => {
+    setPreviewFile(null);
+    setDocxHtml('');
+  };
+
+  const closeViewModal = () => {
+    setIsViewModalOpen(false);
+    setViewingQuote(null);
+    closeDocumentPreview();
+  };
+
+  // Panel lateral de vista previa de un respaldo (PDF o Word), usado en los modales de editar y visualizar.
+  const renderDocumentSidePanel = (panelClassName) => (
+    <div className={`${panelClassName} bg-slate-50 flex flex-col animate-fade-in border-t lg:border-t-0`}>
+      <div className="p-3 md:p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-xs sticky top-0 z-10">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="material-symbols-outlined text-secondary flex-shrink-0">
+            {previewFile.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+          </span>
+          <span className="font-bold text-body-sm text-primary truncate" title={previewFile.name}>
+            {previewFile.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {previewFile.url && (
+            <a
+              href={previewFile.url}
+              download={previewFile.name}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-label-sm font-semibold transition-all"
+              title={`Descargar ${previewFile.name}`}
+            >
+              <span className="material-symbols-outlined text-[16px]">download</span>
+              <span>Descargar</span>
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={closeDocumentPreview}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-md text-label-sm font-semibold transition-all cursor-pointer"
+            title="Cerrar vista previa del documento"
+          >
+            <span className="material-symbols-outlined text-[16px]">close</span>
+            <span>Cerrar Vista Previa</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-grow overflow-auto p-md flex flex-col bg-slate-100/50">
+        {previewFile.name.toLowerCase().endsWith('.pdf') ? (
+          <iframe
+            src={previewFile.url || (previewFile.fileObject ? URL.createObjectURL(previewFile.fileObject) : '')}
+            className="w-full h-full min-h-[500px] rounded-lg border border-slate-200 bg-white shadow-xs"
+            title="Vista previa PDF"
+          />
+        ) : previewFile.name.toLowerCase().endsWith('.docx') ? (
+          docxHtml ? (
+            <div className="w-full bg-white p-lg rounded-lg shadow-xs border border-slate-200 overflow-y-auto max-h-full">
+              <div className="prose prose-slate max-w-none text-body-md" dangerouslySetInnerHTML={{ __html: docxHtml }} />
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant w-full h-full">
+              <span className="material-symbols-outlined text-[40px] animate-spin text-secondary">sync</span>
+              <span className="text-body-sm font-medium mt-3">Generando vista previa de Word...</span>
+            </div>
+          )
+        ) : (
+          <div className="text-center py-20 text-on-surface-variant italic text-body-sm">
+            Vista previa no disponible para este formato.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
@@ -2647,26 +2721,28 @@ export default function Presupuestos({
       {/* Modal Backdrop: View Quote */}
       {isViewModalOpen && viewingQuote && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-md bg-primary/40 backdrop-blur-sm animate-fade-in">
-          <div className="relative bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl shadow-2xl flex flex-col animate-scale-up">
-            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface sticky top-0 z-10">
+          <div className={`relative bg-white w-full ${previewFile ? 'max-w-[1600px]' : 'max-w-4xl'} max-h-[92vh] overflow-hidden rounded-xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out animate-scale-up`}>
+            <div className="p-lg border-b border-outline-variant flex justify-between items-center bg-surface">
               <div>
                 <h2 className="font-headline-md text-headline-md text-primary font-bold">Visualizar Presupuesto #{viewingQuote.quoteId}</h2>
                 <p className="text-body-sm text-on-surface-variant font-bold">Detalle completo de la cotización y facturación asociada.</p>
               </div>
               <button
-                onClick={() => {
-                  setIsViewModalOpen(false);
-                  setViewingQuote(null);
-                }}
+                onClick={closeViewModal}
                 className="p-2 hover:bg-slate-100 rounded-full transition-all"
+                title="Cerrar"
+                aria-label="Cerrar"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
 
+            {/* Cuerpo dividido: detalle a la izquierda y, si hay un respaldo abierto, su vista previa a la derecha */}
+            <div className="flex flex-col lg:flex-row flex-1 min-h-0">
+            <div className={`w-full ${previewFile ? 'lg:w-1/2 xl:w-7/12 border-b lg:border-b-0 lg:border-r border-slate-200' : ''} overflow-y-auto max-h-[calc(92vh-90px)] flex flex-col`}>
             <div className="p-lg space-y-lg text-left">
               {/* Grid principal */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-xl">
+              <div className={`grid grid-cols-1 ${previewFile ? '2xl:grid-cols-2' : 'md:grid-cols-2'} gap-xl`}>
                 {/* Información General */}
                 <div className="space-y-md">
                   <h3 className="text-title-md font-bold text-primary border-b pb-1">Información General</h3>
@@ -2758,20 +2834,27 @@ export default function Presupuestos({
                     <div className="mt-md">
                       <span className="block text-label-md text-on-surface-variant uppercase font-semibold mb-2">Respaldos</span>
                       <div className="flex flex-wrap gap-2">
-                        {viewingQuote.backupFiles.map((file, idx) => (
-                          <a
-                            key={idx}
-                            href={file.url}
-                            download={file.name}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border rounded text-body-sm text-secondary transition-all"
-                            title={`Descargar ${file.name}`}
-                          >
-                            <span className="material-symbols-outlined text-[18px]">
-                              {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
-                            </span>
-                            <span className="truncate max-w-[150px]">{file.name}</span>
-                          </a>
-                        ))}
+                        {viewingQuote.backupFiles.map((file, idx) => {
+                          const isOpen = previewFile && previewFile.url === file.url && previewFile.name === file.name;
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => (isOpen ? closeDocumentPreview() : setPreviewFile(file))}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-body-sm transition-all ${isOpen
+                                ? 'bg-secondary/10 border-secondary/40 text-secondary font-semibold'
+                                : 'bg-slate-50 hover:bg-slate-100 text-secondary'
+                                }`}
+                              title={isOpen ? `Cerrar vista previa de ${file.name}` : `Visualizar ${file.name}`}
+                              aria-pressed={Boolean(isOpen)}
+                            >
+                              <span className="material-symbols-outlined text-[18px]">
+                                {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                              </span>
+                              <span className="truncate max-w-[150px]">{file.name}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2897,17 +2980,19 @@ export default function Presupuestos({
               )}
             </div>
 
-            <div className="p-lg border-t border-outline-variant flex justify-end bg-surface sticky bottom-0 z-10">
+            <div className="mt-auto p-lg border-t border-outline-variant flex justify-end bg-surface sticky bottom-0 z-10">
               <button
                 type="button"
-                onClick={() => {
-                  setIsViewModalOpen(false);
-                  setViewingQuote(null);
-                }}
+                onClick={closeViewModal}
                 className="px-md py-2 bg-primary text-white rounded-lg text-body-md hover:bg-opacity-90 active:scale-95 transition-all font-semibold"
               >
                 Cerrar
               </button>
+            </div>
+            </div>
+
+            {/* Vista previa del respaldo al costado */}
+            {previewFile && renderDocumentSidePanel('w-full lg:w-1/2 xl:w-5/12 max-h-[calc(92vh-90px)]')}
             </div>
           </div>
         </div>
@@ -3637,57 +3722,7 @@ export default function Presupuestos({
               </div>
 
               {/* Document Preview Side Panel inside Budget Modal */}
-              {previewFile && (
-                <div className="w-full lg:w-1/2 xl:w-5/12 bg-slate-50 flex flex-col max-h-[calc(92vh-80px)] animate-fade-in border-t lg:border-t-0">
-                  <div className="p-3 md:p-4 bg-white border-b border-slate-200 flex justify-between items-center shadow-xs sticky top-0 z-10">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="material-symbols-outlined text-secondary flex-shrink-0">
-                        {previewFile.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
-                      </span>
-                      <span className="font-bold text-body-sm text-primary truncate" title={previewFile.name}>
-                        {previewFile.name}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreviewFile(null);
-                        setDocxHtml('');
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 rounded-md text-label-sm font-semibold transition-all cursor-pointer flex-shrink-0"
-                      title="Cerrar vista previa del documento"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">close</span>
-                      <span>Cerrar Vista Previa</span>
-                    </button>
-                  </div>
-
-                  <div className="flex-grow overflow-auto p-md flex flex-col bg-slate-100/50">
-                    {previewFile.name.toLowerCase().endsWith('.pdf') ? (
-                      <iframe
-                        src={previewFile.url || (previewFile.fileObject ? URL.createObjectURL(previewFile.fileObject) : '')}
-                        className="w-full h-full min-h-[500px] rounded-lg border border-slate-200 bg-white shadow-xs"
-                        title="Vista previa PDF"
-                      />
-                    ) : previewFile.name.toLowerCase().endsWith('.docx') ? (
-                      docxHtml ? (
-                        <div className="w-full bg-white p-lg rounded-lg shadow-xs border border-slate-200 overflow-y-auto max-h-full">
-                          <div className="prose prose-slate max-w-none text-body-md" dangerouslySetInnerHTML={{ __html: docxHtml }} />
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant w-full h-full">
-                          <span className="material-symbols-outlined text-[40px] animate-spin text-secondary">sync</span>
-                          <span className="text-body-sm font-medium mt-3">Generando vista previa de Word...</span>
-                        </div>
-                      )
-                    ) : (
-                      <div className="text-center py-20 text-on-surface-variant italic text-body-sm">
-                        Vista previa no disponible para este formato.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              {previewFile && renderDocumentSidePanel('w-full lg:w-1/2 xl:w-5/12 max-h-[calc(92vh-80px)]')}
 
             </div>
           </div>
@@ -3695,7 +3730,7 @@ export default function Presupuestos({
       )}
 
       {/* Document Preview Modal Overlay (When neither Budget Modal nor Approval Modal is open) */}
-      {!isModalOpen && !isApproveModalOpen && previewFile && (
+      {!isModalOpen && !isApproveModalOpen && !isViewModalOpen && previewFile && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-lg bg-primary/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden animate-scale-up text-left border border-outline-variant/30">
             {/* Header */}
