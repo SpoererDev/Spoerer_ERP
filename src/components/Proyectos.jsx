@@ -6,6 +6,7 @@ import InstallmentsModal from './InstallmentsModal';
 import { formatAmountWithCurrency } from '../utils/supabaseService';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { compareNumQuota } from '../utils/billingHelpers';
+import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -18,6 +19,43 @@ const PROJECT_TYPES = [
   "Perú",
   "Mind & Lean"
 ];
+
+const PROJECT_VIEW_STORAGE_KEY = 'spr_erp_proyectos_view';
+const PROJECT_COLUMNS_STORAGE_KEY = 'spr_erp_proyectos_table_columns';
+
+// Columnas que se pueden mostrar u ocultar en la vista Tabla.
+// Proyecto, Monto total y Acciones siempre se muestran.
+const PROJECT_OPTIONAL_COLUMNS = [
+  { key: 'cliente', label: 'Cliente' },
+  { key: 'empresa', label: 'Empresa' },
+  { key: 'tipo', label: 'Tipo' },
+  { key: 'facturado', label: 'Facturado' },
+  { key: 'encargado', label: 'Encargado' },
+  { key: 'superficie', label: 'Superficie' },
+  { key: 'costosExtra', label: 'Costos extra' },
+  { key: 'rentabilidad', label: 'Rentabilidad' }
+];
+const DEFAULT_PROJECT_COLUMNS = PROJECT_OPTIONAL_COLUMNS.map(c => c.key);
+
+// Anchos por defecto (px) de la vista Tabla; null = ocupa el espacio sobrante.
+const PROJECT_WIDTHS_STORAGE_KEY = 'spr_erp_proyectos_table_widths';
+const PROJECT_COLUMN_DEFAULT_WIDTHS = {
+  expand: 36,
+  proyecto: null,
+  cliente: 140,
+  empresa: 80,
+  tipo: 120,
+  monto: 120,
+  facturado: 104,
+  encargado: 110,
+  superficie: 100,
+  costosExtra: 100,
+  rentabilidad: 70,
+  acciones: 140
+};
+const FLEX_COLUMN_MIN_WIDTH = 200;
+
+const INVOICED_STATUSES =['Facturada', 'Factura emitida', 'Pagada', 'Facturado', 'Pagado'];
 
 export default function Proyectos({
   projects,
@@ -46,6 +84,59 @@ export default function Proyectos({
   setEncargadoFilter
 }) {
   const [expandedProjectId, setExpandedProjectId] = useState(null);
+
+  // --- VISTA: 'tarjetas' (tarjetas expandibles) | 'tabla' (una fila por proyecto) ---
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      // Por defecto la vista Tabla; solo se usan las tarjetas si el usuario las eligió
+      return localStorage.getItem(PROJECT_VIEW_STORAGE_KEY) === 'tarjetas' ? 'tarjetas' : 'tabla';
+    } catch {
+      return 'tabla';
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PROJECT_VIEW_STORAGE_KEY, viewMode); } catch { /* sin almacenamiento */ }
+  }, [viewMode]);
+
+  // Filas expandidas en la vista Tabla (varias a la vez)
+  const [expandedTableRows, setExpandedTableRows] = useState({});
+  const toggleTableRow = (id) => {
+    setExpandedTableRows(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // Columnas visibles de la vista Tabla
+  const [visibleProjectColumns, setVisibleProjectColumns] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROJECT_COLUMNS_STORAGE_KEY) || 'null');
+      if (Array.isArray(saved)) {
+        return saved.filter(k => DEFAULT_PROJECT_COLUMNS.includes(k));
+      }
+    } catch { /* valor inválido: usar el defecto */ }
+    return DEFAULT_PROJECT_COLUMNS;
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PROJECT_COLUMNS_STORAGE_KEY, JSON.stringify(visibleProjectColumns)); } catch { /* sin almacenamiento */ }
+  }, [visibleProjectColumns]);
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
+  const columnMenuRef = useRef(null);
+  useEffect(() => {
+    if (!isColumnMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target)) setIsColumnMenuOpen(false);
+    };
+    const handleEscape = (e) => { if (e.key === 'Escape') setIsColumnMenuOpen(false); };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isColumnMenuOpen]);
+  const projectWidths = useColumnWidths(PROJECT_WIDTHS_STORAGE_KEY, PROJECT_COLUMN_DEFAULT_WIDTHS);
+  const isProjectColumnVisible = (key) => visibleProjectColumns.includes(key);
+  const toggleProjectColumn = (key) => {
+    setVisibleProjectColumns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
 
   // Sticky filter header offset measurement
   const filterHeaderRef = useRef(null);
@@ -789,6 +880,349 @@ export default function Proyectos({
     await exportExcelFile(workbook, "PresupuestosSPR.xlsx", "presupuestos_spr_proyectos");
   };
 
+  // --- VISTA TABLA: una fila por proyecto; al expandir, sus presupuestos y costos extra ---
+  const sumByCurrency = (items, getAmount, getCurrency) => items.reduce((acc, item) => {
+    const curr = (getCurrency(item) || 'UF').toUpperCase();
+    acc[curr] = (acc[curr] || 0) + (getAmount(item) || 0);
+    return acc;
+  }, {});
+
+  const formatTotals = (totals) => {
+    const entries = Object.entries(totals || {});
+    if (entries.length === 0) return formatAmountWithCurrency(0, 'UF');
+    return entries.map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ');
+  };
+
+  const getBudgetActiveAmount = (budget) => {
+    const totalAmt = parseFloat(budget.amount) || 0;
+    return (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
+      ? parseFloat(budget.activeAmount)
+      : totalAmt;
+  };
+
+  const totalsDiffer = (totals, otherTotals) => Object.keys(totals).some(curr => {
+    const tolerance = curr === 'CLP' ? 1 : 0.01;
+    return Math.abs((otherTotals[curr] ?? totals[curr]) - totals[curr]) >= tolerance;
+  });
+
+  const getBudgetPreviewFile = (budget) => {
+    if (!budget.backupFiles || budget.backupFiles.length === 0) return null;
+    const pdfFile = budget.backupFiles.find(f => f.name.toLowerCase().endsWith('.pdf'));
+    const docxFile = budget.backupFiles.find(f => f.name.toLowerCase().endsWith('.docx') || f.name.toLowerCase().endsWith('.doc'));
+    return pdfFile || docxFile || null;
+  };
+
+  const openBudgetInstallments = (budget, project) => {
+    const budgetInstallments = localInstallments
+      .filter(i => i.project_id === project.id && i.origin_budget_id === budget.id)
+      .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
+    setActiveBudgetForInstallments({ budget, installments: budgetInstallments, project });
+    setIsInstallmentsModalOpen(true);
+  };
+
+  const renderProjectsTable = () => {
+    const th = 'px-2.5 h-9 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/60 bg-surface-container-low whitespace-nowrap';
+    const td = 'px-2.5 h-12 text-[13px] text-slate-800 border-b border-slate-100 whitespace-nowrap overflow-hidden text-ellipsis bg-white';
+    const subTd = 'px-2.5 h-10 text-xs text-slate-700 border-b border-slate-100 whitespace-nowrap bg-slate-50';
+    const iconBtn = 'inline-flex items-center justify-center h-7 w-7 rounded border border-outline-variant bg-white hover:bg-surface-container-low transition-all active:scale-95';
+    const show = isProjectColumnVisible;
+    const columns = [
+      { key: 'expand', label: 'Expandir', srOnly: true, fixed: true },
+      { key: 'proyecto', label: 'Proyecto' },
+      { key: 'cliente', label: 'Cliente', optional: true },
+      { key: 'empresa', label: 'Empresa', optional: true },
+      { key: 'tipo', label: 'Tipo', optional: true },
+      { key: 'monto', label: 'Monto total', className: 'text-right' },
+      { key: 'facturado', label: 'Facturado', optional: true },
+      { key: 'encargado', label: 'Encargado', optional: true },
+      { key: 'superficie', label: 'Superficie', className: 'text-right', optional: true },
+      { key: 'costosExtra', label: 'Costos extra', className: 'text-right', optional: true },
+      { key: 'rentabilidad', label: 'Rentab.', className: 'text-right', optional: true },
+      { key: 'acciones', label: 'Acciones', className: 'text-right', stickyRight: true }
+    ].filter(c => !c.optional || show(c.key));
+    const tableMinWidth = columns.reduce((sum, c) => sum + (projectWidths.getWidth(c.key) || FLEX_COLUMN_MIN_WIDTH), 0);
+    const nameSpan = 1 + ['cliente', 'empresa', 'tipo'].filter(show).length;
+    const afterAmountCols = ['facturado', 'encargado', 'superficie', 'costosExtra', 'rentabilidad'].filter(show).length;
+    const beforeExtraCols = ['facturado', 'encargado', 'superficie'].filter(show).length;
+    const colCount = 3 + nameSpan - 1 + afterAmountCols + 1;
+
+    const footerAmounts = {};
+    const footerExtras = {};
+    let footerSurface = 0;
+
+    const rows = filteredProjects.map(project => {
+      const projectBudgets = budgets.filter(b => b.projectId === project.id);
+      const totals = sumByCurrency(projectBudgets, b => parseFloat(b.amount) || 0, b => b.currency);
+      const activeTotals = sumByCurrency(projectBudgets, getBudgetActiveAmount, b => b.currency);
+      const projectExtraCosts = extraCosts.filter(ec => ec.project_id === project.id);
+      const extraTotals = sumByCurrency(projectExtraCosts, c => parseFloat(c.amount) || 0, c => c.currency);
+
+      const projectInsts = (installments || []).filter(i => i.project_id === project.id && i.status !== 'Anulada');
+      const plannedSum = projectInsts.reduce((s, i) => s + (parseFloat(i.uf) || 0), 0);
+      const invoicedSum = projectInsts.filter(i => INVOICED_STATUSES.includes(i.status)).reduce((s, i) => s + (parseFloat(i.uf) || 0), 0);
+      const invoicedPct = plannedSum > 0 ? Math.min(100, Math.round((invoicedSum / plannedSum) * 100)) : 0;
+
+      Object.entries(totals).forEach(([c, a]) => { footerAmounts[c] = (footerAmounts[c] || 0) + a; });
+      Object.entries(extraTotals).forEach(([c, a]) => { footerExtras[c] = (footerExtras[c] || 0) + a; });
+      footerSurface += parseFloat(project.superficie) || 0;
+
+      return { project, projectBudgets, totals, activeTotals, projectExtraCosts, extraTotals, invoicedPct };
+    });
+
+    return (
+      <div className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden">
+        {/* Contenedor con scroll propio: el encabezado queda fijo arriba y Acciones fija a la derecha */}
+        <div className="overflow-auto" style={{ maxHeight: `calc(100vh - ${stickyHeaderOffset + 28}px)` }}>
+          <table className="text-left border-collapse table-fixed" style={{ width: '100%', minWidth: tableMinWidth }}>
+            <colgroup>
+              {columns.map(c => (
+                <col key={c.key} style={projectWidths.getWidth(c.key) ? { width: projectWidths.getWidth(c.key) } : undefined} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {columns.map(c => (
+                  <th
+                    key={c.key}
+                    className={`${th} ${c.className || ''} sticky top-0 ${c.stickyRight ? 'right-0 z-30' : 'z-20'}`}
+                  >
+                    {c.srOnly
+                      ? <span className="sr-only">{c.label}</span>
+                      : <span className="block overflow-hidden text-ellipsis">{c.label}</span>}
+                    {!c.fixed && (
+                      <ColumnResizeHandle
+                        columnKey={c.key}
+                        label={c.label}
+                        onResize={projectWidths.setWidth}
+                        onReset={projectWidths.resetWidth}
+                      />
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ project, projectBudgets, totals, activeTotals, projectExtraCosts, extraTotals, invoicedPct }) => {
+                const isOpen = Boolean(expandedTableRows[project.id]);
+                const hasDifferentActive = totalsDiffer(totals, activeTotals);
+                const hasExtras = projectExtraCosts.length > 0;
+                const company = project.billingCompany || 'Spoerer';
+
+                return (
+                  <React.Fragment key={project.id}>
+                    <tr className="group">
+                      <td className={`${td} pr-0 group-hover:bg-surface-container-lowest`}>
+                        <button
+                          type="button"
+                          onClick={() => toggleTableRow(project.id)}
+                          className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:bg-slate-200/80 hover:text-slate-800 transition-colors"
+                          aria-expanded={isOpen}
+                          aria-label={isOpen ? 'Contraer proyecto' : 'Expandir proyecto'}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{isOpen ? 'expand_more' : 'chevron_right'}</span>
+                        </button>
+                      </td>
+                      <td className={`${td} group-hover:bg-surface-container-lowest`}>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-bold text-primary truncate" title={project.projectName}>
+                            {project.projectNumber ? `${project.projectNumber} · ` : ''}{project.rawProjectName || project.projectName}
+                          </span>
+                          {projectBudgets.length === 0 && (
+                            <span className="material-symbols-outlined text-amber-500 text-[17px] flex-shrink-0 cursor-help" title="Este proyecto no tiene ningún presupuesto asociado">warning</span>
+                          )}
+                        </div>
+                      </td>
+                      {show('cliente') && <td className={`${td} text-slate-600 group-hover:bg-surface-container-lowest`} title={project.cliente || ''}>{project.cliente || '-'}</td>}
+                      {show('empresa') && (
+                        <td className={`${td} group-hover:bg-surface-container-lowest`}>
+                          <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${company === 'FPF' ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700'}`}>{company}</span>
+                        </td>
+                      )}
+                      {show('tipo') && <td className={`${td} text-slate-600 group-hover:bg-surface-container-lowest`} title={project.tipo || ''}>{project.tipo || '-'}</td>}
+                      <td className={`${td} text-right tabular-nums group-hover:bg-surface-container-lowest`}>
+                        {/* Una línea por moneda para no ensanchar la columna */}
+                        <div className="flex flex-col items-end leading-tight">
+                          {Object.keys(totals).length === 0 && <span className="font-bold text-secondary">{formatTotals(totals)}</span>}
+                          {Object.entries(totals).map(([curr, amt]) => (
+                            <span key={curr} className="font-bold text-secondary">{formatAmountWithCurrency(amt, curr)}</span>
+                          ))}
+                          {hasDifferentActive && Object.entries(activeTotals).map(([curr, amt]) => (
+                            <span key={`a-${curr}`} className="text-[11px] font-semibold text-amber-700" title="Monto activo">activo {formatAmountWithCurrency(amt, curr)}</span>
+                          ))}
+                        </div>
+                      </td>
+                      {show('facturado') && (
+                        <td className={`${td} group-hover:bg-surface-container-lowest`} title={`${invoicedPct}% del monto planificado en cuotas está facturado o pagado`}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-12 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                              <div className="h-full bg-secondary rounded-full" style={{ width: `${invoicedPct}%` }}></div>
+                            </div>
+                            <span className="text-xs text-slate-700 tabular-nums">{invoicedPct}%</span>
+                          </div>
+                        </td>
+                      )}
+                      {show('encargado') && <td className={`${td} text-slate-600 group-hover:bg-surface-container-lowest`} title={project.encargado || ''}>{project.encargado || '-'}</td>}
+                      {show('superficie') && (
+                        <td className={`${td} text-right text-slate-700 tabular-nums group-hover:bg-surface-container-lowest`}>
+                          {(parseFloat(project.superficie) || 0).toLocaleString('es-CL')} m²
+                        </td>
+                      )}
+                      {show('costosExtra') && (
+                        <td className={`${td} text-right tabular-nums group-hover:bg-surface-container-lowest ${hasExtras ? 'font-bold text-amber-700' : 'text-slate-400'}`}>
+                          {hasExtras ? formatTotals(extraTotals) : '-'}
+                        </td>
+                      )}
+                      {show('rentabilidad') && (
+                        <td className={`${td} text-right font-bold text-indigo-700 tabular-nums group-hover:bg-surface-container-lowest`}>
+                          {project.rentabilidad ?? 0}%
+                        </td>
+                      )}
+                      <td className={`${td} text-right sticky right-0 shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.15)] group-hover:bg-surface-container-lowest`}>
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <button type="button" onClick={() => handleOpenExtraCostModal(project)} className={`${iconBtn} text-emerald-700`} title="Agregar costo extra" aria-label="Agregar costo extra">
+                            <span className="material-symbols-outlined text-[17px]">add</span>
+                          </button>
+                          <button type="button" onClick={() => setAssociatingBudgetProject(project)} className={`${iconBtn} text-secondary`} title="Asociar presupuesto" aria-label="Asociar presupuesto">
+                            <span className="material-symbols-outlined text-[16px]">link</span>
+                          </button>
+                          <button type="button" onClick={() => handleOpenEditModal(project)} className={`${iconBtn} text-primary`} title="Editar parámetros generales del proyecto" aria-label="Editar proyecto">
+                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                          </button>
+                          <button type="button" onClick={() => handleDeleteProjectLocal(project.id, project.projectName)} className={`${iconBtn} text-error hover:bg-red-50`} title="Eliminar proyecto por completo" aria-label="Eliminar proyecto">
+                            <span className="material-symbols-outlined text-[16px]">delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {isOpen && projectBudgets.map(budget => {
+                      const budgetTotal = parseFloat(budget.amount) || 0;
+                      const budgetActive = getBudgetActiveAmount(budget);
+                      const tolerance = (budget.currency || 'UF').toUpperCase() === 'CLP' ? 1 : 0.01;
+                      const showActive = Math.abs(budgetActive - budgetTotal) >= tolerance;
+                      const previewDoc = getBudgetPreviewFile(budget);
+                      const isLocked = localInstallments.some(i => i.origin_budget_id === budget.id && INVOICED_STATUSES.includes(i.status));
+
+                      return (
+                        <tr key={budget.id}>
+                          <td className={subTd}></td>
+                          <td className={subTd} colSpan={nameSpan}>
+                            <div className="flex items-center gap-2 pl-1 min-w-0">
+                              <span className="material-symbols-outlined text-[16px] text-slate-400">description</span>
+                              <span className="font-bold text-primary">{budget.quoteId}</span>
+                              <span className="truncate max-w-[420px]" title={budget.title}>{budget.title}</span>
+                              {previewDoc && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewFile(previewDoc)}
+                                  className="inline-flex items-center p-0.5 rounded text-slate-500 hover:text-primary hover:bg-slate-200/70 transition-colors"
+                                  title={`Visualizar respaldo: ${previewDoc.name}`}
+                                  aria-label="Visualizar respaldo del presupuesto"
+                                >
+                                  <span className="material-symbols-outlined text-[16px]">
+                                    {previewDoc.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className={`${subTd} text-right tabular-nums`}>
+                            <div className="flex flex-col items-end leading-tight">
+                              <span className="font-bold text-primary">{formatAmountWithCurrency(budgetTotal, budget.currency)}</span>
+                              {showActive && (
+                                <span className="text-[11px] font-semibold text-amber-700" title="Monto activo">activo {formatAmountWithCurrency(budgetActive, budget.currency)}</span>
+                              )}
+                            </div>
+                          </td>
+                          {afterAmountCols > 0 && <td className={subTd} colSpan={afterAmountCols}></td>}
+                          <td className={`${subTd} text-right sticky right-0`}>
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button type="button" onClick={() => openBudgetInstallments(budget, project)} className={`${iconBtn} text-primary`} title="Ver cuotas del presupuesto" aria-label="Ver cuotas del presupuesto">
+                                <span className="material-symbols-outlined text-[16px]">visibility</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDisassociateBudgetLocal(budget.id)}
+                                className={`${iconBtn} ${isLocked ? 'text-slate-400 opacity-60 cursor-not-allowed' : 'text-error hover:bg-red-50'}`}
+                                title={isLocked ? 'No se puede desvincular: posee cuotas facturadas o pagadas' : 'Desvincular presupuesto'}
+                                aria-label="Desvincular presupuesto"
+                              >
+                                <span className="material-symbols-outlined text-[16px]">link_off</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {isOpen && hasExtras && (
+                      <tr>
+                        <td className={subTd}></td>
+                        <td className={subTd} colSpan={show('costosExtra') ? nameSpan + 1 + beforeExtraCols : nameSpan + 1 + afterAmountCols}>
+                          <div className="flex items-center gap-2 pl-1">
+                            <span className="material-symbols-outlined text-[16px] text-amber-600">request_quote</span>
+                            <span className="font-bold text-amber-800">Costos extra</span>
+                            <span className="text-slate-500">
+                              {projectExtraCosts.length} {projectExtraCosts.length === 1 ? 'ítem' : 'ítems'}
+                              {!show('costosExtra') && ` · ${formatTotals(extraTotals)}`}
+                            </span>
+                          </div>
+                        </td>
+                        {show('costosExtra') && (
+                          <td className={`${subTd} text-right font-bold text-amber-700 tabular-nums`}>{formatTotals(extraTotals)}</td>
+                        )}
+                        {show('costosExtra') && show('rentabilidad') && <td className={subTd}></td>}
+                        <td className={`${subTd} text-right sticky right-0`}>
+                          <button type="button" onClick={() => handleOpenExtraCostModal(project)} className={`${iconBtn} text-emerald-700`} title="Ver o agregar costos extra" aria-label="Ver o agregar costos extra">
+                            <span className="material-symbols-outlined text-[17px]">add</span>
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+
+                    {isOpen && projectBudgets.length === 0 && (
+                      <tr>
+                        <td className={subTd}></td>
+                        <td className={`${subTd} italic text-slate-500`} colSpan={colCount - 1}>
+                          No hay presupuestos asociados a este proyecto. Usa el botón de enlace en Acciones para asociar uno.
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-surface-container-low">
+                <td colSpan={nameSpan + 1} className="px-3 h-11 text-xs text-on-surface-variant">
+                  {filteredProjects.length} {filteredProjects.length === 1 ? 'proyecto' : 'proyectos'}
+                </td>
+                <td className="px-3 py-2 text-right text-[13px] font-bold text-secondary whitespace-nowrap tabular-nums">
+                  <div className="flex flex-col items-end leading-tight">
+                    {Object.keys(footerAmounts).length === 0
+                      ? <span>{formatTotals(footerAmounts)}</span>
+                      : Object.entries(footerAmounts).map(([curr, amt]) => <span key={curr}>{formatAmountWithCurrency(amt, curr)}</span>)}
+                  </div>
+                </td>
+                {beforeExtraCols - (show('superficie') ? 1 : 0) > 0 && <td colSpan={beforeExtraCols - (show('superficie') ? 1 : 0)}></td>}
+                {show('superficie') && (
+                  <td className="px-3 h-11 text-right text-[13px] font-bold text-slate-800 whitespace-nowrap tabular-nums">{footerSurface.toLocaleString('es-CL')} m²</td>
+                )}
+                {show('costosExtra') && (
+                  <td className="px-3 h-11 text-right text-[13px] font-bold text-amber-700 whitespace-nowrap tabular-nums">
+                    {Object.keys(footerExtras).length > 0 ? formatTotals(footerExtras) : '-'}
+                  </td>
+                )}
+                {show('rentabilidad') && <td></td>}
+                <td className="sticky right-0 bg-surface-container-low"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3 text-left">
       {/* Sticky Header Section: Title, KPIs, and Filters */}
@@ -922,35 +1356,59 @@ export default function Proyectos({
 
         {/* Search and Filters */}
         <div className="card-modern py-2.5 px-4 flex flex-col gap-2.5">
-          {/* Main Row: Buscar, Limpiar, Tipo, Encargado, and Toggle (+) */}
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5 justify-between">
-            {/* Left Side: Buscar and Limpiar */}
-            <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-              <div className="flex flex-col flex-grow max-w-lg min-w-[240px]">
-                <div className="relative w-full">
-                  <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
-                  <input
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
-                    placeholder="Buscar por código, nombre o cliente..."
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
+          {/* Main Row: vista y búsqueda a la izquierda; filtros, expandir/contraer y columnas a la derecha.
+              En pantallas angostas el bloque derecho baja a una segunda fila. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+            {/* Left Side: Vista (Tarjetas / Tabla), Buscar y Limpiar */}
+            <div className="flex flex-wrap items-center gap-2 flex-grow basis-[280px]">
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80" role="group" aria-label="Ver por">
+                {[
+                  { value: 'tarjetas', label: 'Tarjetas', icon: 'view_agenda' },
+                  { value: 'tabla', label: 'Tabla', icon: 'table_rows' }
+                ].map((v) => (
+                  <button
+                    key={v.value}
+                    type="button"
+                    onClick={() => setViewMode(v.value)}
+                    aria-pressed={viewMode === v.value}
+                    aria-label={`Ver como ${v.label.toLowerCase()}`}
+                    title={v.value === 'tabla' ? 'Ver proyectos en una tabla' : 'Ver proyectos como tarjetas expandibles'}
+                    className={`flex items-center px-2.5 py-1 rounded-lg transition-all cursor-pointer ${viewMode === v.value
+                      ? 'bg-[#091426] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                  >
+                    <span className="material-symbols-outlined text-[15px]">{v.icon}</span>
+                  </button>
+                ))}
               </div>
+
+              <div className="relative flex-grow basis-[150px] min-w-[150px] max-w-xs">
+                <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]">search</span>
+                <input
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all placeholder:text-slate-400"
+                  placeholder="Buscar por código, nombre o cliente..."
+                  type="text"
+                  aria-label="Buscar"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+
               {(searchTerm || (tipoFilter !== null && tipoFilter.length !== uniqueProjectTypes.length) || encargadoFilter !== 'Todos' || clientFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || yearFilter !== 'Todos' || situacionFilter !== 'Todos') && (
                 <button
                   onClick={handleClearFilters}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold cursor-pointer active:scale-95"
+                  className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                  title="Limpiar filtros"
+                  aria-label="Limpiar filtros"
                 >
-                  <span className="material-symbols-outlined text-[16px]">clear_all</span>
-                  <span>Limpiar</span>
+                  <span className="material-symbols-outlined text-[18px]">clear_all</span>
                 </button>
               )}
             </div>
 
-            {/* Right Side: Filters + Toggle Button */}
-            <div className="flex flex-wrap items-center gap-3 justify-end w-full lg:w-auto">
+            {/* Right Side: Tipo, Encargado, (+), expandir/contraer y Columnas */}
+            <div className="flex flex-wrap items-center gap-3 ml-auto justify-end">
               {/* Tipo de Proyecto Multiselect */}
               <div className="flex items-center gap-2 relative" ref={multiselectRef}>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Tipo:</span>
@@ -1039,6 +1497,82 @@ export default function Proyectos({
                   {isFilterExpanded ? '−' : '+'}
                 </span>
               </button>
+
+              {viewMode === 'tabla' && filteredProjects.length > 0 && (() => {
+                const allExpanded = filteredProjects.every(p => expandedTableRows[p.id]);
+                const label = allExpanded ? 'Contraer todo' : 'Expandir todo';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (allExpanded) {
+                        setExpandedTableRows({});
+                      } else {
+                        const all = {};
+                        filteredProjects.forEach(p => { all[p.id] = true; });
+                        setExpandedTableRows(all);
+                      }
+                    }}
+                    className="w-8 h-8 flex items-center justify-center border border-slate-200 rounded-xl bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                    title={label}
+                    aria-label={label}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">{allExpanded ? 'unfold_less' : 'unfold_more'}</span>
+                  </button>
+                );
+              })()}
+
+              {viewMode === 'tabla' && (
+                <div className="relative flex-shrink-0" ref={columnMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsColumnMenuOpen(prev => !prev)}
+                    className={`w-8 h-8 flex items-center justify-center border rounded-xl transition-all cursor-pointer active:scale-95 ${isColumnMenuOpen
+                      ? 'bg-[#091426] text-white border-[#091426]'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    title="Columnas visibles"
+                    aria-label="Columnas visibles"
+                    aria-expanded={isColumnMenuOpen}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">view_column</span>
+                  </button>
+                  {isColumnMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-lg z-40 py-2 animate-fade-in">
+                      <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Columnas visibles</p>
+                      {PROJECT_OPTIONAL_COLUMNS.map(col => (
+                        <label key={col.key} className="flex items-center gap-2.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isProjectColumnVisible(col.key)}
+                            onChange={() => toggleProjectColumn(col.key)}
+                            className="w-4 h-4 accent-secondary cursor-pointer"
+                          />
+                          {col.label}
+                        </label>
+                      ))}
+                      <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-3">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleProjectColumns(DEFAULT_PROJECT_COLUMNS)}
+                          className="block text-xs font-semibold text-secondary hover:underline cursor-pointer"
+                        >
+                          Restablecer columnas
+                        </button>
+                        {projectWidths.hasCustomWidths && (
+                          <button
+                            type="button"
+                            onClick={projectWidths.resetAll}
+                            className="block mt-1 text-xs font-semibold text-secondary hover:underline cursor-pointer"
+                          >
+                            Restablecer anchos
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1110,7 +1644,9 @@ export default function Proyectos({
 
       {/* Projects List */}
       <div className="space-y-md">
-        {filteredProjects.length > 0 ? (
+        {filteredProjects.length > 0 && viewMode === 'tabla' ? (
+          renderProjectsTable()
+        ) : filteredProjects.length > 0 ? (
           filteredProjects.map((project) => {
             const isExpanded = expandedProjectId === project.id;
 

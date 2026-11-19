@@ -2389,7 +2389,7 @@ export default function Presupuestos({
               <tr className="border-b border-outline-variant">
                 <th
                   onClick={() => handleSort('quoteId')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por ID Presupuesto"
                 >
@@ -2403,8 +2403,14 @@ export default function Presupuestos({
                   </div>
                 </th>
                 <th
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none shadow-xs"
+                  style={{ top: `${stickyHeaderOffset}px` }}
+                >
+                  Empresa
+                </th>
+                <th
                   onClick={() => handleSort('clientName')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Cliente"
                 >
@@ -2419,7 +2425,7 @@ export default function Presupuestos({
                 </th>
                 <th
                   onClick={() => handleSort('title')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Título de presupuesto"
                 >
@@ -2434,7 +2440,7 @@ export default function Presupuestos({
                 </th>
                 <th
                   onClick={() => handleSort('date')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Fecha de Emisión"
                 >
@@ -2449,7 +2455,7 @@ export default function Presupuestos({
                 </th>
                 <th
                   onClick={() => handleSort('amount')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-right sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-right sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Monto"
                 >
@@ -2464,7 +2470,7 @@ export default function Presupuestos({
                 </th>
                 <th
                   onClick={() => handleSort('backupFiles')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Respaldo"
                 >
@@ -2479,7 +2485,7 @@ export default function Presupuestos({
                 </th>
                 <th
                   onClick={() => handleSort('status')}
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                   title="Ordenar por Estado"
                 >
@@ -2493,7 +2499,7 @@ export default function Presupuestos({
                   </div>
                 </th>
                 <th
-                  className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                  className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
                   style={{ top: `${stickyHeaderOffset}px` }}
                 >
                   Acciones
@@ -2503,24 +2509,24 @@ export default function Presupuestos({
             <tbody className="divide-y divide-outline-variant">
               {sortedQuotes.map((quote) => (
                   <tr key={quote.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-md font-body-md">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="font-bold text-primary">{quote.quoteId}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          quote.billingCompany === 'FPF'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : 'bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}>
-                          {quote.billingCompany || 'Spoerer'}
-                        </span>
-                      </div>
+                    <td className="px-3 py-2 text-[13px] font-bold text-primary whitespace-nowrap">
+                      {quote.quoteId}
                     </td>
-                    <td className="p-md">
+                    <td className="px-3 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                        quote.billingCompany === 'FPF'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : 'bg-slate-100 text-slate-700 border border-slate-300'
+                      }`}>
+                        {quote.billingCompany || 'Spoerer'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
                       <div className="flex flex-col">
-                        <span className="font-body-md font-bold text-on-surface">{quote.clientName}</span>
+                        <span className="text-[13px] font-bold text-on-surface">{quote.clientName}</span>
                       </div>
                     </td>
-                    <td className="p-md font-body-md text-on-surface">
+                    <td className="px-3 py-2 text-[13px] text-on-surface">
                       <div className="flex items-center gap-1.5">
                         <span>{quote.title}</span>
                         {(quote.status === 'Aprobado' || quote.status === 'Aprovado') && !quote.projectId && (
@@ -2533,11 +2539,11 @@ export default function Presupuestos({
                         )}
                       </div>
                     </td>
-                    <td className="p-md font-body-md text-on-surface">{quote.date}</td>
-                    <td className="p-md font-body-md font-bold text-on-surface text-right">
+                    <td className="px-3 py-2 text-[13px] text-on-surface">{quote.date}</td>
+                    <td className="px-3 py-2 text-[13px] font-bold text-on-surface text-right whitespace-nowrap">
                       {formatAmountWithCurrency(quote.amount, quote.currency)}
                     </td>
-                    <td className="p-md text-center">
+                    <td className="px-3 py-2 text-center">
                       {quote.backupFiles && quote.backupFiles.length > 0 ? (
                         <div className="flex justify-center items-center gap-1.5">
                           {quote.backupFiles.map((file, idx) => (
@@ -2552,7 +2558,7 @@ export default function Presupuestos({
                               className="text-secondary hover:text-primary transition-colors flex items-center"
                               title={`Previsualizar ${file.name}`}
                             >
-                              <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 0, 'wght' 400" }}>
+                              <span className="material-symbols-outlined text-[18px]" style={{ fontVariationSettings: "'FILL' 0, 'wght' 400" }}>
                                 {file.name.toLowerCase().endsWith('.pdf') ? 'picture_as_pdf' : 'description'}
                               </span>
                             </button>
@@ -2562,7 +2568,7 @@ export default function Presupuestos({
                         <span className="text-on-surface-variant/30 text-label-sm italic">-</span>
                       )}
                     </td>
-                    <td className="p-md">
+                    <td className="px-3 py-2">
                       <select
                         value={quote.status}
                         onChange={(e) => handleStatusChange(quote.id, e.target.value)}
@@ -2587,28 +2593,28 @@ export default function Presupuestos({
                         <option value="Rechazado">Rechazado</option>
                       </select>
                     </td>
-                    <td className="p-md text-center">
+                    <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => handleViewQuote(quote)}
-                          className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all"
+                          className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all"
                           title="Visualizar Presupuesto"
                         >
-                          <span className="material-symbols-outlined text-[20px]">visibility</span>
+                          <span className="material-symbols-outlined text-[18px]">visibility</span>
                         </button>
                         <button
                           onClick={() => handleEditQuote(quote)}
-                          className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all"
+                          className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all"
                           title="Editar Presupuesto"
                         >
-                          <span className="material-symbols-outlined text-[20px]">edit</span>
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
                         </button>
                         <button
                           onClick={() => handleDeleteQuote(quote.id)}
-                          className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all"
+                          className="h-7 w-7 inline-flex items-center justify-center hover:bg-red-50 rounded text-error hover:text-red-700 transition-all"
                           title="Eliminar Presupuesto"
                         >
-                          <span className="material-symbols-outlined text-[20px]">delete</span>
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
                         </button>
                       </div>
                     </td>

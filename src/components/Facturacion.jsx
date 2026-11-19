@@ -13,6 +13,7 @@ import NuboxClassicPanel from './NuboxClassicPanel';
 import FilePreviewModal from './FilePreviewModal';
 import ClientEmailModal from './ClientEmailModal';
 import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
+import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
 
 const VIEW_MODE_STORAGE_KEY = 'spr_erp_facturacion_view';
 const CUOTA_COLUMNS_STORAGE_KEY = 'spr_erp_facturacion_cuota_columns';
@@ -32,6 +33,28 @@ const CUOTA_OPTIONAL_COLUMNS = [
   { key: 'respaldos', label: 'Respaldos' }
 ];
 const DEFAULT_CUOTA_COLUMNS = ['descripcion', 'empresa', 'respaldos'];
+
+// Anchos por defecto (px) de la vista de cuotas; null = ocupa el espacio sobrante.
+const CUOTA_WIDTHS_STORAGE_KEY = 'spr_erp_facturacion_cuota_widths';
+const CUOTA_COLUMN_DEFAULT_WIDTHS = {
+  presup: 130,
+  presupuestoNombre: 200,
+  cuota: 72,
+  fecha: 124,
+  descripcion: null,
+  comentario: 220,
+  oc: 110,
+  empresa: 92,
+  monto: 130,
+  estado: 116,
+  folio: 120,
+  fechaFacturacion: 112,
+  clp: 124,
+  fechaPago: 112,
+  respaldos: 112,
+  acciones: 216
+};
+const FLEX_COLUMN_MIN_WIDTH = 160;
 
 // Color de texto por estado de cuota (sin fondo) para la vista de cuotas
 const CUOTA_STATUS_TEXT_CLASS = {
@@ -81,9 +104,10 @@ export default function Facturacion({
   // --- VISTA: 'proyectos' (tarjetas expandibles) | 'cuotas' (tabla de cuotas agrupada por proyecto) ---
   const [viewMode, setViewMode] = useState(() => {
     try {
-      return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'cuotas' ? 'cuotas' : 'proyectos';
+      // Por defecto la vista de cuotas; solo se usa la de proyectos si el usuario la eligió
+      return localStorage.getItem(VIEW_MODE_STORAGE_KEY) === 'proyectos' ? 'proyectos' : 'cuotas';
     } catch {
-      return 'proyectos';
+      return 'cuotas';
     }
   });
   useEffect(() => {
@@ -122,6 +146,7 @@ export default function Facturacion({
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isColumnMenuOpen]);
+  const cuotaWidths = useColumnWidths(CUOTA_WIDTHS_STORAGE_KEY, CUOTA_COLUMN_DEFAULT_WIDTHS);
   const isCuotaColumnVisible = (key) => visibleCuotaColumns.includes(key);
   const toggleCuotaColumn = (key) => {
     setVisibleCuotaColumns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -665,7 +690,10 @@ export default function Facturacion({
         const budget = inst.origin_budget_id && Array.isArray(budgets) ? budgets.find(b => b.id === inst.origin_budget_id) : null;
         const budgetNum = budget?.quoteId?.toLowerCase() || '';
         const budgetTitle = budget?.title?.toLowerCase() || '';
-        const rawDigitsTerm = term.replace(/\D/g, '');
+        // Coincidencia solo por dígitos del N° de presupuesto (ej. "#0813" o "08-13" → "0813"),
+        // únicamente si lo escrito es numérico: con letras ("mk13") no debe bastar con contener "13".
+        const isNumericTerm = /^[\d\s#.\-/]+$/.test(term);
+        const rawDigitsTerm = isNumericTerm ? term.replace(/\D/g, '') : '';
 
         const matchesProject = projectCode.includes(term) || projectName.includes(term) || projectEncargado.includes(term);
         const matchesClient = clientCompany.includes(term) || clientName.includes(term) || projectClient.includes(term) || instClientName.includes(term);
@@ -1584,7 +1612,26 @@ export default function Facturacion({
 
   const renderCuotasView = () => {
     const th = 'px-3 h-9 text-[11px] font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/60 bg-surface-container-low whitespace-nowrap';
-    const td = 'px-3 h-11 text-[13px] text-slate-800 border-b border-slate-100 whitespace-nowrap';
+    const td = 'px-3 h-11 text-[13px] text-slate-800 border-b border-slate-100 whitespace-nowrap overflow-hidden text-ellipsis';
+    const columns = [
+      { key: 'presup', label: 'Presup.', className: 'pl-11' },
+      { key: 'presupuestoNombre', label: 'Nombre presupuesto', optional: true },
+      { key: 'cuota', label: 'Cuota' },
+      { key: 'fecha', label: 'Fecha plan.' },
+      { key: 'descripcion', label: 'Descripción', optional: true },
+      { key: 'comentario', label: 'Comentario', optional: true },
+      { key: 'oc', label: 'OC', optional: true },
+      { key: 'empresa', label: 'Empresa', optional: true },
+      { key: 'monto', label: 'Monto', className: 'text-right' },
+      { key: 'estado', label: 'Estado' },
+      { key: 'folio', label: 'Folio', optional: true },
+      { key: 'fechaFacturacion', label: 'Fecha fact.', optional: true },
+      { key: 'clp', label: 'Total CLP', className: 'text-right', optional: true },
+      { key: 'fechaPago', label: 'Fecha pago', optional: true },
+      { key: 'respaldos', label: 'Respaldos', className: 'text-center', optional: true },
+      { key: 'acciones', label: 'Acciones', className: 'text-right', stickyRight: true }
+    ].filter(c => !c.optional || isCuotaColumnVisible(c.key));
+    const tableMinWidth = columns.reduce((sum, c) => sum + (cuotaWidths.getWidth(c.key) || FLEX_COLUMN_MIN_WIDTH), 0);
     const colsBeforeAmount = ['presupuestoNombre', 'descripcion', 'comentario', 'oc', 'empresa'].filter(isCuotaColumnVisible).length + 3;
     const colsAfterAmount = ['folio', 'fechaFacturacion', 'clp', 'fechaPago', 'respaldos'].filter(isCuotaColumnVisible).length + 2;
 
@@ -1599,27 +1646,30 @@ export default function Facturacion({
 
     return (
       <div className="bg-white rounded-xl border border-outline-variant/40 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1100px]">
+        {/* Contenedor con scroll propio: el encabezado queda fijo arriba y Acciones fija a la derecha */}
+        <div className="overflow-auto" style={{ maxHeight: `calc(100vh - ${stickyHeaderOffset + 28}px)` }}>
+          <table className="text-left border-collapse table-fixed" style={{ width: '100%', minWidth: tableMinWidth }}>
+            <colgroup>
+              {columns.map(c => (
+                <col key={c.key} style={cuotaWidths.getWidth(c.key) ? { width: cuotaWidths.getWidth(c.key) } : undefined} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                <th className={`${th} pl-11`}>Presup.</th>
-                {isCuotaColumnVisible('presupuestoNombre') && <th className={th}>Nombre presupuesto</th>}
-                <th className={th}>Cuota</th>
-                <th className={th}>Fecha plan.</th>
-                {isCuotaColumnVisible('descripcion') && <th className={th}>Descripción</th>}
-                {isCuotaColumnVisible('comentario') && <th className={th}>Comentario</th>}
-                {isCuotaColumnVisible('oc') && <th className={th}>OC</th>}
-                {isCuotaColumnVisible('empresa') && <th className={th}>Empresa</th>}
-                <th className={`${th} text-right`}>Monto</th>
-                <th className={th}>Estado</th>
-                {isCuotaColumnVisible('folio') && <th className={th}>Folio</th>}
-                {isCuotaColumnVisible('fechaFacturacion') && <th className={th}>Fecha fact.</th>}
-                {isCuotaColumnVisible('clp') && <th className={`${th} text-right`}>Total CLP</th>}
-                {isCuotaColumnVisible('fechaPago') && <th className={th}>Fecha pago</th>}
-                {isCuotaColumnVisible('respaldos') && <th className={`${th} text-center`}>Respaldos</th>}
-                {/* Acciones fija al borde derecho para que siga visible con desplazamiento horizontal */}
-                <th className={`${th} text-right sticky right-0 z-10`}>Acciones</th>
+                {columns.map(c => (
+                  <th
+                    key={c.key}
+                    className={`${th} ${c.className || ''} sticky top-0 ${c.stickyRight ? 'right-0 z-30' : 'z-20'}`}
+                  >
+                    <span className="block overflow-hidden text-ellipsis">{c.label}</span>
+                    <ColumnResizeHandle
+                      columnKey={c.key}
+                      label={c.label}
+                      onResize={cuotaWidths.setWidth}
+                      onReset={cuotaWidths.resetWidth}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -1690,7 +1740,7 @@ export default function Facturacion({
                             </div>
                           </td>
                           {isCuotaColumnVisible('presupuestoNombre') && (
-                            <td className={`${td} text-slate-700 max-w-[280px] truncate`} title={budget?.title || ''}>{budget?.title || '-'}</td>
+                            <td className={`${td} text-slate-700`} title={budget?.title || ''}>{budget?.title || '-'}</td>
                           )}
                           <td className={`${td} tabular-nums text-slate-700`}>
                             {inst.numQuota ? `${inst.numQuota.toString().padStart(2, '0')}/${totalQuotas.toString().padStart(2, '0')}` : '-'}
@@ -1708,10 +1758,10 @@ export default function Facturacion({
                             </span>
                           </td>
                           {isCuotaColumnVisible('descripcion') && (
-                            <td className={`${td} text-slate-700 max-w-[320px] truncate`} title={inst.description || ''}>{inst.description || '-'}</td>
+                            <td className={`${td} text-slate-700`} title={inst.description || ''}>{inst.description || '-'}</td>
                           )}
                           {isCuotaColumnVisible('comentario') && (
-                            <td className={`${td} text-slate-600 max-w-[240px] truncate`} title={inst.comment || ''}>{inst.comment || '-'}</td>
+                            <td className={`${td} text-slate-600`} title={inst.comment || ''}>{inst.comment || '-'}</td>
                           )}
                           {isCuotaColumnVisible('oc') && (
                             <td className={`${td} text-slate-700`}>{inst.oc || '-'}</td>
@@ -2145,10 +2195,19 @@ export default function Facturacion({
                         <button
                           type="button"
                           onClick={() => setVisibleCuotaColumns(DEFAULT_CUOTA_COLUMNS)}
-                          className="text-xs font-semibold text-secondary hover:underline cursor-pointer"
+                          className="block text-xs font-semibold text-secondary hover:underline cursor-pointer"
                         >
                           Restablecer columnas
                         </button>
+                        {cuotaWidths.hasCustomWidths && (
+                          <button
+                            type="button"
+                            onClick={cuotaWidths.resetAll}
+                            className="block mt-1 text-xs font-semibold text-secondary hover:underline cursor-pointer"
+                          >
+                            Restablecer anchos
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}

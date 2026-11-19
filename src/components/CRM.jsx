@@ -677,7 +677,7 @@ export default function CRM({
                   <tr className="border-b border-outline-variant">
                     <th
                       onClick={() => handleSortMainClients('name')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Cliente / Empresa Principal"
                     >
@@ -692,7 +692,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortMainClients('contactName')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Contacto Directo"
                     >
@@ -707,7 +707,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortMainClients('contactEmail')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Correo Electrónico"
                     >
@@ -722,7 +722,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortMainClients('phone')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Teléfono"
                     >
@@ -737,7 +737,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortMainClients('razonesCount')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por N° de Razones Sociales"
                     >
@@ -751,7 +751,7 @@ export default function CRM({
                       </div>
                     </th>
                     <th
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                     >
                       Acciones
@@ -766,49 +766,37 @@ export default function CRM({
                     );
                     return (
                       <tr key={mc.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="p-md">
-                          <div className="flex items-center gap-sm">
-                            <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs bg-primary text-white shadow-sm">
-                              {mc.initials}
-                            </div>
-                            <div>
-                              <span className="font-body-md font-bold text-primary block">{mc.name}</span>
-                              <span className="text-xs text-on-surface-variant">Cliente Principal</span>
-                            </div>
-                          </div>
+                        <td className="px-3 py-2">
+                          <span className="text-[13px] font-bold text-primary">{mc.name}</span>
                         </td>
-                        <td className="p-md font-body-md text-on-surface">{mc.contactName || 'Sin registrar'}</td>
-                        <td className="p-md font-body-md text-on-surface">{mc.contactEmail || 'Sin registrar'}</td>
-                        <td className="p-md font-body-md text-on-surface">{mc.phone || 'Sin registrar'}</td>
-                        <td className="p-md text-center">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
-                            associatedEntities.length > 0 ? 'bg-secondary-container/60 text-secondary' : 'bg-slate-100 text-slate-500'
-                          }`}>
-                            {associatedEntities.length} {associatedEntities.length === 1 ? 'Razón Social' : 'Razones Sociales'}
-                          </span>
+                        <td className="px-3 py-2 text-[13px] text-on-surface">{mc.contactName || 'Sin registrar'}</td>
+                        <td className="px-3 py-2 text-[13px] text-on-surface">{mc.contactEmail || 'Sin registrar'}</td>
+                        <td className="px-3 py-2 text-[13px] text-on-surface">{mc.phone || 'Sin registrar'}</td>
+                        <td className="px-3 py-2 text-[13px] text-on-surface text-center">
+                          {associatedEntities.length} {associatedEntities.length === 1 ? 'Razón Social' : 'Razones Sociales'}
                         </td>
-                        <td className="p-md text-center">
+                        <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button 
                               onClick={() => setViewingMainClient(mc)}
-                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                              className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
                               title="Ver Ficha"
                             >
-                              <span className="material-symbols-outlined text-[20px]">visibility</span>
+                              <span className="material-symbols-outlined text-[18px]">visibility</span>
                             </button>
                             <button 
                               onClick={() => handleOpenEditMain(mc)}
-                              className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                              className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
                               title="Editar"
                             >
-                              <span className="material-symbols-outlined text-[20px]">edit</span>
+                              <span className="material-symbols-outlined text-[18px]">edit</span>
                             </button>
                             <button 
                               onClick={() => setMainClientToDelete(mc)}
-                              className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
+                              className="h-7 w-7 inline-flex items-center justify-center hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
                               title="Eliminar"
                             >
-                              <span className="material-symbols-outlined text-[20px]">delete</span>
+                              <span className="material-symbols-outlined text-[18px]">delete</span>
                             </button>
                           </div>
                         </td>
@@ -841,7 +829,7 @@ export default function CRM({
                   <tr className="border-b border-outline-variant">
                     <th
                       onClick={() => handleSortLegal('rut')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group first:rounded-tl-xl shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por RUT"
                     >
@@ -856,7 +844,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('company')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Nombre o Razón Social"
                     >
@@ -871,7 +859,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('mainClient')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Cliente Principal"
                     >
@@ -886,7 +874,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('giro')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Giro"
                     >
@@ -901,7 +889,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('name')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Contacto"
                     >
@@ -916,7 +904,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('email')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Correo Electrónico"
                     >
@@ -931,7 +919,7 @@ export default function CRM({
                     </th>
                     <th
                       onClick={() => handleSortLegal('phone')}
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider sticky z-20 bg-surface-container-low border-b border-outline-variant select-none cursor-pointer hover:bg-slate-200/70 transition-colors group shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                       title="Ordenar por Teléfono"
                     >
@@ -945,7 +933,7 @@ export default function CRM({
                       </div>
                     </th>
                     <th
-                      className="p-md font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
+                      className="px-3 py-2.5 whitespace-nowrap text-[11px] font-bold text-on-surface-variant uppercase tracking-wider text-center sticky z-20 bg-surface-container-low border-b border-outline-variant last:rounded-tr-xl shadow-xs"
                       style={{ top: `${stickyHeaderOffset}px` }}
                     >
                       Acciones
@@ -955,44 +943,39 @@ export default function CRM({
                 <tbody className="divide-y divide-outline-variant">
                   {sortedClients.map((client) => (
                     <tr key={client.id} className="hover:bg-slate-50 transition-colors group">
-                      <td className="p-md font-body-md font-bold text-primary">{client.rut || 'N/A'}</td>
-                      <td className="p-md">
-                        <div className="flex items-center gap-sm">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-secondary-container text-on-secondary-container">
-                            {client.initials}
-                          </div>
-                          <span className="font-body-md font-bold text-on-surface">{client.company}</span>
-                        </div>
+                      <td className="px-3 py-2 text-[13px] font-bold text-primary">{client.rut || 'N/A'}</td>
+                      <td className="px-3 py-2">
+                        <span className="text-[13px] font-bold text-on-surface">{client.company}</span>
                       </td>
-                      <td className="p-md font-body-md font-semibold text-primary">
+                      <td className="px-3 py-2 text-[13px] font-semibold text-primary">
                         {client.mainClientName || client.realClient || <span className="text-on-surface-variant font-normal italic">Sin asignar</span>}
                       </td>
-                      <td className="p-md font-body-md text-on-surface-variant">{client.giro || 'N/A'}</td>
-                      <td className="p-md font-body-md text-on-surface">{client.name || 'N/A'}</td>
-                      <td className="p-md font-body-md text-on-surface">{client.email}</td>
-                      <td className="p-md font-body-md text-on-surface">{client.phone}</td>
-                      <td className="p-md text-center">
+                      <td className="px-3 py-2 text-[13px] text-on-surface-variant">{client.giro || 'N/A'}</td>
+                      <td className="px-3 py-2 text-[13px] text-on-surface">{client.name || 'N/A'}</td>
+                      <td className="px-3 py-2 text-[13px] text-on-surface">{client.email}</td>
+                      <td className="px-3 py-2 text-[13px] text-on-surface">{client.phone}</td>
+                      <td className="px-3 py-2 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <button 
                             onClick={() => setViewingClient(client)}
-                            className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                            className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
                             title="Ver Detalle"
                           >
-                            <span className="material-symbols-outlined text-[20px]">visibility</span>
+                            <span className="material-symbols-outlined text-[18px]">visibility</span>
                           </button>
                           <button 
                             onClick={() => handleOpenEdit(client)}
-                            className="p-1 hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
+                            className="h-7 w-7 inline-flex items-center justify-center hover:bg-slate-100 rounded text-secondary hover:text-secondary-fixed-dim transition-all" 
                             title="Editar"
                           >
-                            <span className="material-symbols-outlined text-[20px]">edit</span>
+                            <span className="material-symbols-outlined text-[18px]">edit</span>
                           </button>
                           <button 
                             onClick={() => setClientToDelete(client)}
-                            className="p-1 hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
+                            className="h-7 w-7 inline-flex items-center justify-center hover:bg-red-50 rounded text-error hover:text-red-700 transition-all" 
                             title="Eliminar"
                           >
-                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                            <span className="material-symbols-outlined text-[18px]">delete</span>
                           </button>
                         </div>
                       </td>
