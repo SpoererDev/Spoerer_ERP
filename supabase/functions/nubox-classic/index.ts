@@ -123,6 +123,16 @@ Deno.serve(async (req: Request) => {
     const total = net + tax;
     const { producto, descripcion } = splitGlosa(glosa);
 
+    // La API clásica admite UNA sola referencia y tipoDocumentoReferenciado numérico (801 OC): un arreglo o "HES"
+    // hacen fallar la validación ("The request is invalid"). La primera OC va como referencia formal; las HES y
+    // las referencias adicionales se imprimen en la observación de la factura.
+    const refLabel = (ref: any) => (ref.type === 'HES' ? 'Hoja de Entrada de Servicio' : 'Orden de Compra');
+    const formalRef = refs.find((ref) => /^\d+$/.test(String(ref.type))) ?? null;
+    const textualRefs = refs.filter((ref) => ref !== formalRef)
+      .map((ref) => `${refLabel(ref)} N° ${text(ref.number, 18)} del ${String(ref.date).split('-').reverse().join('/')}`);
+    const observacion = text([textualRefs.length ? `Ref.: ${textualRefs.join('; ')}` : '', text(body.comment, 500)]
+      .filter(Boolean).join('. '), 500);
+
     const linea = {
       rutContraparte: rutWithDash(rut),
       razonSocialContraparte: text(r.tradeName, 100),
@@ -151,22 +161,20 @@ Deno.serve(async (req: Request) => {
       unidadMedida: 'UNID',
       ponderacionDescuento: 0,
       descuentoMonto: '0',
-      ...(body.comment ? { observacion: text(body.comment, 500) } : {}),
+      ...(observacion ? { observacion } : {}),
     };
-    function buildReference(r: any, i: number) {
-      return {
-        tipo, folio: 1, secuencia: i + 1,
-        tipoDocumentoReferenciado: r.type,
-        folioDocumentoReferenciado: text(r.number, 18),
-        fechaDocumentoReferenciado: r.date,
-        motivoReferencia: Number(r.motivo ?? 3),
-        glosa: `${r.type === 'HES' ? 'Hoja de Entrada de Servicio' : 'Orden de Compra'} N° ${text(r.number, 18)}`,
-      };
-    }
     const payload = {
       productos: [linea],
-      // Una referencia se envía como objeto (formato documentado); varias, como arreglo con secuencia correlativa.
-      documentoReferenciado: refs.length === 1 ? buildReference(refs[0], 0) : refs.length ? refs.map(buildReference) : {},
+      documentoReferenciado: formalRef
+        ? {
+          tipo, folio: 1, secuencia: 1,
+          tipoDocumentoReferenciado: Number(formalRef.type),
+          folioDocumentoReferenciado: text(formalRef.number, 18),
+          fechaDocumentoReferenciado: formalRef.date,
+          motivoReferencia: Number(formalRef.motivo ?? 3),
+          glosa: `${refLabel(formalRef)} N° ${text(formalRef.number, 18)}`,
+        }
+        : {},
     };
 
     const clientId = body.clientId || inst.legal_entity_id || budget?.legal_entity_id || budget?.client_id || null;

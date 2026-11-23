@@ -572,6 +572,11 @@ export default function NuboxClassicPanel({
             )}
           </div>
           {references.length === 0 && <p className="text-xs text-on-surface-variant">Sin documentos referenciados.</p>}
+          {references.length > 0 && (
+            <p className="text-[10px] text-on-surface-variant">
+              Nubox (API clásica) admite una sola referencia formal: la primera Orden de Compra. Las Hojas de Entrada de Servicio y las referencias adicionales se imprimen en la observación de la factura.
+            </p>
+          )}
           {references.map((ref, idx) => (
             <div key={idx} className="grid grid-cols-[1.4fr_1fr_1fr_1fr_auto] gap-sm items-center">
               <select className={inputClass} value={ref.type} onChange={(e) => updateReference(idx, 'type', e.target.value)}>
