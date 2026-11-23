@@ -104,13 +104,16 @@ Deno.serve(async (req: Request) => {
     if (!isIsoDate(body.dueDate) || body.dueDate < today) errors.push('La fecha de vencimiento debe ser hoy o posterior.');
     const glosa = text(body.description, 1000);
     if (!glosa) errors.push('Falta la descripción de la factura.');
-    const ref = body.reference && (body.reference.type || body.reference.number) ? body.reference : null;
-    if (ref && (!REFERENCE_TYPES.includes(ref.type) || !text(ref.number, 18) || !isIsoDate(ref.date))) {
-      errors.push('Complete tipo, número y fecha de la referencia (OC / HES).');
+    // Documentos referenciados (OC / HES). Acepta la forma antigua { reference } además de { references: [] }.
+    const refs: any[] = (Array.isArray(body.references) ? body.references : body.reference ? [body.reference] : [])
+      .filter((r: any) => r && (r.type || r.number))
+      .slice(0, 5);
+    if (refs.some((r) => !REFERENCE_TYPES.includes(r.type) || !text(r.number, 18) || !isIsoDate(r.date))) {
+      errors.push('Complete tipo, número y fecha de cada documento referenciado (OC / HES).');
     }
-    // Nubox exige motivoReferencia (1 anula, 2 corrige texto, 3 corrige monto) aunque la referencia sea una OC/HES.
-    const refMotivo = Number(ref?.motivo ?? 2);
-    if (ref && ![1, 2, 3].includes(refMotivo)) errors.push('El motivo de la referencia debe ser 1, 2 ó 3.');
+    // Nubox exige motivoReferencia (1 anula, 2 corrige texto, 3 corrige monto) aunque la referencia sea una OC/HES;
+    // en facturas funciona 3 (2 exige cantidad 0).
+    if (refs.some((r) => ![1, 2, 3].includes(Number(r.motivo ?? 3)))) errors.push('El motivo de cada referencia debe ser 1, 2 ó 3.');
     if (errors.length) return json({ error: errors.join(' '), errors }, 400);
 
     const emitir = body.emitir === true;
@@ -150,18 +153,20 @@ Deno.serve(async (req: Request) => {
       descuentoMonto: '0',
       ...(body.comment ? { observacion: text(body.comment, 500) } : {}),
     };
+    function buildReference(r: any, i: number) {
+      return {
+        tipo, folio: 1, secuencia: i + 1,
+        tipoDocumentoReferenciado: r.type,
+        folioDocumentoReferenciado: text(r.number, 18),
+        fechaDocumentoReferenciado: r.date,
+        motivoReferencia: Number(r.motivo ?? 3),
+        glosa: `${r.type === 'HES' ? 'Hoja de Entrada de Servicio' : 'Orden de Compra'} N° ${text(r.number, 18)}`,
+      };
+    }
     const payload = {
       productos: [linea],
-      documentoReferenciado: ref
-        ? {
-          tipo, folio: 1, secuencia: 1,
-          tipoDocumentoReferenciado: ref.type,
-          folioDocumentoReferenciado: text(ref.number, 18),
-          fechaDocumentoReferenciado: ref.date,
-          motivoReferencia: refMotivo,
-          glosa: `${ref.type === 'HES' ? 'HES' : 'Orden de Compra'} N° ${text(ref.number, 18)}`,
-        }
-        : {},
+      // Una referencia se envía como objeto (formato documentado); varias, como arreglo con secuencia correlativa.
+      documentoReferenciado: refs.length === 1 ? buildReference(refs[0], 0) : refs.length ? refs.map(buildReference) : {},
     };
 
     const clientId = body.clientId || inst.legal_entity_id || budget?.legal_entity_id || budget?.client_id || null;

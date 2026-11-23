@@ -7,8 +7,12 @@ import NumberInput from './NumberInput';
 
 // Emisión con la API clásica de Nubox: la llamada es síncrona (sin cola ni polling).
 const REFERENCE_LABELS = { '801': 'Orden de Compra', HES: 'Hoja de Entrada de Servicio' };
-// Nubox exige un motivo de referencia aunque se referencie una OC/HES.
+// Nubox exige un motivo de referencia aunque se referencie una OC/HES. En una factura funciona 3 (Corrige monto);
+// 2 (Corrige texto) exige cantidad 0 y 1 (Anula documento) es para notas de crédito.
 const REFERENCE_MOTIVES = { '1': 'Anula documento', '2': 'Corrige texto', '3': 'Corrige monto' };
+const DEFAULT_REFERENCE_MOTIVE = '3';
+const MAX_REFERENCES = 5;
+const newReference = (number = '') => ({ type: '801', number, date: toIsoDate(new Date()), motivo: DEFAULT_REFERENCE_MOTIVE });
 
 const toIsoDate = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -81,7 +85,9 @@ export default function NuboxClassicPanel({
   const [dueDate, setDueDate] = useState(addDays(30));
   const [description, setDescription] = useState('');
   const [descriptionEdited, setDescriptionEdited] = useState(false);
-  const [reference, setReference] = useState(installment.oc ? { type: '801', number: installment.oc, date: '', motivo: '2' } : null);
+  const [references, setReferences] = useState(installment.oc ? [newReference(installment.oc)] : []);
+  const updateReference = (idx, field, value) =>
+    setReferences(prev => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   const [comment, setComment] = useState('');
   // Por defecto se emite el documento definitivo (emitir=true); desmarcarlo genera un borrador en Nubox.
   const [emitir, setEmitir] = useState(true);
@@ -175,7 +181,7 @@ export default function NuboxClassicPanel({
     if (!Number.isInteger(days) || days < 0 || days > 365) errors.push('Los términos de pago deben ser días entre 0 y 365.');
     if (!dueDate || dueDate < today) errors.push('La fecha de vencimiento debe ser hoy o posterior.');
     if (!description.trim()) errors.push('Ingrese la descripción de la factura.');
-    if (reference && (!reference.number.trim() || !reference.date)) errors.push('Complete número y fecha de la referencia.');
+    if (references.some(r => !r.number.trim() || !r.date)) errors.push('Complete número y fecha de cada documento referenciado.');
     return errors;
   };
 
@@ -201,7 +207,7 @@ export default function NuboxClassicPanel({
         dueDate,
         description: description.trim(),
         comment: comment.trim(),
-        reference: reference ? { ...reference, number: reference.number.trim() } : null,
+        references: references.map(r => ({ ...r, number: r.number.trim() })),
         updateClient,
         emitir,
         receptor: {
@@ -364,9 +370,9 @@ export default function NuboxClassicPanel({
             <p className="flex justify-between gap-md"><span className="text-on-surface-variant">Contacto</span><span className="text-right">{contactName}</span></p>
           )}
           <p className="flex justify-between gap-md"><span className="text-on-surface-variant">Detalle</span><span className="text-right max-w-[60%]">{description}</span></p>
-          {reference && (
-            <p className="flex justify-between gap-md"><span className="text-on-surface-variant">{REFERENCE_LABELS[reference.type]}</span><span>N° {reference.number} del {formatDate(reference.date)} · motivo {reference.motivo} ({REFERENCE_MOTIVES[reference.motivo]})</span></p>
-          )}
+          {references.map((r, i) => (
+            <p key={i} className="flex justify-between gap-md"><span className="text-on-surface-variant">{REFERENCE_LABELS[r.type]}</span><span className="text-right">N° {r.number} del {formatDate(r.date)} · motivo {r.motivo} ({REFERENCE_MOTIVES[r.motivo]})</span></p>
+          ))}
           <p className="flex justify-between gap-md">
             <span className="text-on-surface-variant">Forma de pago</span>
             <span>{paymentFormId === '1' ? 'Contado' : 'Crédito'} · {termsDays} días · vence {formatDate(dueDate)}</span>
@@ -555,34 +561,33 @@ export default function NuboxClassicPanel({
           </div>
         </div>
 
-        {/* Referencia */}
+        {/* Documentos referenciados */}
         <div className="space-y-xs">
           <div className="flex items-center justify-between">
-            <label className={labelClass}>Referencia (OC / HES)</label>
-            {!reference && (
-              <button type="button" onClick={() => setReference({ type: '801', number: '', date: '', motivo: '2' })} className="text-xs text-secondary font-semibold flex items-center gap-1 hover:underline">
+            <label className={labelClass}>Documentos referenciados (OC / HES)</label>
+            {references.length < MAX_REFERENCES && (
+              <button type="button" onClick={() => setReferences(prev => [...prev, newReference()])} className="text-xs text-secondary font-semibold flex items-center gap-1 hover:underline">
                 <span className="material-symbols-outlined text-[16px]">add</span>Agregar
               </button>
             )}
           </div>
-          {reference ? (
-            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-sm items-center">
-              <select className={inputClass} value={reference.type} onChange={(e) => setReference(r => ({ ...r, type: e.target.value }))}>
+          {references.length === 0 && <p className="text-xs text-on-surface-variant">Sin documentos referenciados.</p>}
+          {references.map((ref, idx) => (
+            <div key={idx} className="grid grid-cols-[1.4fr_1fr_1fr_1fr_auto] gap-sm items-center">
+              <select className={inputClass} value={ref.type} onChange={(e) => updateReference(idx, 'type', e.target.value)}>
                 <option value="801">Orden de Compra</option>
-                <option value="HES">HES</option>
+                <option value="HES">Hoja de Entrada de Servicio</option>
               </select>
-              <input className={inputClass} placeholder="Número" value={reference.number} maxLength={18} onChange={(e) => setReference(r => ({ ...r, number: e.target.value }))} />
-              <DateInput value={reference.date} onChange={(v) => setReference(r => ({ ...r, date: v }))} />
-              <select className={inputClass} value={reference.motivo} onChange={(e) => setReference(r => ({ ...r, motivo: e.target.value }))} title="Motivo de referencia exigido por Nubox">
+              <input className={inputClass} placeholder="Número" value={ref.number} maxLength={18} onChange={(e) => updateReference(idx, 'number', e.target.value)} />
+              <DateInput value={ref.date} onChange={(v) => updateReference(idx, 'date', v)} />
+              <select className={inputClass} value={ref.motivo} onChange={(e) => updateReference(idx, 'motivo', e.target.value)} title="Motivo de referencia exigido por Nubox">
                 {Object.entries(REFERENCE_MOTIVES).map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}
               </select>
-              <button type="button" onClick={() => setReference(null)} className="p-1 text-on-surface-variant hover:text-error" title="Quitar referencia">
+              <button type="button" onClick={() => setReferences(prev => prev.filter((_, i) => i !== idx))} className="p-1 text-on-surface-variant hover:text-error" title="Quitar documento referenciado">
                 <span className="material-symbols-outlined text-[18px]">delete</span>
               </button>
             </div>
-          ) : (
-            <p className="text-xs text-on-surface-variant">Sin referencia.</p>
-          )}
+          ))}
         </div>
 
         <div className="space-y-xs">
