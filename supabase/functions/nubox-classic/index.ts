@@ -108,6 +108,9 @@ Deno.serve(async (req: Request) => {
     if (ref && (!REFERENCE_TYPES.includes(ref.type) || !text(ref.number, 18) || !isIsoDate(ref.date))) {
       errors.push('Complete tipo, número y fecha de la referencia (OC / HES).');
     }
+    // Nubox exige motivoReferencia (1 anula, 2 corrige texto, 3 corrige monto) aunque la referencia sea una OC/HES.
+    const refMotivo = Number(ref?.motivo ?? 2);
+    if (ref && ![1, 2, 3].includes(refMotivo)) errors.push('El motivo de la referencia debe ser 1, 2 ó 3.');
     if (errors.length) return json({ error: errors.join(' '), errors }, 400);
 
     const emitir = body.emitir === true;
@@ -155,6 +158,8 @@ Deno.serve(async (req: Request) => {
           tipoDocumentoReferenciado: ref.type,
           folioDocumentoReferenciado: text(ref.number, 18),
           fechaDocumentoReferenciado: ref.date,
+          motivoReferencia: refMotivo,
+          glosa: `${ref.type === 'HES' ? 'HES' : 'Orden de Compra'} N° ${text(ref.number, 18)}`,
         }
         : {},
     };

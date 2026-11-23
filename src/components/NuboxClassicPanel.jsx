@@ -7,6 +7,8 @@ import NumberInput from './NumberInput';
 
 // Emisión con la API clásica de Nubox: la llamada es síncrona (sin cola ni polling).
 const REFERENCE_LABELS = { '801': 'Orden de Compra', HES: 'Hoja de Entrada de Servicio' };
+// Nubox exige un motivo de referencia aunque se referencie una OC/HES.
+const REFERENCE_MOTIVES = { '1': 'Anula documento', '2': 'Corrige texto', '3': 'Corrige monto' };
 
 const toIsoDate = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -79,7 +81,7 @@ export default function NuboxClassicPanel({
   const [dueDate, setDueDate] = useState(addDays(30));
   const [description, setDescription] = useState('');
   const [descriptionEdited, setDescriptionEdited] = useState(false);
-  const [reference, setReference] = useState(installment.oc ? { type: '801', number: installment.oc, date: '' } : null);
+  const [reference, setReference] = useState(installment.oc ? { type: '801', number: installment.oc, date: '', motivo: '2' } : null);
   const [comment, setComment] = useState('');
   // Por defecto se emite el documento definitivo (emitir=true); desmarcarlo genera un borrador en Nubox.
   const [emitir, setEmitir] = useState(true);
@@ -363,7 +365,7 @@ export default function NuboxClassicPanel({
           )}
           <p className="flex justify-between gap-md"><span className="text-on-surface-variant">Detalle</span><span className="text-right max-w-[60%]">{description}</span></p>
           {reference && (
-            <p className="flex justify-between gap-md"><span className="text-on-surface-variant">{REFERENCE_LABELS[reference.type]}</span><span>N° {reference.number} del {formatDate(reference.date)}</span></p>
+            <p className="flex justify-between gap-md"><span className="text-on-surface-variant">{REFERENCE_LABELS[reference.type]}</span><span>N° {reference.number} del {formatDate(reference.date)} · motivo {reference.motivo} ({REFERENCE_MOTIVES[reference.motivo]})</span></p>
           )}
           <p className="flex justify-between gap-md">
             <span className="text-on-surface-variant">Forma de pago</span>
@@ -558,19 +560,22 @@ export default function NuboxClassicPanel({
           <div className="flex items-center justify-between">
             <label className={labelClass}>Referencia (OC / HES)</label>
             {!reference && (
-              <button type="button" onClick={() => setReference({ type: '801', number: '', date: '' })} className="text-xs text-secondary font-semibold flex items-center gap-1 hover:underline">
+              <button type="button" onClick={() => setReference({ type: '801', number: '', date: '', motivo: '2' })} className="text-xs text-secondary font-semibold flex items-center gap-1 hover:underline">
                 <span className="material-symbols-outlined text-[16px]">add</span>Agregar
               </button>
             )}
           </div>
           {reference ? (
-            <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-sm items-center">
+            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-sm items-center">
               <select className={inputClass} value={reference.type} onChange={(e) => setReference(r => ({ ...r, type: e.target.value }))}>
                 <option value="801">Orden de Compra</option>
                 <option value="HES">HES</option>
               </select>
               <input className={inputClass} placeholder="Número" value={reference.number} maxLength={18} onChange={(e) => setReference(r => ({ ...r, number: e.target.value }))} />
               <DateInput value={reference.date} onChange={(v) => setReference(r => ({ ...r, date: v }))} />
+              <select className={inputClass} value={reference.motivo} onChange={(e) => setReference(r => ({ ...r, motivo: e.target.value }))} title="Motivo de referencia exigido por Nubox">
+                {Object.entries(REFERENCE_MOTIVES).map(([code, label]) => <option key={code} value={code}>{code} · {label}</option>)}
+              </select>
               <button type="button" onClick={() => setReference(null)} className="p-1 text-on-surface-variant hover:text-error" title="Quitar referencia">
                 <span className="material-symbols-outlined text-[18px]">delete</span>
               </button>
