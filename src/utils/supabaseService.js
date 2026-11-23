@@ -371,7 +371,12 @@ const selectAll = async (buildQuery) => {
 export const ACTIVE_DTE_STATUSES = ['sending', 'queued', 'pending_sii', 'issued'];
 
 const invokeNuboxFunction = async (name, body) => {
-  const { data, error } = await supabase.functions.invoke(name, { body });
+  let { data, error } = await supabase.functions.invoke(name, { body });
+  // An expired access token gives 401: refresh the session once and retry.
+  if (error && error.context?.status === 401) {
+    const { error: refreshError } = await supabase.auth.refreshSession();
+    if (!refreshError) ({ data, error } = await supabase.functions.invoke(name, { body }));
+  }
   if (error) {
     const details = await error.context?.json?.().catch(() => null);
     throw new Error(details?.error || error.message);

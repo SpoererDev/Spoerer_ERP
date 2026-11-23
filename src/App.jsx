@@ -162,6 +162,17 @@ export default function App() {
     setUser(null);
   };
 
+  // Nubox config requires a signed-in user: (re)load it whenever the session user changes,
+  // otherwise a config fetched before login stays empty ("no está habilitada para emitir con Nubox").
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    supabaseService.getNuboxConfig().then(config => {
+      if (!cancelled) setNuboxConfig(config);
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
   // Load flat data from Supabase on mount and check active session
   useEffect(() => {
     async function checkSessionAndLoadData() {
@@ -202,7 +213,6 @@ export default function App() {
           supabaseService.getDteDocuments()
         ]);
         setDteDocuments(dtes);
-        supabaseService.getNuboxConfig().then(setNuboxConfig);
         supabaseService.getClientEmails().then(setClientEmails);
         setMainClients(mainCls);
         setClients(cls);
