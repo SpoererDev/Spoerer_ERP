@@ -17,22 +17,6 @@ export default function NotificationSettingsModal({
       icon: 'verified',
       isAvailable: true
     },
-    {
-      id: 'invoice_issued',
-      title: 'Emisión de Factura',
-      description: 'Notifica a los responsables cuando se emite y registra una nueva factura en el módulo de facturación.',
-      category: 'Facturación',
-      icon: 'receipt_long',
-      isAvailable: false
-    },
-    {
-      id: 'quote_created',
-      title: 'Nueva Cotización Creada',
-      description: 'Avisa al equipo comercial y de operaciones cuando se genera una nueva propuesta en borrador o en revisión.',
-      category: 'Presupuestos',
-      icon: 'request_quote',
-      isAvailable: false
-    },
     // Default CC users for each e-mail template sent from Facturación (ClientEmailModal).
     ...[
       { id: 'client_email_approval_request', title: 'Correo: Consultar por aprobación', icon: 'how_to_reg' },
@@ -65,6 +49,9 @@ export default function NotificationSettingsModal({
   // Enabled flag for each notification type: { [typeId]: boolean }
   const [enabledByType, setEnabledByType] = useState({});
 
+  // "Encargado del proyecto" flag for each notification type: { [typeId]: boolean }
+  const [projectManagerByType, setProjectManagerByType] = useState({});
+
   // Search filter for the registered users list
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -79,20 +66,24 @@ export default function NotificationSettingsModal({
 
     const initialUsersMap = {};
     const initialEnabledMap = {};
+    const initialProjectManagerMap = {};
 
     notificationTypes.forEach(t => {
       const existing = (notificationSettings || []).find(s => s.notificationType === t.id);
       if (existing) {
         initialUsersMap[t.id] = Array.isArray(existing.userIds) ? existing.userIds : [];
         initialEnabledMap[t.id] = existing.enabled !== false;
+        initialProjectManagerMap[t.id] = existing.includeProjectManager === true;
       } else {
         initialUsersMap[t.id] = [];
         initialEnabledMap[t.id] = true;
+        initialProjectManagerMap[t.id] = false;
       }
     });
 
     setSelectedUsersByType(initialUsersMap);
     setEnabledByType(initialEnabledMap);
+    setProjectManagerByType(initialProjectManagerMap);
     setSearchTerm('');
     setErrorMessage('');
 
@@ -103,6 +94,16 @@ export default function NotificationSettingsModal({
   const currentTypeConfig = notificationTypes.find(t => t.id === selectedType) || notificationTypes[0];
   const currentUserIds = selectedUsersByType[selectedType] || [];
   const currentIsEnabled = enabledByType[selectedType] !== false;
+  const currentIncludesProjectManager = projectManagerByType[selectedType] === true;
+  const isClientEmailType = currentTypeConfig.category === 'Correos a clientes';
+  const currentRecipientCount = currentUserIds.length + (currentIncludesProjectManager ? 1 : 0);
+
+  const handleToggleProjectManager = () => {
+    setProjectManagerByType(prev => ({
+      ...prev,
+      [selectedType]: !currentIncludesProjectManager
+    }));
+  };
 
   // Filter registered users (only show active users or matching search)
   const filteredUsers = users.filter(user => {
@@ -170,6 +171,7 @@ export default function NotificationSettingsModal({
         await onSaveNotificationSetting(selectedType, {
           userIds: currentUserIds,
           enabled: currentIsEnabled,
+          includeProjectManager: currentIncludesProjectManager,
           title: currentTypeConfig.title,
           description: currentTypeConfig.description
         });
@@ -234,7 +236,7 @@ export default function NotificationSettingsModal({
                 <div className="space-y-2">
                   {notificationTypes.map(t => {
                     const isCurrent = t.id === selectedType;
-                    const count = (selectedUsersByType[t.id] || []).length;
+                    const count = (selectedUsersByType[t.id] || []).length + (projectManagerByType[t.id] ? 1 : 0);
                     const isEnabled = enabledByType[t.id] !== false;
 
                     if (!t.isAvailable) {
@@ -336,7 +338,7 @@ export default function NotificationSettingsModal({
                       Destinatarios Registrados
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-secondary-container text-on-secondary-container border border-secondary/20">
-                      {currentUserIds.length} seleccionados
+                      {currentRecipientCount} seleccionados
                     </span>
                   </div>
                   <div className="text-[12px] text-on-surface-variant font-medium">
@@ -344,7 +346,9 @@ export default function NotificationSettingsModal({
                   </div>
                 </div>
                 <p className="text-body-sm text-on-surface-variant">
-                  Marca a los usuarios que deben recibir un correo electrónico al ejecutarse esta acción.
+                  {isClientEmailType
+                    ? 'Marca a los usuarios que irán en copia (CC) al enviar este correo.'
+                    : 'Marca a los usuarios que deben recibir un correo electrónico al ejecutarse esta acción.'}
                 </p>
               </div>
 
@@ -398,6 +402,41 @@ export default function NotificationSettingsModal({
 
               {/* Lista Scrollable de Usuarios */}
               <div className="flex-1 overflow-y-auto pr-1 space-y-2 max-h-[46vh]">
+                {/* Opción dinámica: Encargado del proyecto (se resuelve según el proyecto de cada evento) */}
+                <div
+                  onClick={handleToggleProjectManager}
+                  className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between gap-3 select-none ${
+                    currentIncludesProjectManager
+                      ? 'bg-secondary-container/15 border-secondary/40 shadow-xs'
+                      : 'bg-white border-dashed border-slate-300 hover:bg-slate-50/80 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={currentIncludesProjectManager}
+                      onChange={() => {}} // Handled by container click
+                      className="w-4 h-4 text-secondary rounded border-slate-300 focus:ring-secondary/20 cursor-pointer pointer-events-none"
+                    />
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                      currentIncludesProjectManager ? 'bg-secondary text-white shadow-xs' : 'bg-primary/10 text-primary'
+                    }`}>
+                      <span className="material-symbols-outlined text-[18px]">engineering</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-900 truncate">Encargado del proyecto</p>
+                      <p className="text-xs text-slate-500 truncate">
+                        {isClientEmailType
+                          ? 'Se agrega en copia el encargado del proyecto de la cuota.'
+                          : 'Se notifica al encargado del proyecto asociado.'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-secondary shrink-0 hidden sm:inline">
+                    Dinámico
+                  </span>
+                </div>
+
                 {filteredUsers.length === 0 ? (
                   <div className="p-xl text-center border border-dashed border-outline-variant rounded-xl bg-slate-50/50">
                     <span className="material-symbols-outlined text-slate-300 text-4xl mb-1">

@@ -97,8 +97,15 @@ export default function ClientEmailModal({
   const buildState = (templateId) => {
     const tpl = buildTemplate(templateId, { inst: installment, project, budget, contact, encargado, dte: getIssuedDte(dteDocuments, installment.id) });
     const settingType = EMAIL_TEMPLATES.find(t => t.id === templateId)?.settingType;
-    const ccIds = notificationSettings.find(s => s.notificationType === settingType)?.userIds || [];
+    const setting = notificationSettings.find(s => s.notificationType === settingType);
+    const ccIds = setting?.userIds || [];
     const cc = users.filter(u => ccIds.includes(u.id) && u.email).map(u => ({ name: u.name, email: u.email }));
+    // "Encargado del proyecto": va en copia salvo que ya sea destinatario o ya esté en copia.
+    if (setting?.includeProjectManager && encargado?.email) {
+      const encEmail = encargado.email.trim().toLowerCase();
+      const alreadyIncluded = [...tpl.to, ...cc].some(r => (r.email || '').trim().toLowerCase() === encEmail);
+      if (!alreadyIncluded) cc.push({ name: encargado.name, email: encargado.email });
+    }
     const invoicePdf = getIssuedDte(dteDocuments, installment.id)?.pdfPath;
     return {
       templateId,

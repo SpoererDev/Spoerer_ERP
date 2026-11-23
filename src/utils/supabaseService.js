@@ -2034,6 +2034,7 @@ export const supabaseService = {
       description: row.description,
       enabled: row.enabled,
       userIds: row.user_ids || [],
+      includeProjectManager: row.include_project_manager === true,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));
@@ -2049,6 +2050,9 @@ export const supabaseService = {
     if (updates.enabled !== undefined) {
       dbUpdates.enabled = updates.enabled;
     }
+    if (updates.includeProjectManager !== undefined) {
+      dbUpdates.include_project_manager = updates.includeProjectManager === true;
+    }
     if (updates.title !== undefined) {
       dbUpdates.title = updates.title;
     }
@@ -2056,14 +2060,26 @@ export const supabaseService = {
       dbUpdates.description = updates.description;
     }
 
-    const { data, error } = await supabase
+    const upsertSetting = (payload) => supabase
       .from('notification_settings')
       .upsert({
         notification_type: notificationType,
-        ...dbUpdates
+        ...payload
       }, { onConflict: 'notification_type' })
       .select()
       .single();
+
+    let { data, error } = await upsertSetting(dbUpdates);
+
+    // Si la columna include_project_manager aún no existe (migración
+    // supabase/sql/notification_project_manager.sql pendiente), guardar el resto igual.
+    if (error && 'include_project_manager' in dbUpdates && String(error.message || '').includes('include_project_manager')) {
+      const { include_project_manager: wantsProjectManager, ...rest } = dbUpdates;
+      ({ data, error } = await upsertSetting(rest));
+      if (!error && wantsProjectManager) {
+        throw new Error('Se guardaron los destinatarios, pero la opción "Encargado del proyecto" requiere aplicar la migración notification_project_manager.sql en Supabase.');
+      }
+    }
 
     if (error) throw error;
     return {
@@ -2073,6 +2089,7 @@ export const supabaseService = {
       description: data.description,
       enabled: data.enabled,
       userIds: data.user_ids || [],
+      includeProjectManager: data.include_project_manager === true,
       createdAt: data.created_at,
       updatedAt: data.updated_at
     };
