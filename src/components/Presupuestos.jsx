@@ -4,6 +4,7 @@ import { isValidDateDDMMYYYY, formatToDDMMYYYY, formatToIsoDate, addMonthsSafely
 import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
+import NumberInput from './NumberInput';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -4108,14 +4109,12 @@ export default function Presupuestos({
                         <div className="grid grid-cols-2 gap-md">
                           <div className="flex flex-col gap-xs">
                             <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">Superficie (m2)</label>
-                            <input
+                            <NumberInput
                               className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
-                              type="number"
+                              decimals={2}
                               value={superficie}
-                              onChange={(e) => setSuperficie(e.target.value)}
+                              onChange={setSuperficie}
                               placeholder="Ej: 150"
-                              min="0"
-                              step="0.1"
                               required
                             />
                           </div>

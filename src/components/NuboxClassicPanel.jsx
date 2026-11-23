@@ -3,6 +3,7 @@ import { supabaseService } from '../utils/supabaseService';
 import { fetchIndicatorRate, buildInvoiceDescription } from '../utils/billingHelpers';
 import { COMUNAS_CHILE, findComunaByName } from '../utils/comunasChile';
 import { formatRut } from '../utils/validation';
+import NumberInput from './NumberInput';
 
 // Emisión con la API clásica de Nubox: la llamada es síncrona (sin cola ni polling).
 const REFERENCE_LABELS = { '801': 'Orden de Compra', HES: 'Hoja de Entrada de Servicio' };
@@ -486,14 +487,14 @@ export default function NuboxClassicPanel({
             <div className="space-y-xs">
               <label className={labelClass}>Valor {currency === 'USD' ? 'Dólar' : 'UF'} hoy ({formatDate(today)})</label>
               <div className="relative">
-                <input
-                  type="number"
-                  step="any"
+                <NumberInput
+                  decimals={2}
+                  minDecimals={2}
                   className={`${inputClass} pr-10`}
                   value={rate}
-                  onChange={(e) => {
+                  onChange={(val) => {
                     if (isFetchingRate) cancelRateLookup();
-                    setRate(e.target.value);
+                    setRate(val);
                   }}
                 />
                 <button

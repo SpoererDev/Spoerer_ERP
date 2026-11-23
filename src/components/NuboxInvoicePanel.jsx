@@ -3,6 +3,7 @@ import { supabaseService } from '../utils/supabaseService';
 import { fetchIndicatorRate, buildInvoiceDescription } from '../utils/billingHelpers';
 import { COMUNAS_CHILE, findComunaByName } from '../utils/comunasChile';
 import { formatRut } from '../utils/validation';
+import NumberInput from './NumberInput';
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 60; // ~2 minutes while the modal stays open; pg_cron keeps checking afterwards
@@ -453,14 +454,14 @@ export default function NuboxInvoicePanel({
             <div className="space-y-xs">
               <label className={labelClass}>Valor {currency === 'USD' ? 'Dólar' : 'UF'} hoy ({formatDate(today)})</label>
               <div className="relative">
-                <input
-                  type="number"
-                  step="any"
+                <NumberInput
+                  decimals={2}
+                  minDecimals={2}
                   className={`${inputClass} pr-10`}
                   value={rate}
-                  onChange={(e) => {
+                  onChange={(val) => {
                     if (isFetchingRate) cancelRateLookup();
-                    setRate(e.target.value);
+                    setRate(val);
                   }}
                 />
                 <button

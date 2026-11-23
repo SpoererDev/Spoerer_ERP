@@ -7,6 +7,7 @@ import { formatAmountWithCurrency } from '../utils/supabaseService';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { compareNumQuota } from '../utils/billingHelpers';
 import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
+import NumberInput from './NumberInput';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -2209,10 +2210,10 @@ export default function Proyectos({
                 <div className="grid grid-cols-2 gap-md">
                   <div className="flex flex-col gap-xs">
                     <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider font-bold">Superficie (m²)</label>
-                    <input
-                      type="number"
+                    <NumberInput
+                      decimals={2}
                       value={editSuperficie}
-                      onChange={(e) => setEditSuperficie(e.target.value)}
+                      onChange={setEditSuperficie}
                       className="w-full border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
                       placeholder="Superficie total"
                     />
@@ -2350,20 +2351,18 @@ export default function Proyectos({
                               </div>
                               <div className="flex items-center gap-2">
                                 <div className="relative flex-1">
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    min="0"
+                                  <NumberInput
+                                    decimals={curr === 'CLP' ? 0 : 2}
+                                    minDecimals={curr === 'CLP' ? 0 : 2}
                                     value={currentActiveStr}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
+                                    onChange={(val) => {
                                       setEditBudgetActiveAmounts(prev => ({
                                         ...prev,
                                         [b.id]: val
                                       }));
                                     }}
                                     className="w-full border border-slate-200 rounded-lg text-body-md py-1.5 pl-3 pr-12 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary"
-                                    placeholder={String(totalAmt)}
+                                    placeholder={totalAmt.toLocaleString('es-CL', { maximumFractionDigits: curr === 'CLP' ? 0 : 2 })}
                                   />
                                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">
                                     {curr}
@@ -2459,24 +2458,23 @@ export default function Proyectos({
                         ))}
                       </div>
                     </div>
-                    <input
-                      type="number"
-                      step={extraCostCurrency === 'CLP' ? "1" : "0.01"}
+                    <NumberInput
+                      decimals={extraCostCurrency === 'CLP' ? 0 : 2}
+                      minDecimals={extraCostCurrency === 'CLP' ? 0 : 2}
                       required
-                      placeholder={extraCostCurrency === 'CLP' ? "Ej: 1500000" : "Ej: 45.50"}
+                      placeholder={extraCostCurrency === 'CLP' ? "Ej: 1.500.000" : "Ej: 45,50"}
                       value={extraCostUF}
-                      onChange={(e) => setExtraCostUF(e.target.value)}
+                      onChange={setExtraCostUF}
                       className="p-sm bg-white border border-outline-variant/50 focus:border-primary outline-none rounded-lg text-body-sm"
                     />
                   </div>
                   <div className="flex flex-col">
                     <label className="text-label-sm text-on-surface-variant font-bold mb-1 uppercase tracking-wider">Superficie asociada (m²)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Ej: 15.00 (Opcional)"
+                    <NumberInput
+                      decimals={2}
+                      placeholder="Ej: 15,00 (Opcional)"
                       value={extraCostSuperficie}
-                      onChange={(e) => setExtraCostSuperficie(e.target.value)}
+                      onChange={setExtraCostSuperficie}
                       className="p-sm bg-white border border-outline-variant/50 focus:border-primary outline-none rounded-lg text-body-sm"
                     />
                   </div>

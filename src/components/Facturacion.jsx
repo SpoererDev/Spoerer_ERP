@@ -14,6 +14,7 @@ import FilePreviewModal from './FilePreviewModal';
 import ClientEmailModal from './ClientEmailModal';
 import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
 import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
+import NumberInput from './NumberInput';
 
 const VIEW_MODE_STORAGE_KEY = 'spr_erp_facturacion_view';
 const CUOTA_COLUMNS_STORAGE_KEY = 'spr_erp_facturacion_cuota_columns';
@@ -1210,18 +1211,22 @@ export default function Facturacion({
     setInvoiceFile(null);
     setEmitComment(installment.comment || '');
 
-    // Determine initial tax percent for this installment
-    const defaultTax = installment.taxPercent !== undefined && installment.taxPercent !== null
-      ? installment.taxPercent
-      : (budget?.taxPercent !== undefined && budget?.taxPercent !== null
-        ? budget.taxPercent
-        : (project?.taxPercent !== undefined && project?.taxPercent !== null
-          ? project.taxPercent
-          : ((installment.billingCompany || budget?.billingCompany || project?.billingCompany) === 'FPF' ? 0 : 19)));
+    const company = installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
+
+    // Determine initial tax percent for this installment.
+    // FPF sólo emite facturas exentas: IVA 0% por defecto (el usuario aún puede editarlo).
+    const defaultTax = company === 'FPF'
+      ? 0
+      : (installment.taxPercent !== undefined && installment.taxPercent !== null
+        ? installment.taxPercent
+        : (budget?.taxPercent !== undefined && budget?.taxPercent !== null
+          ? budget.taxPercent
+          : (project?.taxPercent !== undefined && project?.taxPercent !== null
+            ? project.taxPercent
+            : 19)));
     setEmitTaxPercent(String(defaultTax));
 
     // Decide whether this installment can be issued through Nubox.
-    const company = installment.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
     const unavailableReason = isForeignGenericRut(razonSocial.rut)
       ? 'Cliente extranjero (RUT genérico): la factura se registra manualmente.'
       : !nuboxConfig.companies.includes(company)
@@ -1372,6 +1377,34 @@ export default function Facturacion({
     } catch (err) {
       console.error("Error al actualizar confirmación de fecha:", err);
     }
+  };
+
+  // Respaldo principal del presupuesto (PDF primero, si no Word), como en la pestaña Proyectos.
+  const getBudgetPreviewDoc = (budget) => {
+    const files = budget?.backupFiles || [];
+    return files.find(f => f.name?.toLowerCase().endsWith('.pdf'))
+      || files.find(f => /\.docx?$/i.test(f.name || ''))
+      || null;
+  };
+
+  const renderBudgetDocButton = (budget, iconSize = 16) => {
+    const doc = getBudgetPreviewDoc(budget);
+    if (!doc) return null;
+    const isPdf = doc.name.toLowerCase().endsWith('.pdf');
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setPreviewFile({ url: doc.url, title: `Presupuesto ${budget.quoteId || ''}`.trim(), name: doc.name });
+        }}
+        className="inline-flex items-center p-0.5 rounded text-slate-500 hover:text-primary hover:bg-slate-200/70 transition-colors flex-shrink-0"
+        title={`Visualizar presupuesto: ${doc.name}`}
+        aria-label="Visualizar respaldo del presupuesto"
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: iconSize }}>{isPdf ? 'picture_as_pdf' : 'description'}</span>
+      </button>
+    );
   };
 
   // --- CELDAS COMPARTIDAS ENTRE LA VISTA DE PROYECTOS Y LA DE CUOTAS ---
@@ -1726,6 +1759,7 @@ export default function Facturacion({
                               <span className="font-medium text-slate-700" title={specificRazon ? `${b.title} · Razón Social específica: ${specificRazon.company}` : b.title}>
                                 {budget?.quoteId || b.title}
                               </span>
+                              {renderBudgetDocButton(budget)}
                               {!budgetRazonSocial && (
                                 <button
                                   type="button"
@@ -2463,7 +2497,10 @@ export default function Facturacion({
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-xs border-b border-outline-variant/10 pb-2 text-slate-800">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
                               <span className="text-body-md text-primary font-bold flex items-center gap-xs">
-                                <span className="material-symbols-outlined text-[18px] text-outline">description</span>
+                                {/* Ícono al inicio: abre el respaldo si existe; si no, solo decorativo */}
+                                {renderBudgetDocButton(budget, 18) || (
+                                  <span className="material-symbols-outlined text-[18px] text-outline">description</span>
+                                )}
                                 {title}
                               </span>
                               {budgetRazonSocial ? (
@@ -2869,12 +2906,13 @@ export default function Facturacion({
                     </label>
                     <div>
                       <div className="relative">
-                        <input
-                          type="number"
+                        <NumberInput
+                          decimals={2}
+                          minDecimals={2}
                           className="w-full border border-slate-200 rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-semibold text-primary"
                           value={ufRate}
-                          onChange={(e) => setUfRate(e.target.value)}
-                          placeholder={instCurrency === 'USD' ? 'Ej: 950' : 'Ej: 38250'}
+                          onChange={setUfRate}
+                          placeholder={instCurrency === 'USD' ? 'Ej: 950' : 'Ej: 38.250'}
                           required
                           disabled={isSaving}
                         />
@@ -2944,7 +2982,9 @@ export default function Facturacion({
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-1">
-                      Heredado del presupuesto ({emitTaxPercent}%). Puede ajustarlo si requiere otra tasa o está exenta.
+                      {instBillingCompany === 'FPF'
+                        ? 'FPF emite sólo facturas exentas: IVA 0% por defecto. Puede ajustarlo si fuera necesario.'
+                        : `Heredado del presupuesto (${emitTaxPercent}%). Puede ajustarlo si requiere otra tasa o está exenta.`}
                     </p>
                   </div>
                 </div>
