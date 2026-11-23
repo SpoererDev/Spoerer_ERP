@@ -35,6 +35,51 @@ export const fetchIndicatorRate = async (dateStr, currency = 'UF') => {
   return supabaseService.getIndicatorRate(dateStr, currency);
 };
 
+/** Today's local date as YYYY-MM-DD. */
+export const getTodayIsoDate = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+/**
+ * Loads today's rates needed to convert an amount in `currency` to UF.
+ * Returns { date, uf, usd } (usd only for USD). Throws when a rate is unavailable.
+ * For UF no lookup is needed.
+ */
+export const fetchUfConversionRates = async (currency) => {
+  const curr = (currency || 'UF').toUpperCase();
+  const date = getTodayIsoDate();
+  if (curr === 'UF') return { date, uf: null, usd: null };
+  const [uf, usd] = await Promise.all([
+    fetchIndicatorRate(date, 'UF'),
+    curr === 'USD' ? fetchIndicatorRate(date, 'USD') : Promise.resolve(null)
+  ]);
+  return { date, uf, usd };
+};
+
+/**
+ * Converts an amount in UF/CLP/USD to UF (2 decimals) with the given rates.
+ * Returns null when the conversion can't be made (missing rates).
+ */
+export const convertAmountToUF = (amount, currency, rates) => {
+  const num = parseFloat(amount);
+  if (isNaN(num)) return null;
+  const curr = (currency || 'UF').toUpperCase();
+  let result;
+  if (curr === 'UF') {
+    result = num;
+  } else if (curr === 'CLP') {
+    if (!(rates?.uf > 0)) return null;
+    result = num / rates.uf;
+  } else if (curr === 'USD') {
+    if (!(rates?.uf > 0) || !(rates?.usd > 0)) return null;
+    result = (num * rates.usd) / rates.uf;
+  } else {
+    return null;
+  }
+  return Math.round(result * 100) / 100;
+};
+
 /**
  * Default invoice line description:
  * "Pago Cuota N° X de YY - Proyecto [Nombre] según Presupuesto [N°]. XX UF: $YYYYYY pesos"

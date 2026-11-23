@@ -8,6 +8,19 @@ import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import { compareNumQuota } from '../utils/billingHelpers';
 import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
 import NumberInput from './NumberInput';
+import ConversionRateInfo from './ConversionRateInfo';
+import { fetchUfConversionRates, convertAmountToUF } from '../utils/billingHelpers';
+
+const isUfCurrency = (curr) => (curr || 'UF').toUpperCase() === 'UF';
+
+// El monto activo se guarda siempre en UF. Un presupuesto en UF puede usar su total por defecto;
+// uno en CLP/USD sin monto activo devuelve null (debe ingresarse en UF).
+const getBudgetActiveAmountUF = (budget) => {
+  if (budget.activeAmount !== undefined && budget.activeAmount !== null && String(budget.activeAmount).trim() !== '' && !isNaN(parseFloat(budget.activeAmount))) {
+    return parseFloat(budget.activeAmount);
+  }
+  return isUfCurrency(budget.currency) ? (parseFloat(budget.amount) || 0) : null;
+};
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -180,6 +193,11 @@ export default function Proyectos({
   const [extraCostUF, setExtraCostUF] = useState('');
   const [extraCostSuperficie, setExtraCostSuperficie] = useState('');
   const [extraCostComment, setExtraCostComment] = useState('');
+  // Costo extra en CLP/USD: monto equivalente en UF (lo que se guarda) y valores del día para la conversión
+  const [extraCostEquivUF, setExtraCostEquivUF] = useState('');
+  const [isExtraCostEquivCustomized, setIsExtraCostEquivCustomized] = useState(false);
+  const [extraCostRates, setExtraCostRates] = useState({}); // { CLP: rates, USD: rates }
+  const [extraCostRatesStatus, setExtraCostRatesStatus] = useState({}); // { CLP: 'loading'|'ok'|'error', ... }
 
   // Local state for billing installments to allow inline typing before clicking Save
   const [localInstallments, setLocalInstallments] = useState([]);
@@ -517,11 +535,9 @@ export default function Proyectos({
     const projBudgets = (budgets || []).filter(b => b.projectId === project.id);
     const initialActiveMap = {};
     projBudgets.forEach(b => {
-      const totalAmt = parseFloat(b.amount) || 0;
-      const activeAmt = (b.activeAmount !== undefined && b.activeAmount !== null && !isNaN(parseFloat(b.activeAmount)))
-        ? parseFloat(b.activeAmount)
-        : totalAmt;
-      initialActiveMap[b.id] = String(activeAmt);
+      // Monto activo en UF ingresado previamente (sin conversión); vacío si aún no tiene
+      const activeAmt = getBudgetActiveAmountUF(b);
+      initialActiveMap[b.id] = activeAmt === null ? '' : String(activeAmt);
     });
     setEditBudgetActiveAmounts(initialActiveMap);
   };
@@ -553,6 +569,21 @@ export default function Proyectos({
     const mainClientId = selectedMC ? selectedMC.id : (selectedCli ? selectedCli.mainClientId : editingProject.mainClientId);
     const clientId = selectedCli ? selectedCli.id : editingProject.clientId;
 
+    // El monto activo (UF) es obligatorio para cada presupuesto del proyecto
+    const editProjBudgets = (budgets || []).filter(b => b.projectId === editingProject.id);
+    const missingActive = editProjBudgets.filter(b => {
+      const rawVal = editBudgetActiveAmounts[b.id];
+      return rawVal === undefined || String(rawVal).trim() === '' || isNaN(parseFloat(rawVal));
+    });
+    if (missingActive.length > 0) {
+      setNotification({
+        type: 'error',
+        title: 'Error de Validación',
+        message: `Ingrese el monto activo en UF del presupuesto ${missingActive.map(b => `#${b.quoteId}`).join(', ')}.`
+      });
+      return;
+    }
+
     try {
       await onSaveProject({
         id: editingProject.id,
@@ -572,15 +603,8 @@ export default function Proyectos({
       });
 
       if (onUpdateBudgetActiveAmount) {
-        const projBudgets = (budgets || []).filter(b => b.projectId === editingProject.id);
         await Promise.all(
-          projBudgets.map(b => {
-            const rawVal = editBudgetActiveAmounts[b.id];
-            const parsedNewActive = rawVal !== undefined && String(rawVal).trim() !== '' && !isNaN(parseFloat(String(rawVal).replace(',', '.')))
-              ? parseFloat(String(rawVal).replace(',', '.'))
-              : (parseFloat(b.amount) || 0);
-            return onUpdateBudgetActiveAmount(b.id, parsedNewActive);
-          })
+          editProjBudgets.map(b => onUpdateBudgetActiveAmount(b.id, parseFloat(editBudgetActiveAmounts[b.id])))
         );
       }
 
@@ -716,12 +740,52 @@ export default function Proyectos({
   };
 
   // Extra cost modal handlers
-  const handleOpenExtraCostModal = (project) => {
-    setExtraCostProject(project);
+  const resetExtraCostForm = () => {
     setExtraCostCurrency('UF');
     setExtraCostUF('');
     setExtraCostSuperficie('');
     setExtraCostComment('');
+    setExtraCostEquivUF('');
+    setIsExtraCostEquivCustomized(false);
+  };
+
+  const handleOpenExtraCostModal = (project) => {
+    setExtraCostProject(project);
+    resetExtraCostForm();
+  };
+
+  // Valores del día (UF / dólar) para convertir el costo extra a UF; se cargan una vez por moneda
+  const loadExtraCostRates = async (curr) => {
+    if (isUfCurrency(curr) || extraCostRatesStatus[curr] === 'loading' || extraCostRatesStatus[curr] === 'ok') return;
+    setExtraCostRatesStatus(prev => ({ ...prev, [curr]: 'loading' }));
+    try {
+      const rates = await fetchUfConversionRates(curr);
+      setExtraCostRates(prev => ({ ...prev, [curr]: rates }));
+      setExtraCostRatesStatus(prev => ({ ...prev, [curr]: 'ok' }));
+    } catch (err) {
+      console.error(`Error al obtener valores para convertir ${curr} a UF:`, err);
+      setExtraCostRatesStatus(prev => ({ ...prev, [curr]: 'error' }));
+    }
+  };
+
+  const computeExtraCostEquivUF = (amount, curr) => {
+    if (amount === '' || amount === null || amount === undefined) return '';
+    const converted = convertAmountToUF(amount, curr, extraCostRates[curr]);
+    return converted === null ? '' : String(converted);
+  };
+
+  // Recalcular el equivalente en UF al cambiar monto, moneda o al llegar los valores del día (salvo edición manual)
+  useEffect(() => {
+    if (!extraCostProject || isUfCurrency(extraCostCurrency) || isExtraCostEquivCustomized) return;
+    setExtraCostEquivUF(computeExtraCostEquivUF(extraCostUF, extraCostCurrency));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extraCostUF, extraCostCurrency, extraCostRates, extraCostProject]);
+
+  const handleExtraCostCurrencyChange = (curr) => {
+    setExtraCostCurrency(curr);
+    setIsExtraCostEquivCustomized(false);
+    setExtraCostEquivUF('');
+    loadExtraCostRates(curr);
   };
 
   const handleAddExtraCostLocal = async (e) => {
@@ -735,11 +799,25 @@ export default function Proyectos({
       return;
     }
 
+    // Los costos extra se guardan siempre en UF
+    const isUfCost = isUfCurrency(extraCostCurrency);
+    const amountUF = isUfCost ? parseFloat(extraCostUF) : parseFloat(extraCostEquivUF);
+    if (!isUfCost && (String(extraCostEquivUF).trim() === '' || isNaN(amountUF))) {
+      setNotification({
+        type: 'error',
+        title: 'Error de Validación',
+        message: extraCostRatesStatus[extraCostCurrency] === 'error'
+          ? 'No se pudo convertir el monto a UF porque no se cargaron los valores del día. Ingrese el monto equivalente en UF.'
+          : 'Por favor ingrese el monto equivalente en UF.'
+      });
+      return;
+    }
+
     try {
       await onAddExtraCost({
         project_id: extraCostProject.id,
-        amount: parseFloat(extraCostUF) || 0,
-        currency: extraCostCurrency,
+        amount: Math.round((amountUF || 0) * 100) / 100,
+        currency: 'UF',
         superficie: parseFloat(extraCostSuperficie) || 0,
         comment: extraCostComment || ''
       });
@@ -749,10 +827,7 @@ export default function Proyectos({
         message: 'El costo extra ha sido registrado exitosamente.'
       });
       // Reset fields to allow adding another cost extra
-      setExtraCostCurrency('UF');
-      setExtraCostUF('');
-      setExtraCostSuperficie('');
-      setExtraCostComment('');
+      resetExtraCostForm();
     } catch (err) {
       setNotification({
         type: 'error',
@@ -802,16 +877,14 @@ export default function Proyectos({
       // 1. Budget rows
       projectBudgets.forEach(budget => {
         const totalAmt = parseFloat(budget.amount) || 0;
-        const activeAmt = (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
-          ? parseFloat(budget.activeAmount)
-          : totalAmt;
+        const activeAmt = getBudgetActiveAmountUF(budget);
 
         rows.push({
           "Código de presupuesto": budget.quoteId || '',
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
           "Moneda": budget.currency || 'UF',
           "Presupuesto": totalAmt,
-          "Monto Activo": activeAmt,
+          "Monto Activo (UF)": activeAmt ?? '',
           "Costo Extra": '',
           "Descripción": budget.title || '',
           "Comentario": '',
@@ -830,7 +903,7 @@ export default function Proyectos({
           "Proyecto": `${project.projectNumber || ''}-${project.rawProjectName || ''}${project.cliente ? ` - ${project.cliente}` : ''}`,
           "Moneda": cost.currency || 'UF',
           "Presupuesto": '',
-          "Monto Activo": '',
+          "Monto Activo (UF)": '',
           "Costo Extra": parseFloat(cost.amount) || 0,
           "Descripción": cost.comment || '',
           "Comentario": '',
@@ -850,7 +923,7 @@ export default function Proyectos({
         "Proyecto",
         "Moneda",
         "Presupuesto",
-        "Monto Activo",
+        "Monto Activo (UF)",
         "Costo Extra",
         "Descripción",
         "Comentario",
@@ -894,17 +967,16 @@ export default function Proyectos({
     return entries.map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ');
   };
 
-  const getBudgetActiveAmount = (budget) => {
-    const totalAmt = parseFloat(budget.amount) || 0;
-    return (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
-      ? parseFloat(budget.activeAmount)
-      : totalAmt;
+  // Monto activo del presupuesto en UF (null si un presupuesto en CLP/USD aún no lo tiene)
+  const getBudgetActiveAmount = (budget) => getBudgetActiveAmountUF(budget);
+
+  // ¿Mostrar el monto activo junto al total? Siempre en CLP/USD (está en otra moneda); en UF sólo si difiere del total.
+  const budgetShowsActive = (budget) => {
+    if (!isUfCurrency(budget.currency)) return true;
+    const active = getBudgetActiveAmountUF(budget);
+    return active !== null && Math.abs(active - (parseFloat(budget.amount) || 0)) >= 0.01;
   };
 
-  const totalsDiffer = (totals, otherTotals) => Object.keys(totals).some(curr => {
-    const tolerance = curr === 'CLP' ? 1 : 0.01;
-    return Math.abs((otherTotals[curr] ?? totals[curr]) - totals[curr]) >= tolerance;
-  });
 
   const getBudgetPreviewFile = (budget) => {
     if (!budget.backupFiles || budget.backupFiles.length === 0) return null;
@@ -954,7 +1026,7 @@ export default function Proyectos({
     const rows = filteredProjects.map(project => {
       const projectBudgets = budgets.filter(b => b.projectId === project.id);
       const totals = sumByCurrency(projectBudgets, b => parseFloat(b.amount) || 0, b => b.currency);
-      const activeTotals = sumByCurrency(projectBudgets, getBudgetActiveAmount, b => b.currency);
+      const activeTotals = sumByCurrency(projectBudgets.filter(b => getBudgetActiveAmount(b) !== null), getBudgetActiveAmount, () => 'UF');
       const projectExtraCosts = extraCosts.filter(ec => ec.project_id === project.id);
       const extraTotals = sumByCurrency(projectExtraCosts, c => parseFloat(c.amount) || 0, c => c.currency);
 
@@ -1005,7 +1077,7 @@ export default function Proyectos({
             <tbody>
               {rows.map(({ project, projectBudgets, totals, activeTotals, projectExtraCosts, extraTotals, invoicedPct }) => {
                 const isOpen = Boolean(expandedTableRows[project.id]);
-                const hasDifferentActive = totalsDiffer(totals, activeTotals);
+                const hasDifferentActive = projectBudgets.some(budgetShowsActive);
                 const hasExtras = projectExtraCosts.length > 0;
                 const company = project.billingCompany || 'Spoerer';
 
@@ -1099,8 +1171,7 @@ export default function Proyectos({
                     {isOpen && projectBudgets.map(budget => {
                       const budgetTotal = parseFloat(budget.amount) || 0;
                       const budgetActive = getBudgetActiveAmount(budget);
-                      const tolerance = (budget.currency || 'UF').toUpperCase() === 'CLP' ? 1 : 0.01;
-                      const showActive = Math.abs(budgetActive - budgetTotal) >= tolerance;
+                      const showActive = budgetShowsActive(budget);
                       const previewDoc = getBudgetPreviewFile(budget);
                       const isLocked = localInstallments.some(i => i.origin_budget_id === budget.id && INVOICED_STATUSES.includes(i.status));
 
@@ -1131,7 +1202,9 @@ export default function Proyectos({
                             <div className="flex flex-col items-end leading-tight">
                               <span className="font-bold text-primary">{formatAmountWithCurrency(budgetTotal, budget.currency)}</span>
                               {showActive && (
-                                <span className="text-[11px] font-semibold text-amber-700" title="Monto activo">activo {formatAmountWithCurrency(budgetActive, budget.currency)}</span>
+                                <span className="text-[11px] font-semibold text-amber-700" title="Monto activo (UF)">
+                                  {budgetActive === null ? 'activo sin definir (UF)' : `activo ${formatAmountWithCurrency(budgetActive, 'UF')}`}
+                                </span>
                               )}
                             </div>
                           </td>
@@ -1659,22 +1732,15 @@ export default function Proyectos({
               return acc;
             }, {});
 
+            // Monto activo: siempre en UF
             const projectActiveTotalsByCurrency = projectBudgets.reduce((acc, b) => {
-              const curr = (b.currency || 'UF').toUpperCase();
-              const totalAmt = parseFloat(b.amount) || 0;
-              const activeAmt = (b.activeAmount !== undefined && b.activeAmount !== null && !isNaN(parseFloat(b.activeAmount)))
-                ? parseFloat(b.activeAmount)
-                : totalAmt;
-              acc[curr] = (acc[curr] || 0) + activeAmt;
+              const activeAmt = getBudgetActiveAmountUF(b);
+              if (activeAmt !== null) acc.UF = (acc.UF || 0) + activeAmt;
               return acc;
             }, {});
 
-            const hasDifferentProjectActiveTotal = Object.keys(projectTotalsByCurrency).some(curr => {
-              const totalAmt = projectTotalsByCurrency[curr] || 0;
-              const activeAmt = projectActiveTotalsByCurrency[curr] ?? totalAmt;
-              const tolerance = curr === 'CLP' ? 1 : 0.01;
-              return Math.abs(activeAmt - totalAmt) >= tolerance;
-            });
+            const hasDifferentProjectActiveTotal = projectBudgets.some(budgetShowsActive);
+            const hasUndefinedActive = projectBudgets.some(b => getBudgetActiveAmountUF(b) === null);
 
             // Filter extra costs associated with this project
             const projectExtraCosts = extraCosts.filter(ec => ec.project_id === project.id);
@@ -1774,8 +1840,9 @@ export default function Proyectos({
                     {hasDifferentProjectActiveTotal && (
                       <div className="flex flex-col">
                         <span className="text-label-sm text-on-surface-variant/80 uppercase">Monto Activo</span>
-                        <span className="font-bold text-body-md text-amber-600">
-                          {Object.entries(projectActiveTotalsByCurrency).map(([curr, amt]) => formatAmountWithCurrency(amt, curr)).join(' / ')}
+                        <span className="font-bold text-body-md text-amber-600" title={hasUndefinedActive ? 'Hay presupuestos sin monto activo en UF' : undefined}>
+                          {formatAmountWithCurrency(projectActiveTotalsByCurrency.UF || 0, 'UF')}
+                          {hasUndefinedActive && <span className="text-[11px] font-semibold"> (incompleto)</span>}
                         </span>
                       </div>
                     )}
@@ -1896,12 +1963,9 @@ export default function Proyectos({
                         .filter(i => i.project_id === project.id && i.origin_budget_id === budget.id)
                         .sort((a, b) => compareNumQuota(a.numQuota, b.numQuota));
 
-                      const budgetTotalAmt = parseFloat(budget.amount) || 0;
-                      const budgetActiveAmt = (budget.activeAmount !== undefined && budget.activeAmount !== null && !isNaN(parseFloat(budget.activeAmount)))
-                        ? parseFloat(budget.activeAmount)
-                        : budgetTotalAmt;
-                      const budgetDiffTolerance = (budget.currency || 'UF').toUpperCase() === 'CLP' ? 1 : 0.01;
-                      const showBudgetActiveAmount = Math.abs(budgetActiveAmt - budgetTotalAmt) >= budgetDiffTolerance;
+                      const budgetActiveAmt = getBudgetActiveAmountUF(budget);
+                      const showBudgetActiveAmount = budgetShowsActive(budget);
+                      const budgetActiveLabel = budgetActiveAmt === null ? 'sin definir (UF)' : formatAmountWithCurrency(budgetActiveAmt, 'UF');
 
                       return (
                         <div key={budget.id} className="border border-slate-200 rounded-xl p-md space-y-md shadow-sm bg-slate-50/20">
@@ -1942,7 +2006,7 @@ export default function Proyectos({
                                 </span>
                                 {showBudgetActiveAmount && (
                                   <span className="text-xs bg-amber-500/10 text-amber-600 font-bold px-2 py-0.5 rounded-full">
-                                    Monto activo: {formatAmountWithCurrency(budgetActiveAmt, budget.currency)}
+                                    Monto activo: {budgetActiveLabel}
                                   </span>
                                 )}
                               </div>
@@ -1952,7 +2016,7 @@ export default function Proyectos({
                                   <>
                                     <span className="text-outline-variant">•</span>
                                     <span className="text-primary">
-                                      <strong>Monto activo:</strong> <span className="font-bold text-amber-600">{formatAmountWithCurrency(budgetActiveAmt, budget.currency)}</span>
+                                      <strong>Monto activo:</strong> <span className="font-bold text-amber-600">{budgetActiveLabel}</span>
                                     </span>
                                   </>
                                 )}
@@ -2327,17 +2391,19 @@ export default function Proyectos({
                     <div className="pt-sm border-t border-slate-200/60 space-y-sm">
                       <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-[16px] text-secondary">trending_up</span>
-                        Monto Activo {editingProjBudgets.length > 1 ? 'por Presupuesto' : 'del Presupuesto'}
+                        Monto Activo (UF) {editingProjBudgets.length > 1 ? 'por Presupuesto' : 'del Presupuesto'}
                       </label>
                       <div className="space-y-2">
                         {editingProjBudgets.map((b) => {
-                          const curr = b.currency || 'UF';
+                          const curr = (b.currency || 'UF').toUpperCase();
+                          const isUfBudget = curr === 'UF';
                           const totalAmt = parseFloat(b.amount) || 0;
                           const currentActiveStr = editBudgetActiveAmounts[b.id] !== undefined
                             ? editBudgetActiveAmounts[b.id]
-                            : String(b.activeAmount ?? totalAmt);
-                          const currentActiveNum = parseFloat(String(currentActiveStr).replace(',', '.')) || 0;
-                          const isDiff = Math.abs(currentActiveNum - totalAmt) >= (curr === 'CLP' ? 1 : 0.01);
+                            : (getBudgetActiveAmountUF(b) === null ? '' : String(getBudgetActiveAmountUF(b)));
+                          const isBlank = String(currentActiveStr).trim() === '' || isNaN(parseFloat(currentActiveStr));
+                          // "Igualar al total" sólo aplica a presupuestos en UF (el total está en la misma moneda)
+                          const isDiff = isUfBudget && Math.abs((parseFloat(currentActiveStr) || 0) - totalAmt) >= 0.01;
 
                           return (
                             <div key={b.id} className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1.5">
@@ -2352,8 +2418,8 @@ export default function Proyectos({
                               <div className="flex items-center gap-2">
                                 <div className="relative flex-1">
                                   <NumberInput
-                                    decimals={curr === 'CLP' ? 0 : 2}
-                                    minDecimals={curr === 'CLP' ? 0 : 2}
+                                    decimals={2}
+                                    minDecimals={2}
                                     value={currentActiveStr}
                                     onChange={(val) => {
                                       setEditBudgetActiveAmounts(prev => ({
@@ -2361,11 +2427,11 @@ export default function Proyectos({
                                         [b.id]: val
                                       }));
                                     }}
-                                    className="w-full border border-slate-200 rounded-lg text-body-md py-1.5 pl-3 pr-12 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary"
-                                    placeholder={totalAmt.toLocaleString('es-CL', { maximumFractionDigits: curr === 'CLP' ? 0 : 2 })}
+                                    className={`w-full border rounded-lg text-body-md py-1.5 pl-3 pr-12 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary ${isBlank ? 'border-error/60' : 'border-slate-200'}`}
+                                    placeholder={isUfBudget ? totalAmt.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Ingrese monto en UF'}
                                   />
                                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">
-                                    {curr}
+                                    UF
                                   </span>
                                 </div>
                                 {isDiff && (
@@ -2439,14 +2505,14 @@ export default function Proyectos({
                 <h4 className="font-title-sm text-title-sm text-primary font-bold uppercase tracking-wider text-xs">Agregar Nuevo Costo Extra</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
                   <div className="flex flex-col">
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-1 h-7">
                       <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Monto ({extraCostCurrency})</label>
                       <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-md border border-slate-300/50">
                         {['UF', 'USD', 'CLP'].map((curr) => (
                           <button
                             key={curr}
                             type="button"
-                            onClick={() => setExtraCostCurrency(curr)}
+                            onClick={() => handleExtraCostCurrencyChange(curr)}
                             className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
                               extraCostCurrency === curr
                                 ? 'bg-[#091426] text-white shadow-xs'
@@ -2469,7 +2535,9 @@ export default function Proyectos({
                     />
                   </div>
                   <div className="flex flex-col">
-                    <label className="text-label-sm text-on-surface-variant font-bold mb-1 uppercase tracking-wider">Superficie asociada (m²)</label>
+                    <div className="flex items-center mb-1 h-7">
+                      <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">Superficie asociada (m²)</label>
+                    </div>
                     <NumberInput
                       decimals={2}
                       placeholder="Ej: 15,00 (Opcional)"
@@ -2478,6 +2546,53 @@ export default function Proyectos({
                       className="p-sm bg-white border border-outline-variant/50 focus:border-primary outline-none rounded-lg text-body-sm"
                     />
                   </div>
+                  {!isUfCurrency(extraCostCurrency) && (() => {
+                    const ratesStatus = extraCostRatesStatus[extraCostCurrency] || 'loading';
+                    const proposedEquiv = computeExtraCostEquivUF(extraCostUF, extraCostCurrency);
+                    const isEquivBlank = String(extraCostEquivUF).trim() === '';
+                    const showRecalc = isExtraCostEquivCustomized && proposedEquiv !== ''
+                      && (isEquivBlank || Math.abs((parseFloat(extraCostEquivUF) || 0) - parseFloat(proposedEquiv)) >= 0.01);
+                    return (
+                      <div className="flex flex-col">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-label-sm text-on-surface-variant font-bold uppercase tracking-wider flex items-center gap-1">
+                            Monto equivalente (UF)
+                            <ConversionRateInfo currency={extraCostCurrency} rates={extraCostRates[extraCostCurrency]} status={ratesStatus} />
+                          </label>
+                          {showRecalc && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExtraCostEquivUF(proposedEquiv);
+                                setIsExtraCostEquivCustomized(false);
+                              }}
+                              className="text-[11px] text-secondary hover:underline font-semibold cursor-pointer"
+                              title="Volver al monto convertido con los valores del día"
+                            >
+                              Recalcular
+                            </button>
+                          )}
+                        </div>
+                        <NumberInput
+                          decimals={2}
+                          minDecimals={2}
+                          required
+                          placeholder={ratesStatus === 'loading' ? 'Cargando UF…' : 'Ej: 45,50'}
+                          value={extraCostEquivUF}
+                          onChange={(val) => {
+                            setExtraCostEquivUF(val);
+                            setIsExtraCostEquivCustomized(true);
+                          }}
+                          className={`p-sm bg-white border focus:border-primary outline-none rounded-lg text-body-sm font-bold ${isEquivBlank && extraCostUF ? 'border-error/60' : 'border-outline-variant/50'}`}
+                        />
+                        {ratesStatus === 'error' && isEquivBlank && (
+                          <span className="text-[11px] text-error mt-1">
+                            No se cargaron los valores del día. Ingrese el monto equivalente en UF.
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="flex flex-col">
                   <label className="text-label-sm text-on-surface-variant font-bold mb-1 uppercase tracking-wider">Comentario / Justificación</label>

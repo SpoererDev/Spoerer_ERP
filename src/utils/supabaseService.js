@@ -166,11 +166,14 @@ const mapBudgetFromDb = (dbBudget) => {
   const totalAmount = parseFloat(dbBudget.total_amount) || 0;
   const fallbackMap = getLocalActiveAmountsFallback();
   const hasDbActiveAmount = dbBudget.active_amount !== null && dbBudget.active_amount !== undefined && !isNaN(parseFloat(dbBudget.active_amount));
+  // El monto activo siempre está en UF. Sólo un presupuesto en UF puede usar su total como valor por defecto;
+  // uno en CLP/USD queda sin monto activo (null) hasta que se apruebe con la conversión a UF.
+  const isUfBudget = (dbBudget.currency || 'UF').toUpperCase() === 'UF';
   const activeAmount = hasDbActiveAmount
     ? parseFloat(dbBudget.active_amount)
     : (fallbackMap[dbBudget.id] !== undefined && fallbackMap[dbBudget.id] !== null && !isNaN(parseFloat(fallbackMap[dbBudget.id]))
         ? parseFloat(fallbackMap[dbBudget.id])
-        : totalAmount);
+        : (isUfBudget ? totalAmount : null));
 
   return {
     id: dbBudget.id,
@@ -814,7 +817,9 @@ export const supabaseService = {
           if ('active_amount' in dbBudget) {
             const fallbackMap = getLocalActiveAmountsFallback();
             const hasLocalOverride = fallbackMap[dbBudget.id] !== undefined && fallbackMap[dbBudget.id] !== null && !isNaN(parseFloat(fallbackMap[dbBudget.id]));
-            if (dbBudget.active_amount === null || dbBudget.active_amount === undefined || hasLocalOverride) {
+            // Monto activo en UF: sólo se rellena con el total si el presupuesto está en UF
+            const isUfBudget = (dbBudget.currency || 'UF').toUpperCase() === 'UF';
+            if (((dbBudget.active_amount === null || dbBudget.active_amount === undefined) && isUfBudget) || hasLocalOverride) {
               const targetActive = hasLocalOverride
                 ? parseFloat(fallbackMap[dbBudget.id])
                 : (parseFloat(dbBudget.total_amount) || 0);
@@ -888,16 +893,27 @@ export const supabaseService = {
       // 2. Upload any newly added files
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
-      // Determine active_amount: by default equals totalAmount unless budget is Approved and had a customized activeAmount
+      // Determine active_amount (always in UF).
+      // - Approved: keep the UF value entered at approval / project edit.
+      // - Not approved, UF budget: equals totalAmount unless it had a customized value.
+      // - Not approved, CLP/USD budget: null (it's set in UF when the budget is approved).
       const isApprovedStatus = (quote.status || 'Borrador') === 'Aprobado' || (quote.status || 'Borrador') === 'Aprovado';
+      const isUfQuote = (quote.currency || 'UF').toUpperCase() === 'UF';
       const oldTotalAmount = oldBudget ? (parseFloat(oldBudget.total_amount) || 0) : totalAmount;
-      const oldActiveAmount = oldBudget && oldBudget.active_amount !== null && oldBudget.active_amount !== undefined
+      const quoteActive = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
+        ? parseFloat(quote.activeAmount)
+        : null;
+      const oldActive = oldBudget && oldBudget.active_amount !== null && oldBudget.active_amount !== undefined && !isNaN(parseFloat(oldBudget.active_amount))
         ? parseFloat(oldBudget.active_amount)
-        : (quote.activeAmount !== undefined && quote.activeAmount !== null ? parseFloat(quote.activeAmount) : oldTotalAmount);
-      const hadCustomActive = isApprovedStatus && Math.abs(oldActiveAmount - oldTotalAmount) >= 0.01;
-      const targetActiveAmount = (quote.activeAmount !== undefined && quote.activeAmount !== null && (isApprovedStatus || Math.abs(parseFloat(quote.activeAmount) - oldTotalAmount) >= 0.01))
-        ? (hadCustomActive || Math.abs(parseFloat(quote.activeAmount) - oldTotalAmount) >= 0.01 ? parseFloat(quote.activeAmount) : totalAmount)
-        : totalAmount;
+        : null;
+      let targetActiveAmount;
+      if (isApprovedStatus) {
+        targetActiveAmount = quoteActive ?? oldActive ?? (isUfQuote ? totalAmount : null);
+      } else if (isUfQuote) {
+        targetActiveAmount = (quoteActive !== null && Math.abs(quoteActive - oldTotalAmount) >= 0.01) ? quoteActive : totalAmount;
+      } else {
+        targetActiveAmount = null;
+      }
 
       const budgetData = {
         budget_number: budgetNumber,
@@ -944,9 +960,13 @@ export const supabaseService = {
       // 1. Upload files directly to the target status folder
       finalFiles = await uploadQuoteFiles(budgetNumber, quote.status, finalFiles);
 
-      const targetActiveAmount = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
-        ? parseFloat(quote.activeAmount)
-        : totalAmount;
+      // Monto activo en UF: un presupuesto nuevo en CLP/USD queda sin monto activo hasta su aprobación
+      const isUfQuote = (quote.currency || 'UF').toUpperCase() === 'UF';
+      const targetActiveAmount = !isUfQuote
+        ? null
+        : ((quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
+            ? parseFloat(quote.activeAmount)
+            : totalAmount);
 
       const budgetData = {
         client_id: quote.clientId || quote.legalEntityId || null,
@@ -1537,6 +1557,13 @@ export const supabaseService = {
 
   // Vínculo Presupuesto + Proyecto + Cuotas (Transacción Atómica de Aprobación)
   async approveBudgetAndCreateProject(projectForm, budgetId, billingInstallments, budgetForm = null) {
+    // 0. El monto activo se guarda siempre en UF: un presupuesto en CLP/USD no se puede aprobar sin él
+    const hasActiveAmountInForm = budgetForm && budgetForm.activeAmount !== undefined && budgetForm.activeAmount !== null
+      && String(budgetForm.activeAmount).trim() !== '' && !isNaN(parseFloat(budgetForm.activeAmount));
+    if (budgetForm && budgetForm.currency && budgetForm.currency.toUpperCase() !== 'UF' && !hasActiveAmountInForm) {
+      throw new Error('No se puede aprobar el presupuesto sin el monto activo en UF.');
+    }
+
     // 1. Create or Update Project
     const isNewProject = !projectForm.id;
     const projectData = {
@@ -1769,8 +1796,9 @@ export const supabaseService = {
     }
 
     if (budgetForm && budgetForm.activeAmount !== undefined && budgetForm.activeAmount !== null && !isNaN(parseFloat(budgetForm.activeAmount))) {
-      budgetUpdateData.active_amount = parseFloat(budgetForm.activeAmount);
+      budgetUpdateData.active_amount = Math.round(parseFloat(budgetForm.activeAmount) * 100) / 100;
     } else {
+      // Sin monto activo explícito: sólo válido para presupuestos en UF (validado al inicio)
       budgetUpdateData.active_amount = budgetUpdateData.total_amount;
     }
 

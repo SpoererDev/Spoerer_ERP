@@ -5,6 +5,8 @@ import mammoth from 'mammoth';
 import InstallmentsModal from './InstallmentsModal';
 import CollapsibleKpiBanner from './CollapsibleKpiBanner';
 import NumberInput from './NumberInput';
+import ConversionRateInfo from './ConversionRateInfo';
+import { fetchUfConversionRates, convertAmountToUF } from '../utils/billingHelpers';
 
 const PROJECT_TYPES = [
   "Edificio",
@@ -339,8 +341,13 @@ export default function Presupuestos({
   const [ordenCompra, setOrdenCompra] = useState('');
   const [anio, setAnio] = useState('');
   const [valorProyecto, setValorProyecto] = useState(0);
+  // Monto activo: siempre en UF ('' = sin valor; no se puede aprobar en blanco)
   const [montoActivo, setMontoActivo] = useState(0);
   const [isMontoActivoCustomized, setIsMontoActivoCustomized] = useState(false);
+  // Valores del día (UF / dólar en CLP) para convertir el monto activo a UF
+  const [approveRates, setApproveRates] = useState(null);
+  const [approveRatesStatus, setApproveRatesStatus] = useState('ok'); // 'loading' | 'ok' | 'error'
+  const approveRatesRequestRef = useRef(0);
   const [cliente, setCliente] = useState('');
   const [billingTable, setBillingTable] = useState([]);
   const [validationError, setValidationError] = useState('');
@@ -1004,16 +1011,48 @@ export default function Presupuestos({
     setRawValorProyecto(display);
     setValorProyecto(numeric);
     if (!isMontoActivoCustomized) {
-      setMontoActivo(numeric);
-      setRawMontoActivo(undefined);
+      setMontoActivo(getProposedMontoActivoUF(numeric, curr, approveRates));
     }
   };
 
+  // Monto activo propuesto en UF: igual al valor si está en UF; convertido con la UF/dólar del día si está en CLP/USD.
+  // '' cuando la conversión no se puede hacer (no se cargaron los valores del día).
+  const getProposedMontoActivoUF = (amount, currency, rates) => {
+    const converted = convertAmountToUF(amount, currency, rates);
+    return converted === null ? '' : converted;
+  };
+
+  // Carga los valores del día para convertir el monto activo del presupuesto que se está aprobando
+  const loadApproveRates = async (quote) => {
+    const curr = (quote?.currency || 'UF').toUpperCase();
+    const requestId = ++approveRatesRequestRef.current;
+    setApproveRates(null);
+    if (curr === 'UF') {
+      setApproveRatesStatus('ok');
+      return;
+    }
+    setApproveRatesStatus('loading');
+    try {
+      const rates = await fetchUfConversionRates(curr);
+      if (requestId !== approveRatesRequestRef.current) return;
+      setApproveRates(rates);
+      setApproveRatesStatus('ok');
+    } catch (err) {
+      console.error(`Error al obtener valores para convertir ${curr} a UF:`, err);
+      if (requestId !== approveRatesRequestRef.current) return;
+      setApproveRatesStatus('error');
+    }
+  };
+
+  // Al llegar los valores del día, proponer el monto activo convertido (salvo que el usuario ya lo haya editado)
+  useEffect(() => {
+    if (!approveRates || !approvingQuote || isMontoActivoCustomized) return;
+    setMontoActivo(getProposedMontoActivoUF(valorProyecto, approvingQuote.currency || 'UF', approveRates));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveRates]);
+
   const handleMontoActivoChange = (val) => {
-    const curr = approvingQuote?.currency || 'UF';
-    const { display, numeric } = parseAndFormatInstallmentAmountInput(val, curr);
-    setRawMontoActivo(display);
-    setMontoActivo(numeric);
+    setMontoActivo(val);
     setIsMontoActivoCustomized(true);
   };
 
@@ -1217,6 +1256,14 @@ export default function Presupuestos({
       return;
     }
 
+    // El monto activo (en UF) es obligatorio
+    if (montoActivo === undefined || montoActivo === null || String(montoActivo).trim() === '' || isNaN(parseFloat(montoActivo))) {
+      setValidationError(approveRatesStatus === 'error'
+        ? "No se pudo convertir el monto activo a UF porque no se cargaron los valores del día. Ingrese el monto activo en UF manualmente."
+        : "Por favor ingrese el monto activo en UF.");
+      return;
+    }
+
     // Validate that sum of cuotas equals valorProyecto
     const approvingCurrency = approvingQuote?.currency || 'UF';
     const isCLPApprove = approvingCurrency === 'CLP';
@@ -1307,9 +1354,8 @@ export default function Presupuestos({
     };
 
     const parsedValorProyecto = parseFloat(valorProyecto) || 0;
-    const parsedMontoActivo = (montoActivo !== undefined && montoActivo !== null && !isNaN(parseFloat(montoActivo)))
-      ? parseFloat(montoActivo)
-      : parsedValorProyecto;
+    // Monto activo siempre en UF (validado arriba: no puede estar en blanco)
+    const parsedMontoActivo = Math.round(parseFloat(montoActivo) * 100) / 100;
 
     const budgetForm = {
       amount: parsedValorProyecto,
@@ -1433,13 +1479,19 @@ export default function Presupuestos({
         const currentYear = new Date().getFullYear();
         setAnio(currentYear);
         const initialTotalVal = quote.amount || 0;
-        const initialActiveVal = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
-          ? parseFloat(quote.activeAmount)
-          : initialTotalVal;
         setValorProyecto(initialTotalVal);
-        setMontoActivo(initialActiveVal);
-        setRawMontoActivo(undefined);
-        setIsMontoActivoCustomized(Math.abs(initialActiveVal - initialTotalVal) >= 0.01);
+        if ((quote.currency || 'UF').toUpperCase() === 'UF') {
+          const initialActiveVal = (quote.activeAmount !== undefined && quote.activeAmount !== null && !isNaN(parseFloat(quote.activeAmount)))
+            ? parseFloat(quote.activeAmount)
+            : initialTotalVal;
+          setMontoActivo(initialActiveVal);
+          setIsMontoActivoCustomized(Math.abs(initialActiveVal - initialTotalVal) >= 0.01);
+        } else {
+          // CLP/USD: el monto activo en UF se propone al cargar la UF/dólar del día (queda en blanco si no se cargan)
+          setMontoActivo('');
+          setIsMontoActivoCustomized(false);
+        }
+        loadApproveRates(quote);
 
         const clientNameVal = quote.mainClientName || quote.clientName || quote.company || '';
         setCliente(clientNameVal);
@@ -4264,35 +4316,56 @@ export default function Presupuestos({
                             />
                           </div>
                           <div className="flex flex-col gap-xs">
-                            <div className="flex items-center justify-between gap-1">
-                              <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold" title="Monto activo del presupuesto para estadísticas de productividad">
-                                Monto Activo ({approvingQuote?.currency || 'UF'})
-                              </label>
-                              {isMontoActivoCustomized && Math.abs((parseFloat(montoActivo) || 0) - (parseFloat(valorProyecto) || 0)) >= 0.01 && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setMontoActivo(valorProyecto);
-                                    setRawMontoActivo(undefined);
-                                    setIsMontoActivoCustomized(false);
-                                  }}
-                                  className="text-[11px] text-secondary hover:underline font-semibold cursor-pointer"
-                                  title="Igualar al valor total del presupuesto"
-                                >
-                                  Igualar al total
-                                </button>
-                              )}
-                            </div>
-                            <input
-                              className="w-full border border-slate-200 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary"
-                              type="text"
-                              inputMode="decimal"
-                              value={rawMontoActivo !== undefined ? rawMontoActivo : formatInstallmentAmountDisplay(montoActivo, approvingQuote?.currency || 'UF')}
-                              onChange={(e) => handleMontoActivoChange(e.target.value)}
-                              onBlur={() => setRawMontoActivo(undefined)}
-                              placeholder={approvingQuote?.currency === 'CLP' ? "0" : "0,00"}
-                              required
-                            />
+                            {(() => {
+                              const approveCurr = (approvingQuote?.currency || 'UF').toUpperCase();
+                              const isUfApprove = approveCurr === 'UF';
+                              const proposedActive = getProposedMontoActivoUF(valorProyecto, approveCurr, approveRates);
+                              const isBlank = montoActivo === '' || montoActivo === null || montoActivo === undefined || isNaN(parseFloat(montoActivo));
+                              const showReset = isMontoActivoCustomized && proposedActive !== ''
+                                && (isBlank || Math.abs((parseFloat(montoActivo) || 0) - proposedActive) >= 0.01);
+                              return (
+                                <>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold flex items-center gap-1" title="Monto activo del presupuesto para estadísticas de productividad. Se guarda siempre en UF.">
+                                      Monto Activo (UF)
+                                      {!isUfApprove && (
+                                        <ConversionRateInfo currency={approveCurr} rates={approveRates} status={approveRatesStatus} />
+                                      )}
+                                    </label>
+                                    {showReset && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setMontoActivo(proposedActive);
+                                          setIsMontoActivoCustomized(false);
+                                        }}
+                                        className="text-[11px] text-secondary hover:underline font-semibold cursor-pointer"
+                                        title={isUfApprove ? "Igualar al valor total del presupuesto" : "Volver al valor total convertido a UF con los valores del día"}
+                                      >
+                                        {isUfApprove ? 'Igualar al total' : 'Recalcular'}
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="relative">
+                                    <NumberInput
+                                      decimals={2}
+                                      minDecimals={2}
+                                      className={`w-full border rounded-lg text-body-md py-2 pl-3 pr-10 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white font-bold text-primary ${isBlank ? 'border-error/60' : 'border-slate-200'}`}
+                                      value={montoActivo}
+                                      onChange={handleMontoActivoChange}
+                                      placeholder={approveRatesStatus === 'loading' ? 'Cargando UF…' : '0,00'}
+                                      required
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs pointer-events-none">UF</span>
+                                  </div>
+                                  {!isUfApprove && approveRatesStatus === 'error' && isBlank && (
+                                    <span className="text-[11px] text-error">
+                                      No se cargaron los valores del día para convertir a UF. Ingrese el monto activo en UF.
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
 
