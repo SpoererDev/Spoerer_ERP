@@ -86,15 +86,15 @@ export default function NuboxClassicPanel({
   const [description, setDescription] = useState('');
   const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [references, setReferences] = useState(installment.oc ? [newReference(installment.oc)] : []);
-  // La API clásica no admite la HES como referencia formal: con HES la factura queda como borrador
-  // para agregar la referencia en Nubox antes de emitirla.
-  const hasHes = references.some(r => r.type === 'HES');
-  const emitir = emitirSelected && !hasHes;
   const updateReference = (idx, field, value) =>
     setReferences(prev => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   const [comment, setComment] = useState('');
   // Por defecto se emite el documento definitivo (emitir=true); desmarcarlo genera un borrador en Nubox.
   const [emitirSelected, setEmitirSelected] = useState(true);
+  // La API clásica no admite la HES como referencia formal: con HES la factura queda como borrador
+  // para agregar la referencia en Nubox antes de emitirla.
+  const hasHes = references.some(r => r.type === 'HES');
+  const emitir = emitirSelected && !hasHes;
 
   const [validationErrors, setValidationErrors] = useState([]);
   const [submitError, setSubmitError] = useState('');
