@@ -116,7 +116,10 @@ Deno.serve(async (req: Request) => {
     if (refs.some((r) => ![1, 2, 3].includes(Number(r.motivo ?? 3)))) errors.push('El motivo de cada referencia debe ser 1, 2 ó 3.');
     if (errors.length) return json({ error: errors.join(' '), errors }, 400);
 
-    const emitir = body.emitir === true;
+    // Con HES (no admitida como referencia formal en la API clásica) se genera siempre un borrador,
+    // para agregar la referencia en Nubox antes de emitir.
+    const hasHes = refs.some((ref) => ref.type === 'HES');
+    const emitir = body.emitir === true && !hasHes;
     const exempt = taxPercent === 0;
     const tipo = exempt ? 34 : 33;
     const tax = exempt ? 0 : Math.round(net * 0.19);

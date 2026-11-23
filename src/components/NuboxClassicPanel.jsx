@@ -86,11 +86,15 @@ export default function NuboxClassicPanel({
   const [description, setDescription] = useState('');
   const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [references, setReferences] = useState(installment.oc ? [newReference(installment.oc)] : []);
+  // La API clásica no admite la HES como referencia formal: con HES la factura queda como borrador
+  // para agregar la referencia en Nubox antes de emitirla.
+  const hasHes = references.some(r => r.type === 'HES');
+  const emitir = emitirSelected && !hasHes;
   const updateReference = (idx, field, value) =>
     setReferences(prev => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   const [comment, setComment] = useState('');
   // Por defecto se emite el documento definitivo (emitir=true); desmarcarlo genera un borrador en Nubox.
-  const [emitir, setEmitir] = useState(true);
+  const [emitirSelected, setEmitirSelected] = useState(true);
 
   const [validationErrors, setValidationErrors] = useState([]);
   const [submitError, setSubmitError] = useState('');
@@ -609,19 +613,22 @@ export default function NuboxClassicPanel({
       </div>
 
       {/* Modo de emisión */}
-      <label className={`flex items-start gap-sm p-md rounded-xl border cursor-pointer transition-all ${emitir ? 'bg-red-50 border-red-200' : 'bg-surface-container-low border-outline-variant/40'}`}>
+      <label className={`flex items-start gap-sm p-md rounded-xl border transition-all ${hasHes ? 'cursor-not-allowed' : 'cursor-pointer'} ${emitir ? 'bg-red-50 border-red-200' : hasHes ? 'bg-amber-50 border-amber-200' : 'bg-surface-container-low border-outline-variant/40'}`}>
         <input
           type="checkbox"
           checked={emitir}
-          onChange={(e) => setEmitir(e.target.checked)}
-          className="mt-0.5 rounded border-outline-variant text-secondary focus:ring-secondary"
+          disabled={hasHes}
+          onChange={(e) => setEmitirSelected(e.target.checked)}
+          className="mt-0.5 rounded border-outline-variant text-secondary focus:ring-secondary disabled:opacity-50"
         />
         <span className="text-sm">
           <span className="font-bold text-primary block">Emitir documento definitivo (SII)</span>
-          <span className={emitir ? 'text-red-800' : 'text-on-surface-variant'}>
-            {emitir
-              ? 'La factura se enviará al SII y no podrá eliminarse; sólo anularse con nota de crédito.'
-              : 'Desactivado: se genera un borrador en Nubox (emitir=false), que puede eliminarse desde Nubox.'}
+          <span className={emitir ? 'text-red-800' : hasHes ? 'text-amber-800' : 'text-on-surface-variant'}>
+            {hasHes
+              ? 'Con Hoja de Entrada de Servicio la factura se genera como borrador: agregue la HES como referencia en Nubox y emítala desde allí.'
+              : emitir
+                ? 'La factura se enviará al SII y no podrá eliminarse; sólo anularse con nota de crédito.'
+                : 'Desactivado: se genera un borrador en Nubox (emitir=false), que puede eliminarse desde Nubox.'}
           </span>
         </span>
       </label>
