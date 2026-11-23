@@ -15,8 +15,39 @@ import ClientEmailModal from './ClientEmailModal';
 import { hasInvoiceBeenSent } from '../utils/clientEmailTemplates';
 import { useColumnWidths, ColumnResizeHandle } from './ResizableColumns';
 import NumberInput from './NumberInput';
+import DateFilterInput from './DateFilterInput';
 
 const VIEW_MODE_STORAGE_KEY = 'spr_erp_facturacion_view';
+
+// --- FILTRO DE FECHAS ---
+// Fecha de la cuota sobre la que se aplican Vencimiento y el rango Fecha inicio / Fecha final.
+const DATE_FILTER_FIELDS = [
+  { value: 'date', label: 'Fecha planificada' },
+  { value: 'invoiceDate', label: 'Fecha facturación' },
+  { value: 'paymentDate', label: 'Fecha pago' }
+];
+
+const TEMPORAL_PRESET_MONTHS = { '1_mes': 1, '2_meses': 2, '3_meses': 3, '6_meses': 6, '12_meses': 12 };
+
+/** Normaliza una fecha (YYYY-MM-DD, con hora, o DD/MM/YYYY / DD-MM-YYYY) a 'YYYY-MM-DD'; '' si no es válida. */
+const toIsoDate = (value) => {
+  if (!value) return '';
+  const str = String(value).trim();
+  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+};
+
+/** Fecha de hoy + N meses como 'YYYY-MM-DD' (31/08 + 1 mes -> 30/09). */
+const addMonthsIso = (months) => {
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth() + months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(now.getDate(), lastDay));
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
+};
 const CUOTA_COLUMNS_STORAGE_KEY = 'spr_erp_facturacion_cuota_columns';
 
 // Columnas que se pueden mostrar u ocultar en la vista de cuotas.
@@ -80,6 +111,10 @@ export default function Facturacion({
   onUpdateBudgetLegalEntity,
   temporalFilter,
   setTemporalFilter,
+  dateFilterField = 'date',
+  setDateFilterField,
+  customDateRange = { from: '', to: '' },
+  setCustomDateRange,
   statusFilter,
   setStatusFilter,
   clientFilter,
@@ -449,66 +484,64 @@ export default function Facturacion({
     return `${parts[2]}/${parts[1]}/${parts[0]}`; // YYYY-MM-DD to DD/MM/YYYY
   };
 
-  // --- DATE FILTER HELPER ---
-  const filterPeriod = (dateStr, period) => {
-    if (period === 'Todos' || !period) return true;
-    if (!dateStr) return false;
-
-    let targetDate = null;
-    if (typeof dateStr === 'string') {
-      const cleanStr = dateStr.trim();
-      if (cleanStr.includes('-')) {
-        const parts = cleanStr.split('-');
-        if (parts.length === 3) {
-          if (parts[0].length === 4) {
-            // YYYY-MM-DD
-            targetDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
-          } else {
-            // DD-MM-YYYY
-            targetDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10), 12, 0, 0);
-          }
-        }
-      } else if (cleanStr.includes('/')) {
-        const parts = cleanStr.split('/');
-        if (parts.length === 3) {
-          if (parts[0].length === 4) {
-            // YYYY/MM/DD
-            targetDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
-          } else {
-            // DD/MM/YYYY
-            targetDate = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10), 12, 0, 0);
-          }
-        }
-      }
-    } else if (dateStr instanceof Date) {
-      targetDate = new Date(dateStr);
+  // --- DATE FILTER (Vencimiento + Fecha de filtro + Fecha inicio / Fecha final) ---
+  // Fecha de la cuota según el campo elegido en "Fecha de filtro"; '' si no existe.
+  const getInstallmentFilterDate = useCallback((inst, field) => {
+    if (field === 'invoiceDate') {
+      return toIsoDate(inst.actualInvoiceDate || dteDocuments.find(d => d.installmentId === inst.id)?.emissionDate);
     }
+    if (field === 'paymentDate') return toIsoDate(inst.actualPaymentDate);
+    return toIsoDate(inst.date);
+  }, [dteDocuments]);
 
-    if (!targetDate || isNaN(targetDate.getTime())) {
-      targetDate = new Date(dateStr);
-      if (isNaN(targetDate.getTime())) return false;
+  // Primera y última fecha disponibles (en todas las cuotas) para la fecha de filtro elegida
+  const availableDateBounds = useMemo(() => {
+    let min = '';
+    let max = '';
+    installments.forEach(inst => {
+      const d = getInstallmentFilterDate(inst, dateFilterField);
+      if (!d) return;
+      if (!min || d < min) min = d;
+      if (!max || d > max) max = d;
+    });
+    return { min, max };
+  }, [installments, dateFilterField, getInstallmentFilterDate]);
+
+  // Rango efectivo: los períodos de Vencimiento van desde la primera fecha posible hasta hoy + N meses;
+  // "Histórico" cubre todas las fechas; "Personalizado" usa las fechas ingresadas por el usuario.
+  const effectiveDateRange = useMemo(() => {
+    if (temporalFilter === 'Personalizado') {
+      return { from: customDateRange?.from || '', to: customDateRange?.to || '' };
     }
-
-    let monthsToAdd = 0;
-    if (period === '1_mes') monthsToAdd = 1;
-    else if (period === '2_meses') monthsToAdd = 2;
-    else if (period === '3_meses') monthsToAdd = 3;
-    else if (period === '6_meses') monthsToAdd = 6;
-    else if (period === '12_meses') monthsToAdd = 12;
-    else return true;
-
-    const now = new Date();
-    // Maximum future date allowed (end of day)
-    const maxDate = new Date(now.getFullYear(), now.getMonth() + monthsToAdd, now.getDate(), 23, 59, 59, 999);
-    // Handle days overflow if target month has fewer days (e.g., Aug 31 + 1 month -> Sep 30)
-    const expectedMonth = (now.getMonth() + monthsToAdd) % 12;
-    if (maxDate.getMonth() !== expectedMonth) {
-      maxDate.setDate(0);
-      maxDate.setHours(23, 59, 59, 999);
+    if (temporalFilter === 'mes_actual') {
+      // Mes en curso: del primer al último día del mes actual
+      const now = new Date();
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return { from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` };
     }
+    const months = TEMPORAL_PRESET_MONTHS[temporalFilter];
+    if (months) return { from: availableDateBounds.min, to: addMonthsIso(months) };
+    return { from: availableDateBounds.min, to: availableDateBounds.max };
+  }, [temporalFilter, customDateRange, availableDateBounds]);
 
-    // Include all installments from past dates up to maxDate in the future
-    return targetDate <= maxDate;
+  const isDateRangeInverted = !!(effectiveDateRange.from && effectiveDateRange.to && effectiveDateRange.from > effectiveDateRange.to);
+
+  // Al editar Fecha inicio / Fecha final a mano, el filtro pasa a "Personalizado"
+  const handleDateRangeChange = (bound, iso) => {
+    setCustomDateRange({ ...effectiveDateRange, [bound]: iso });
+    setTemporalFilter('Personalizado');
+  };
+
+  const passesDateFilter = (inst) => {
+    // Histórico sobre la fecha planificada: no filtra (incluye cuotas sin fecha)
+    if (temporalFilter === 'Todos' && dateFilterField === 'date') return true;
+    const d = getInstallmentFilterDate(inst, dateFilterField);
+    // Si la cuota no tiene la fecha elegida (ej. aún no facturada o no pagada), no se muestra
+    if (!d) return false;
+    if (effectiveDateRange.from && d < effectiveDateRange.from) return false;
+    if (effectiveDateRange.to && d > effectiveDateRange.to) return false;
+    return true;
   };
 
   // --- SUPABASE STORAGE FILE UPLOAD HELPER ---
@@ -597,7 +630,7 @@ export default function Facturacion({
   const filteredInstallments = useMemo(() => {
     return installments.filter(inst => {
       // 1. Temporal Filter
-      if (!filterPeriod(inst.date, temporalFilter)) return false;
+      if (!passesDateFilter(inst)) return false;
 
       // 2. Status Filter
       if (statusFilter !== 'Todos') {
@@ -708,7 +741,7 @@ export default function Facturacion({
 
       return true;
     });
-  }, [installments, projects, clients, budgets, temporalFilter, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, situacionFilter, minAmountFilter, maxAmountFilter, maxProjectUF, searchTerm, todayStr, getInstallmentClientName]);
+  }, [installments, projects, clients, budgets, temporalFilter, dateFilterField, effectiveDateRange, getInstallmentFilterDate, statusFilter, clientFilter, encargadoFilter, billingCompanyFilter, situacionFilter, minAmountFilter, maxAmountFilter, maxProjectUF, searchTerm, todayStr, getInstallmentClientName]);
 
   // --- DYNAMIC KPIs (Adjust to all selected filters) ---
   const stats = useMemo(() => {
@@ -876,7 +909,9 @@ export default function Facturacion({
       budgets,
       clients,
       activeFilters: {
-        temporal: temporalFilter,
+        temporal: temporalFilter === 'Todos' && dateFilterField === 'date'
+          ? 'Todos'
+          : `${DATE_FILTER_FIELDS.find(f => f.value === dateFilterField)?.label || 'Fecha planificada'} ${effectiveDateRange.from ? formatDate(effectiveDateRange.from) : '…'} – ${effectiveDateRange.to ? formatDate(effectiveDateRange.to) : '…'}`,
         status: statusFilter,
         client: clientFilter,
         encargado: encargadoFilter,
@@ -939,6 +974,7 @@ export default function Facturacion({
         "Comuna": razonSocial ? razonSocial.comuna || '' : '',
         "Ciudad": razonSocial ? razonSocial.ciudad || '' : '',
         "Contacto": razonSocial ? razonSocial.name || '' : '',
+        "Nombre Presupuesto": budget ? budget.title || '' : '',
         "Obra": project ? project.rawProjectName || '' : '',
         "OC": installment.oc || '',
         "Descripción": installment.description || '',
@@ -999,6 +1035,7 @@ export default function Facturacion({
         "Comuna",
         "Ciudad",
         "Contacto",
+        "Nombre Presupuesto",
         "Obra",
         "OC",
         "Descripción",
@@ -2083,11 +2120,13 @@ export default function Facturacion({
                 />
               </div>
 
-              {(searchTerm || temporalFilter !== 'Todos' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || situacionFilter !== 'Todas' || minAmountFilter > 0 || (maxAmountFilter !== null && maxAmountFilter < maxProjectUF)) && (
+              {(searchTerm || temporalFilter !== 'Todos' || dateFilterField !== 'date' || statusFilter !== 'Todos' || clientFilter !== 'Todos' || encargadoFilter !== 'Todos' || billingCompanyFilter !== 'Todos' || situacionFilter !== 'Todas' || minAmountFilter > 0 || (maxAmountFilter !== null && maxAmountFilter < maxProjectUF)) && (
                 <button
                   onClick={() => {
                     setSearchTerm('');
                     setTemporalFilter('Todos');
+                    setDateFilterField('date');
+                    setCustomDateRange({ from: '', to: '' });
                     setStatusFilter('Todos');
                     setClientFilter('Todos');
                     setEncargadoFilter('Todos');
@@ -2109,9 +2148,28 @@ export default function Facturacion({
             <div className="flex flex-wrap items-center gap-3 ml-auto justify-end">
               {/* Temporal Filter Button Group */}
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
+                <span className="relative inline-flex items-center gap-1 group">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Vencimiento:</span>
+                  <span
+                    className="material-symbols-outlined text-[15px] text-slate-400 hover:text-secondary cursor-help"
+                    tabIndex={0}
+                    aria-label="Muestra todas las cuotas históricas (hacia atrás) y las que vencen desde hoy hasta el período seleccionado hacia adelante. «Actual» muestra sólo el mes en curso, del primer al último día."
+                  >
+                    info
+                  </span>
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-0 top-full mt-1.5 z-50 hidden group-hover:block group-focus-within:block w-[280px] rounded-lg bg-primary text-white text-[11px] font-medium leading-snug px-2.5 py-2 shadow-lg text-left normal-case tracking-normal"
+                  >
+                    <span className="block font-bold mb-0.5">¿Qué fechas incluye?</span>
+                    <span className="block">Muestra todas las cuotas históricas (hacia atrás) y las que vencen desde hoy hasta el período seleccionado hacia adelante. Ej.: «1 Mes» = todo lo anterior + hasta un mes desde hoy.</span>
+                    <span className="block mt-1">«Actual» es la excepción: muestra sólo las cuotas del mes en curso, del primer al último día del mes (sin históricos).</span>
+                    <span className="block mt-1 text-white/75">Se aplica sobre la «Fecha de filtro» elegida en (+) (por defecto, la fecha planificada). «Histórico» no limita las fechas.</span>
+                  </span>
+                </span>
                 <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80">
                   {[
+                    { value: 'mes_actual', label: 'Actual' },
                     { value: '1_mes', label: '1 Mes' },
                     { value: '2_meses', label: '2 Meses' },
                     { value: '3_meses', label: '3 Meses' },
@@ -2252,10 +2310,48 @@ export default function Facturacion({
 
           {/* Secondary Row: Hidden Filters (Expanded) */}
           {isFilterExpanded && (
-            <div className="border-t border-slate-100 pt-2.5 flex flex-wrap items-center gap-4 animate-fade-in">
+            <div className="border-t border-slate-100 pt-2.5 flex flex-wrap items-start gap-x-4 gap-y-3 animate-fade-in">
+              {/* Fecha de filtro: sobre qué fecha de la cuota se aplican Vencimiento y el rango */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Fecha de filtro</span>
+                <select
+                  value={dateFilterField}
+                  onChange={(e) => setDateFilterField(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all cursor-pointer min-w-[150px]"
+                  title="Las cuotas que no tengan esta fecha (ej. aún no facturadas o no pagadas) no se muestran"
+                >
+                  {DATE_FILTER_FIELDS.map(f => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Rango Fecha inicio / Fecha final (calendario o escritura manual dd/mm/aaaa) */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Fecha inicio</span>
+                <DateFilterInput
+                  value={effectiveDateRange.from}
+                  onChange={(iso) => handleDateRangeChange('from', iso)}
+                  invalid={isDateRangeInverted}
+                  ariaLabel="Fecha inicio"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Fecha final</span>
+                <DateFilterInput
+                  value={effectiveDateRange.to}
+                  onChange={(iso) => handleDateRangeChange('to', iso)}
+                  invalid={isDateRangeInverted}
+                  ariaLabel="Fecha final"
+                />
+                {isDateRangeInverted && (
+                  <span className="text-[10px] font-semibold text-red-500 whitespace-nowrap">Inicio posterior a la final</span>
+                )}
+              </div>
+
               {/* Cliente Filter Dropdown */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente:</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Cliente</span>
                 <select
                   value={clientFilter}
                   onChange={(e) => setClientFilter(e.target.value)}
@@ -2271,8 +2367,8 @@ export default function Facturacion({
               </div>
 
               {/* Encargado Filter Dropdown */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado:</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Encargado</span>
                 <select
                   value={encargadoFilter}
                   onChange={(e) => setEncargadoFilter(e.target.value)}
@@ -2288,8 +2384,8 @@ export default function Facturacion({
               </div>
 
               {/* Empresa Facturación Dropdown */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa Facturación:</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Empresa Facturación</span>
                 <select
                   value={billingCompanyFilter}
                   onChange={(e) => setBillingCompanyFilter(e.target.value)}
@@ -2302,8 +2398,8 @@ export default function Facturacion({
               </div>
 
               {/* Situación Dropdown (con algo por cobrar, completamente cobrado, todas) */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Situación:</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] leading-4 font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">Situación</span>
                 <select
                   value={situacionFilter}
                   onChange={(e) => setSituacionFilter(e.target.value)}
@@ -2317,15 +2413,15 @@ export default function Facturacion({
 
               {/* Slide Rango Monto Total (Doble extremo: Mínimo y Máximo) */}
               <div className="flex flex-col gap-1 min-w-[240px] max-w-[300px] flex-grow sm:flex-grow-0">
-                <div className="flex justify-between items-center text-[11px] font-bold text-slate-500">
-                  <span className="uppercase tracking-wider whitespace-nowrap">Rango Monto Total:</span>
-                  <span className="font-mono text-slate-800 text-xs font-semibold truncate ml-2">
+                <div className="flex justify-between items-center text-[11px] leading-4 font-bold">
+                  <span className="uppercase tracking-wider whitespace-nowrap text-slate-400">Rango Monto Total</span>
+                  <span className="font-mono text-slate-800 text-[11px] leading-4 font-semibold truncate ml-2">
                     {currentMinSlider === 0 && currentMaxSlider >= maxProjectUF 
                       ? `Todos (0 - ${maxProjectUF.toLocaleString('es-CL')} UF)` 
                       : `${currentMinSlider.toLocaleString('es-CL')} - ${currentMaxSlider.toLocaleString('es-CL')} UF`}
                   </span>
                 </div>
-                <div className="relative w-full h-5 flex items-center">
+                <div className="relative w-full h-[30px] flex items-center">
                   {/* Track base */}
                   <div className="absolute left-0 right-0 h-1.5 bg-slate-200 rounded-full pointer-events-none" />
                   
@@ -2372,7 +2468,7 @@ export default function Facturacion({
                     style={{ zIndex: activeThumb === 'max' ? 30 : 20 }}
                   />
                 </div>
-                <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono -mt-1 select-none">
+                <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono -mt-1.5 select-none">
                   <span>0 UF</span>
                   <span>{maxProjectUF.toLocaleString('es-CL')} UF</span>
                 </div>

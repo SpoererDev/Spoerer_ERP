@@ -56,6 +56,8 @@ export default function App() {
   const [presupuestosCalcPeriod, setPresupuestosCalcPeriod] = useState('all');
 
   const [facturacionTemporalFilter, setFacturacionTemporalFilter] = useState('Todos');
+  const [facturacionDateField, setFacturacionDateField] = useState('date');
+  const [facturacionDateRange, setFacturacionDateRange] = useState({ from: '', to: '' });
   const [facturacionStatusFilter, setFacturacionStatusFilter] = useState('Todos');
   const [facturacionClientFilter, setFacturacionClientFilter] = useState('Todos');
   const [facturacionEncargadoFilter, setFacturacionEncargadoFilter] = useState('Todos');
@@ -833,6 +835,10 @@ export default function App() {
               onUpdateBudgetLegalEntity={handleUpdateBudgetLegalEntity}
               temporalFilter={facturacionTemporalFilter}
               setTemporalFilter={setFacturacionTemporalFilter}
+              dateFilterField={facturacionDateField}
+              setDateFilterField={setFacturacionDateField}
+              customDateRange={facturacionDateRange}
+              setCustomDateRange={setFacturacionDateRange}
               statusFilter={facturacionStatusFilter}
               setStatusFilter={setFacturacionStatusFilter}
               clientFilter={facturacionClientFilter}
