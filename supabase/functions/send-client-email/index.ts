@@ -13,6 +13,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 type Recipient = { name?: string; email: string };
 type AttachmentRequest =
   | { source: 'dte'; installmentId: string }
+  | { source: 'dte_xml'; installmentId: string }
   | { source: 'upload'; path: string; name?: string }
   | { source: 'respaldo'; installmentId: string; url: string; name?: string };
 
@@ -92,13 +93,13 @@ Deno.serve(async (req: Request) => {
   if (errors.length) return json({ error: errors.join(' ') }, 400);
 
   const { data: installments, error: instError } = await db.from('billing_installments')
-    .select('id,project_id,origin_budget_id,installment_number,invoice_number,actual_invoice_date,comment,planned_amount_uf,currency,net_amount_clp,total_amount_clp,invoice_file_url,oc_file_url,payment_backup_url,other_files')
+    .select('id,project_id,origin_budget_id,installment_number,invoice_number,actual_invoice_date,comment,planned_amount_uf,currency,net_amount_clp,total_amount_clp,invoice_file_url,invoice_xml_url,oc_file_url,payment_backup_url,other_files')
     .in('id', installmentIds);
   if (instError || !installments || installments.length !== new Set(installmentIds).size) return json({ error: 'Cuota no encontrada.' }, 404);
   const primary = installments.find(i => i.id === installmentIds[0])!;
 
   const { data: dtes } = await db.from('dte_documents')
-    .select('installment_id,folio,emission_date,pdf_path,status')
+    .select('installment_id,folio,emission_date,pdf_path,xml_path,status')
     .in('installment_id', installmentIds).eq('status', 'issued');
   const dteFor = (id: string) => (dtes ?? []).find(d => d.installment_id === id) ?? null;
 
@@ -141,6 +142,12 @@ Deno.serve(async (req: Request) => {
         bytes = await download('invoices', dte.pdf_path);
         filename = `Factura_${dte.folio}.pdf`;
         logMeta = { name: safeFileName(filename), source: 'dte', installmentId: request.installmentId, folio: dte.folio };
+      } else if (request?.source === 'dte_xml' && installmentIds.includes(request.installmentId)) {
+        const dte = dteFor(request.installmentId);
+        if (!dte?.xml_path) throw new Error('La factura aún no tiene XML disponible.');
+        bytes = await download('invoices', dte.xml_path);
+        filename = `Factura_${dte.folio}.xml`;
+        logMeta = { name: safeFileName(filename), source: 'dte_xml', installmentId: request.installmentId, folio: dte.folio };
       } else if (request?.source === 'upload' && typeof request.path === 'string'
         && request.path.startsWith(`${profile.id}/`) && !request.path.includes('..')) {
         bytes = await download('email-attachments', request.path);
@@ -148,13 +155,15 @@ Deno.serve(async (req: Request) => {
         logMeta = { name: safeFileName(filename), source: 'upload' };
       } else if (request?.source === 'respaldo' && installmentIds.includes(request.installmentId)) {
         const inst = installments.find(i => i.id === request.installmentId)!;
-        const allowed = [inst.invoice_file_url, inst.oc_file_url, inst.payment_backup_url, ...((inst.other_files ?? []) as any[]).map(f => f?.url)];
+        const allowed = [inst.invoice_file_url, inst.invoice_xml_url, inst.oc_file_url, inst.payment_backup_url, ...((inst.other_files ?? []) as any[]).map(f => f?.url)];
         const path = allowed.includes(request.url) ? budgetsPathFromUrl(request.url) : null;
         if (!path) throw new Error('Adjunto no permitido.');
         bytes = await download('budgets', path);
         filename = request.name || path.split('/').pop()!;
         const field = request.url === inst.invoice_file_url
           ? 'invoiceFileUrl'
+          : request.url === inst.invoice_xml_url
+            ? 'invoiceXmlUrl'
           : request.url === inst.oc_file_url
             ? 'ocFileUrl'
             : request.url === inst.payment_backup_url

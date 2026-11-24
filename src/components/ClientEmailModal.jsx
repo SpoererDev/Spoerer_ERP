@@ -106,7 +106,8 @@ export default function ClientEmailModal({
       const alreadyIncluded = [...tpl.to, ...cc].some(r => (r.email || '').trim().toLowerCase() === encEmail);
       if (!alreadyIncluded) cc.push({ name: encargado.name, email: encargado.email });
     }
-    const invoicePdf = getIssuedDte(dteDocuments, installment.id)?.pdfPath;
+    const issuedDte = getIssuedDte(dteDocuments, installment.id);
+    const invoicePdf = issuedDte?.pdfPath;
     return {
       templateId,
       to: tpl.to.length ? tpl.to : [{ name: '', email: '' }],
@@ -115,6 +116,7 @@ export default function ClientEmailModal({
       body: tpl.body,
       edited: false,
       dteInstallmentIds: templateId === 'invoice' && invoicePdf ? [installment.id] : [],
+      dteXmlInstallmentIds: templateId === 'invoice' && issuedDte?.xmlPath ? [installment.id] : [],
       paymentInstallmentIds: [installment.id]
     };
   };
@@ -122,11 +124,12 @@ export default function ClientEmailModal({
   const defaultTpl = initialTemplate || getDefaultTemplate(installment, clientEmails);
   const [form, setForm] = useState(() => buildState(defaultTpl));
   const [respaldoUrls, setRespaldoUrls] = useState(() => {
-    const hasDtePdf = Boolean(getIssuedDte(dteDocuments, installment.id)?.pdfPath);
-    if (defaultTpl === 'invoice' && !hasDtePdf && installment.invoiceFileUrl) {
-      return [installment.invoiceFileUrl];
-    }
-    return [];
+    if (defaultTpl !== 'invoice') return [];
+    const dte = getIssuedDte(dteDocuments, installment.id);
+    const urls = [];
+    if (!dte?.pdfPath && installment.invoiceFileUrl) urls.push(installment.invoiceFileUrl);
+    if (!dte?.xmlPath && installment.invoiceXmlUrl) urls.push(installment.invoiceXmlUrl);
+    return urls;
   });
   const [uploads, setUploads] = useState([]);
   const [isSending, setIsSending] = useState(false);
@@ -170,8 +173,12 @@ export default function ClientEmailModal({
   const invoiceOptions = emailInstallments
     .map(inst => ({ inst, dte: getIssuedDte(dteDocuments, inst.id) }))
     .filter(({ dte }) => dte?.pdfPath);
+  const invoiceXmlOptions = emailInstallments
+    .map(inst => ({ inst, dte: getIssuedDte(dteDocuments, inst.id) }))
+    .filter(({ dte }) => dte?.xmlPath);
   const respaldoOptions = [
     installment.invoiceFileUrl && { url: installment.invoiceFileUrl, label: 'Factura (PDF cargado)' },
+    installment.invoiceXmlUrl && { url: installment.invoiceXmlUrl, label: 'Factura (XML cargado)', icon: 'code' },
     installment.ocFileUrl && { url: installment.ocFileUrl, label: 'Orden de compra' },
     installment.paymentBackupUrl && { url: installment.paymentBackupUrl, label: 'Comprobante de pago' },
     ...(installment.otherFiles || []).filter(f => f?.url).map(f => ({ url: f.url, label: f.name || fileNameFromUrl(f.url) }))
@@ -210,6 +217,7 @@ export default function ClientEmailModal({
         idempotencyKey: crypto.randomUUID(),
         attachments: [
           ...form.dteInstallmentIds.filter(id => emailInstallmentIds.includes(id)).map(id => ({ source: 'dte', installmentId: id })),
+          ...form.dteXmlInstallmentIds.filter(id => emailInstallmentIds.includes(id)).map(id => ({ source: 'dte_xml', installmentId: id })),
           ...respaldoUrls.map(url => ({ source: 'respaldo', installmentId: installment.id, url, name: fileNameFromUrl(url) })),
           ...uploaded.map(u => ({ source: 'upload', path: u.path, name: u.name }))
         ]
@@ -266,6 +274,24 @@ export default function ClientEmailModal({
       return { type: 'none', label: att.name || 'Factura DTE' };
     }
 
+    if (att.source === 'dte_xml') {
+      if (dte?.xmlPath) {
+        return {
+          type: 'dte_xml',
+          label: att.name || `Factura_${dte.folio}.xml`,
+          xmlPath: dte.xmlPath,
+          title: `XML factura electrónica N° ${dte.folio} (Nubox)`
+        };
+      }
+      return { type: 'none', label: att.name || 'XML factura' };
+    }
+
+    if (att.source === 'respaldo' && att.field === 'invoiceXmlUrl') {
+      return targetInst?.invoiceXmlUrl
+        ? { type: 'xml_url', label: att.name || fileNameFromUrl(targetInst.invoiceXmlUrl), url: targetInst.invoiceXmlUrl }
+        : { type: 'none', label: att.name || 'XML factura' };
+    }
+
     if (att.source === 'respaldo' || att.source === 'external_invoice') {
       let url = null;
       if (att.field === 'invoiceFileUrl' || att.source === 'external_invoice') {
@@ -305,7 +331,14 @@ export default function ClientEmailModal({
   const handleOpenResolvedAttachment = async (resolved) => {
     if (!resolved) return;
     try {
-      if (resolved.type === 'dte' && resolved.pdfPath) {
+      if (resolved.type === 'dte_xml' && resolved.xmlPath) {
+        // El XML no se previsualiza: se descarga.
+        const url = await supabaseService.getDownloadUrl({ invoicePath: resolved.xmlPath, fileName: resolved.label });
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else if (resolved.type === 'xml_url' && resolved.url) {
+        const url = await supabaseService.getDownloadUrl({ publicUrl: resolved.url, fileName: resolved.label });
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else if (resolved.type === 'dte' && resolved.pdfPath) {
         const signedUrl = await supabaseService.getInvoicePdfUrl(resolved.pdfPath);
         if (onPreviewFile) {
           onPreviewFile({ url: signedUrl, title: resolved.title, name: resolved.label });
@@ -638,10 +671,21 @@ export default function ClientEmailModal({
                   Factura Nubox N° {dte.folio}{dte.environment === 'uat' ? ' (prueba)' : ''} · Cuota {inst.numQuota}
                 </label>
               ))}
+              {invoiceXmlOptions.map(({ inst, dte }) => (
+                <label key={`xml-${inst.id}`} className="flex items-center gap-xs text-body-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.dteXmlInstallmentIds.includes(inst.id)}
+                    onChange={() => update({ dteXmlInstallmentIds: toggle(form.dteXmlInstallmentIds, inst.id) })}
+                  />
+                  <span className="material-symbols-outlined text-[18px] text-emerald-600">code</span>
+                  XML factura Nubox N° {dte.folio}{dte.environment === 'uat' ? ' (prueba)' : ''} · Cuota {inst.numQuota}
+                </label>
+              ))}
               {respaldoOptions.map(opt => (
                 <label key={opt.url} className="flex items-center gap-xs text-body-sm cursor-pointer">
                   <input type="checkbox" checked={respaldoUrls.includes(opt.url)} onChange={() => setRespaldoUrls(toggle(respaldoUrls, opt.url))} />
-                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant">attach_file</span>
+                  <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{opt.icon || 'attach_file'}</span>
                   {opt.label}
                 </label>
               ))}
