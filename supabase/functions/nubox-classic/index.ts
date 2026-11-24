@@ -40,7 +40,8 @@ Deno.serve(async (req: Request) => {
   if (problems.length) return json({ error: `Nubox no está configurado: ${problems.join(' ')}` }, 500);
 
   try {
-    if (body.action === 'pdf') {
+    // 'pdf' (y su alias 'files'): vuelve a descargar desde Nubox el PDF y el XML, reemplazando los guardados.
+    if (body.action === 'pdf' || body.action === 'files') {
       const { data: doc } = await db.from('dte_documents').select('*')
         .eq('id', body.documentId ?? '').eq('provider', 'classic').maybeSingle();
       if (!doc) return json({ error: 'Documento no encontrado' }, 404);

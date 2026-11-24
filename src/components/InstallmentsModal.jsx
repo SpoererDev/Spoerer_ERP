@@ -132,20 +132,48 @@ export default function InstallmentsModal({
   taxPercent = 19,
   clients = [],
   legalEntityId = null,
-  dteDocuments = []
+  dteDocuments = [],
+  onDteDocumentChange
 }) {
   const [localInstallments, setLocalInstallments] = useState([]);
 
-  // PDF of the Nubox invoice issued for this installment (lives in the private "invoices" bucket).
-  const getIssuedDtePdf = (installmentId) =>
-    dteDocuments.find(d => d.installmentId === installmentId && d.status === 'issued' && d.pdfPath) || null;
+  // Documents refreshed from Nubox while the modal is open (applied over the dteDocuments prop).
+  const [refreshedDtes, setRefreshedDtes] = useState({});
+  const dteList = dteDocuments.map(d => refreshedDtes[d.id] || d);
 
-  const openDtePdf = async (dte) => {
+  // Nubox invoice issued for this installment (its PDF/XML live in the private "invoices" bucket).
+  const getIssuedDte = (installmentId) =>
+    dteList.find(d => d.installmentId === installmentId && d.status === 'issued') || null;
+  const getIssuedDtePdf = (installmentId) => {
+    const dte = getIssuedDte(installmentId);
+    return dte?.pdfPath ? dte : null;
+  };
+
+  const openDteFile = async (path, label) => {
     try {
-      window.open(await supabaseService.getInvoicePdfUrl(dte.pdfPath), '_blank', 'noopener,noreferrer');
+      window.open(await supabaseService.getInvoicePdfUrl(path), '_blank', 'noopener,noreferrer');
     } catch (err) {
-      console.error('Error obteniendo PDF de la factura:', err);
-      alert('No se pudo abrir el PDF de la factura.');
+      console.error(`Error obteniendo ${label} de la factura:`, err);
+      alert(`No se pudo abrir el ${label} de la factura.`);
+    }
+  };
+  const openDtePdf = (dte) => openDteFile(dte.pdfPath, 'PDF');
+
+  // Re-downloads the PDF and XML from Nubox, replacing the stored files.
+  const [dteRefreshing, setDteRefreshing] = useState(false);
+  const [dteRefreshMessage, setDteRefreshMessage] = useState(null); // { type: 'ok' | 'error', text }
+  const refreshDteFiles = async (dte) => {
+    setDteRefreshing(true);
+    setDteRefreshMessage(null);
+    try {
+      const { document, warning } = await supabaseService.refreshNuboxInvoiceFiles(dte.id);
+      setRefreshedDtes(prev => ({ ...prev, [document.id]: document }));
+      onDteDocumentChange?.(document);
+      setDteRefreshMessage(warning ? { type: 'error', text: warning } : { type: 'ok', text: 'PDF y XML actualizados desde Nubox.' });
+    } catch (err) {
+      setDteRefreshMessage({ type: 'error', text: err.message || 'No se pudo actualizar desde Nubox.' });
+    } finally {
+      setDteRefreshing(false);
     }
   };
   const [editingFileIdx, setEditingFileIdx] = useState(null);
@@ -2270,23 +2298,47 @@ export default function InstallmentsModal({
                   Documento de Factura (PDF)
                 </span>
 
-                {/* Factura emitida con Nubox: sólo lectura, el documento está en el SII */}
-                {getIssuedDtePdf(currentEditingRow.id) && (
-                  <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => openDtePdf(getIssuedDtePdf(currentEditingRow.id))}
-                      className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate pr-4"
-                    >
-                      <span className="material-symbols-outlined text-[18px] flex-shrink-0">picture_as_pdf</span>
-                      <span className="truncate">
-                        Factura Nubox{getIssuedDtePdf(currentEditingRow.id).folio ? ` N° ${getIssuedDtePdf(currentEditingRow.id).folio}` : ''}
-                        {getIssuedDtePdf(currentEditingRow.id).environment === 'uat' ? ' (prueba)' : ''}
-                      </span>
-                    </button>
-                    <span className="material-symbols-outlined text-[18px] text-emerald-600 flex-shrink-0" title="Emitida electrónicamente con Nubox">verified</span>
-                  </div>
-                )}
+                {/* Factura emitida con Nubox: PDF y XML guardados por el ERP, con opción de volver a obtenerlos */}
+                {(() => {
+                  const dte = getIssuedDte(currentEditingRow.id);
+                  if (!dte) return null;
+                  const folioLabel = `${dte.folio ? ` N° ${dte.folio}` : ''}${dte.environment === 'uat' ? ' (prueba)' : ''}`;
+                  return (
+                    <div className="p-sm bg-slate-50 border rounded-lg space-y-1.5">
+                      <div className="flex items-center justify-between gap-sm">
+                        <div className="flex items-center gap-md min-w-0">
+                          {dte.pdfPath ? (
+                            <button type="button" onClick={() => openDtePdf(dte)} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
+                              <span className="material-symbols-outlined text-[18px] flex-shrink-0">picture_as_pdf</span>
+                              <span className="truncate">Factura Nubox{folioLabel}</span>
+                            </button>
+                          ) : (
+                            <span className="text-body-sm text-on-surface-variant truncate">Factura Nubox{folioLabel}: sin PDF</span>
+                          )}
+                          {dte.xmlPath && (
+                            <button type="button" onClick={() => openDteFile(dte.xmlPath, 'XML')} className="flex items-center gap-1 text-secondary font-semibold text-body-sm hover:underline flex-shrink-0">
+                              <span className="material-symbols-outlined text-[18px]">code</span>
+                              <span>XML</span>
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => refreshDteFiles(dte)}
+                          disabled={dteRefreshing}
+                          title="Volver a obtener el PDF y el XML desde Nubox, reemplazando los guardados"
+                          className="flex items-center gap-1 px-2 py-1 rounded-md border border-secondary/40 text-secondary text-xs font-semibold hover:bg-secondary-container/30 transition-all disabled:opacity-60 flex-shrink-0"
+                        >
+                          <span className={`material-symbols-outlined text-[16px] ${dteRefreshing ? 'animate-spin' : ''}`}>sync</span>
+                          {dteRefreshing ? 'Actualizando...' : 'Actualizar'}
+                        </button>
+                      </div>
+                      {dteRefreshMessage && (
+                        <p className={`text-[11px] ${dteRefreshMessage.type === 'ok' ? 'text-emerald-700' : 'text-error'}`}>{dteRefreshMessage.text}</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Visualizar archivo existente */}
                 {currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile ? (

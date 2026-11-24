@@ -80,6 +80,7 @@ export default function Proyectos({
   installments,
   extraCosts,
   dteDocuments = [],
+  onDteDocumentChange,
   users = [],
   onUpdateInstallment,
   onDisassociateBudget,
@@ -3088,6 +3089,7 @@ export default function Proyectos({
           clients={clients}
           legalEntityId={activeBudgetForInstallments?.budget?.legalEntityId || activeBudgetForInstallments?.budget?.clientId || activeBudgetForInstallments?.project?.legalEntityId || null}
           dteDocuments={dteDocuments}
+          onDteDocumentChange={onDteDocumentChange}
           onSave={async (updated) => {
             await onSaveInstallments(activeBudgetForInstallments.budget.id, updated);
           }}

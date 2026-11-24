@@ -253,20 +253,106 @@ export const toBase64 = (bytes: Uint8Array) => {
   return btoa(binary);
 };
 
-// Descarga el PDF desde Nubox y lo guarda en el bucket privado "invoices".
+const fromBase64 = (value: string) => {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+// El endpoint de XML declara respuesta JSON sin ejemplo: se acepta XML directo, XML como texto dentro de un JSON
+// (en cualquier propiedad) o XML codificado en base64.
+const extractXml = (value: unknown, depth = 0): Uint8Array | null => {
+  if (depth > 4 || value == null) return null;
+  if (typeof value === 'string') {
+    const t = value.trim();
+    if (t.startsWith('<')) return new TextEncoder().encode(t);
+    if (t.startsWith('{') || t.startsWith('[') || t.startsWith('"')) {
+      try { return extractXml(JSON.parse(t), depth + 1); } catch { /* no es JSON */ }
+    }
+    if (t.length > 40 && /^[A-Za-z0-9+/=\s]+$/.test(t)) {
+      try {
+        const bytes = fromBase64(t.replace(/\s+/g, ''));
+        const head = new TextDecoder('latin1').decode(bytes.subarray(0, 200)).trimStart();
+        if (head.startsWith('<')) return bytes;
+      } catch { /* no es base64 */ }
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = extractXml(item, depth + 1); if (found) return found; }
+    return null;
+  }
+  if (typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) { const found = extractXml(item, depth + 1); if (found) return found; }
+  }
+  return null;
+};
+
+// XML de un documento de venta: GET /factura/documento/{rut}/venta/{dia}/{tipoDocumento}/{idDocumento}/{numeroSerie}.
+// La documentación no indica el formato de {dia}: se prueba yyyy-mm-dd y luego dd-mm-yyyy.
+export const fetchClassicXml = async (config: ClassicConfig, folio: string, documentType: string, emissionDate: string) => {
+  const rut = rutWithDash(config.rut_empresa);
+  const [y, m, d] = String(emissionDate).slice(0, 10).split('-');
+  let lastError = '';
+  for (const dia of [`${y}-${m}-${d}`, `${d}-${m}-${y}`]) {
+    const { response } = await classicFetch(
+      config,
+      (s) => `/factura/documento/${rut}/venta/${dia}/${pdfDocumentType(documentType)}/${folio}/${s.numero_serie}`,
+      { headers: { Accept: 'application/xml, application/json, text/plain' } },
+    );
+    const body = await response.text();
+    if (!response.ok) {
+      lastError = nuboxMessage(body, response.status);
+      continue;
+    }
+    const xml = extractXml(body);
+    if (xml) return xml;
+    lastError = `respuesta sin XML (${response.headers.get('Content-Type') ?? 'sin tipo'}): ${body.replace(/\s+/g, ' ').slice(0, 200) || 'vacía'}`;
+  }
+  throw new NuboxClassicError(lastError || 'Nubox no devolvió el XML.');
+};
+
+const removeIfReplaced = async (oldPath: string | null | undefined, newPath: string) => {
+  if (!oldPath || oldPath === newPath) return;
+  const { error } = await db.storage.from('invoices').remove([oldPath]);
+  if (error) console.error('old invoice file not removed', oldPath, error.message);
+};
+
+// Descarga desde Nubox el PDF y el XML del documento y los guarda (reemplazando los anteriores) en el bucket
+// privado "invoices". Un fallo del XML no impide guardar el PDF; ambos fallos se informan como advertencia.
 export const storeClassicPdf = async (config: ClassicConfig, doc: DteDocument): Promise<{ document: DteDocument; warning?: string }> => {
+  const year = String(doc.emission_date ?? new Date().toISOString()).slice(0, 4);
+  const suffix = doc.is_draft ? 'borrador' : 'classic';
+  const base = `${doc.billing_company}/${doc.environment}/${year}/factura_${doc.folio}_${suffix}_${doc.id.slice(0, 8)}`;
+  const updates: Record<string, unknown> = {};
+  const problems: string[] = [];
+
   try {
     const bytes = await fetchClassicPdf(config, String(doc.folio), doc.document_type);
-    const year = String(doc.emission_date ?? new Date().toISOString()).slice(0, 4);
-    const suffix = doc.is_draft ? 'borrador' : 'classic';
-    const path = `${doc.billing_company}/${doc.environment}/${year}/factura_${doc.folio}_${suffix}_${doc.id.slice(0, 8)}.pdf`;
+    const path = `${base}.pdf`;
     const { error } = await db.storage.from('invoices').upload(path, bytes, { contentType: 'application/pdf', upsert: true });
     if (error) throw error;
-    return { document: await updateDocument(doc.id, { pdf_path: path, errors: null }) };
+    await removeIfReplaced(doc.pdf_path, path);
+    updates.pdf_path = path;
   } catch (err) {
-    const warning = `Factura generada (folio ${doc.folio}), pero no se pudo obtener el PDF: ${err instanceof Error ? err.message : err}`;
-    return { document: await updateDocument(doc.id, { errors: [{ message: warning }] }), warning };
+    problems.push(`no se pudo obtener el PDF: ${err instanceof Error ? err.message : err}`);
   }
+
+  try {
+    const bytes = await fetchClassicXml(config, String(doc.folio), doc.document_type, String(doc.emission_date ?? new Date().toISOString()));
+    const path = `${base}.xml`;
+    const { error } = await db.storage.from('invoices').upload(path, bytes, { contentType: 'application/xml', upsert: true });
+    if (error) throw error;
+    await removeIfReplaced(doc.xml_path, path);
+    updates.xml_path = path;
+  } catch (err) {
+    problems.push(`no se pudo obtener el XML: ${err instanceof Error ? err.message : err}`);
+  }
+
+  const warning = problems.length ? `Factura folio ${doc.folio}: ${problems.join('; ')}` : undefined;
+  const document = await updateDocument(doc.id, { ...updates, errors: warning ? [{ message: warning }] : null });
+  return warning ? { document, warning } : { document };
 };
 
 export { updateDocument as updateClassicDocument };

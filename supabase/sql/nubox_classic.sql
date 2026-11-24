@@ -102,3 +102,6 @@ revoke all on function nubox.invoke_sync() from public, anon, authenticated;
 
 -- Usuario de Nubox dueño del token (si cambian las credenciales en Vault se fuerza una nueva autenticación).
 alter table public.nubox_classic_sessions add column if not exists api_user text;
+
+-- XML del DTE (se guarda junto al PDF en el bucket invoices).
+alter table public.dte_documents add column if not exists xml_path text;

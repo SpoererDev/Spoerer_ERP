@@ -1536,6 +1536,22 @@ export default function Facturacion({
             <span className="material-symbols-outlined text-[16px]">receipt_long</span>
           </button>
         )}
+        {dte?.status === 'issued' && dte.xmlPath && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                window.open(await supabaseService.getInvoicePdfUrl(dte.xmlPath), '_blank', 'noopener,noreferrer');
+              } catch (err) {
+                console.error('Error obteniendo XML de la factura:', err);
+              }
+            }}
+            className={neutral ? neutralClass : 'inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors'}
+            title={`XML Factura${dte.folio ? ` N° ${dte.folio}` : ''}`}
+          >
+            <span className="material-symbols-outlined text-[16px]">code</span>
+          </button>
+        )}
         {inst.paymentBackupUrl ? (
           <button
             type="button"
@@ -3548,6 +3564,7 @@ export default function Facturacion({
           clients={clients}
           legalEntityId={activeBudgetForInstallments?.budget?.legalEntityId || activeBudgetForInstallments?.budget?.clientId || null}
           dteDocuments={dteDocuments}
+          onDteDocumentChange={onDteDocumentChange}
           onSave={async (updated) => {
             await onSaveInstallments(activeBudgetForInstallments.budget.id, updated);
           }}

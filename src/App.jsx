@@ -880,6 +880,7 @@ export default function App() {
               budgets={quotes}
               installments={installments}
               dteDocuments={dteDocuments}
+              onDteDocumentChange={handleDteDocumentChange}
               extraCosts={extraCosts}
               users={users}
               onUpdateInstallment={handleUpdateInstallment}

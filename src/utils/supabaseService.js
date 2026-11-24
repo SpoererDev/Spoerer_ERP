@@ -331,6 +331,7 @@ const mapDteFromDb = (dbDoc) => ({
   description: dbDoc.description || '',
   errors: Array.isArray(dbDoc.errors) ? dbDoc.errors : [],
   pdfPath: dbDoc.pdf_path || null,
+  xmlPath: dbDoc.xml_path || null,
   createdAt: dbDoc.created_at,
   issuedAt: dbDoc.issued_at || null
 });
@@ -1397,6 +1398,12 @@ export const supabaseService = {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     return new File([bytes], result.fileName || `factura_${folio}.pdf`, { type: 'application/pdf' });
+  },
+
+  // Vuelve a descargar desde Nubox el PDF y el XML de una factura emitida, reemplazando los guardados.
+  async refreshNuboxInvoiceFiles(documentId) {
+    const result = await invokeNuboxFunction('nubox-classic', { action: 'files', documentId });
+    return { document: mapDteFromDb(result.document), warning: result.warning || null };
   },
 
   async retryNuboxClassicPdf(documentId) {
