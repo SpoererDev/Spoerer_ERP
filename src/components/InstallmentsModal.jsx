@@ -2500,9 +2500,23 @@ export default function InstallmentsModal({
                   const pendingXml = currentEditingRow.invoiceXmlFileObject || null;
                   return (
                     <div className="space-y-sm">
-                      <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
-                        Documento de Factura (XML)
-                      </span>
+                      <div className="flex items-center justify-between gap-sm">
+                        <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                          Documento de Factura (XML)
+                        </span>
+                        {/* Busca factura y XML en Nubox por el folio de la cuota; la vista previa permite guardar solo el XML */}
+                        <button
+                          type="button"
+                          onClick={() => fetchInvoiceFromNubox(editingFileIdx, 'xml')}
+                          disabled={nuboxPdfLoading}
+                          title={currentEditingRow.invoiceNumber ? `Obtener la factura N° ${currentEditingRow.invoiceNumber} (PDF y XML) desde Nubox` : 'Registre el N° de factura para obtenerla desde Nubox'}
+                          className="text-xs font-semibold text-secondary hover:underline flex items-center gap-1 disabled:opacity-60"
+                        >
+                          <span className={`material-symbols-outlined text-[16px] ${nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'animate-spin' : ''}`}>{nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'sync' : 'cloud_download'}</span>
+                          {nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'Obteniendo...' : 'Obtener desde Nubox'}
+                        </button>
+                      </div>
+                      {nuboxPdfError && nuboxFetchSource === 'xml' && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
                       {pendingXml ? (
                         <div className="flex items-center justify-between p-sm bg-emerald-50/20 border border-emerald-100 rounded-lg">
                           <div className="flex items-center gap-1.5 text-emerald-800 font-semibold text-body-sm truncate pr-4">
@@ -2535,20 +2549,23 @@ export default function InstallmentsModal({
                           </button>
                         </div>
                       ) : (
-                        // Sin XML: se obtiene desde Nubox por el folio de la cuota (también trae la factura).
-                        <div className="space-y-1.5">
-                          <button
-                            type="button"
-                            onClick={() => fetchInvoiceFromNubox(editingFileIdx, 'xml')}
-                            disabled={nuboxPdfLoading}
-                            title={currentEditingRow.invoiceNumber ? `Obtener el XML de la factura N° ${currentEditingRow.invoiceNumber} desde Nubox` : 'Registre el N° de factura para obtenerla desde Nubox'}
-                            className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-secondary-container/30 border border-dashed border-secondary/40 rounded-lg text-body-sm font-semibold text-secondary transition-all disabled:opacity-60"
-                          >
-                            <span className={`material-symbols-outlined text-[18px] ${nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'animate-spin' : ''}`}>{nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'sync' : 'cloud_download'}</span>
-                            <span>{nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'Obteniendo...' : 'Obtener de Nubox'}</span>
-                          </button>
-                          {nuboxPdfError && nuboxFetchSource === 'xml' && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
-                        </div>
+                        // Sin XML: subir un archivo .xml desde el equipo del usuario
+                        <label className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-lg cursor-pointer text-body-sm font-semibold text-slate-600 hover:text-slate-800 transition-all">
+                          <span className="material-symbols-outlined text-[18px]">upload</span>
+                          <span>Subir archivo</span>
+                          <input
+                            type="file"
+                            accept=".xml,application/xml,text/xml"
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files?.[0]) {
+                                handleFieldChange(editingFileIdx, 'invoiceXmlFileObject', e.target.files[0]);
+                                handleFieldChange(editingFileIdx, 'deleteInvoiceXml', true);
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
                       )}
                     </div>
                   );
