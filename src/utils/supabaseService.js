@@ -293,6 +293,7 @@ const mapInstallmentFromDb = (dbInst) => {
     actualInvoiceDate: dbInst.actual_invoice_date || null,
     invoiceNumber: dbInst.invoice_number || '',
     invoiceFileUrl: dbInst.invoice_file_url || '',
+    invoiceXmlUrl: dbInst.invoice_xml_url || '',
     actualPaymentDate: dbInst.actual_payment_date || null,
     paymentBackupUrl: dbInst.payment_backup_url || '',
     description: dbInst.description || '',
@@ -1081,6 +1082,7 @@ export const supabaseService = {
           date_confirmed: inst.dateConfirmed || false,
           invoice_number: inst.invoiceNumber || null,
           invoice_file_url: inst.invoiceFileUrl || null,
+          invoice_xml_url: inst.invoiceXmlUrl || null,
           actual_invoice_date: inst.actualInvoiceDate || null,
           actual_payment_date: inst.actualPaymentDate || null,
           payment_backup_url: inst.paymentBackupUrl || null,
@@ -1400,6 +1402,37 @@ export const supabaseService = {
     return new File([bytes], result.fileName || `factura_${folio}.pdf`, { type: 'application/pdf' });
   },
 
+  // PDF y XML (si se puede) de una factura ya emitida en Nubox, por folio, como File (sin guardarlos).
+  async fetchNuboxInvoiceFiles(folio, documentType = '33', emissionDate = null) {
+    const result = await invokeNuboxFunction('nubox-classic', {
+      action: 'filesByFolio', folio: String(folio).trim(), documentType, emissionDate
+    });
+    const toFile = (part, type) => {
+      const binary = atob(part.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new File([bytes], part.fileName, { type });
+    };
+    if (!result?.pdf?.contentBase64) throw new Error('Nubox no devolvió el PDF de la factura.');
+    return {
+      pdfFile: toFile(result.pdf, 'application/pdf'),
+      xmlFile: result.xml?.contentBase64 ? toFile(result.xml, 'application/xml') : null,
+      xmlError: result.xmlError || null
+    };
+  },
+
+  // URL para descargar (no visualizar) un archivo: firmada para el bucket privado "invoices",
+  // o la URL pública con ?download= para los archivos de cuotas.
+  async getDownloadUrl({ invoicePath = null, publicUrl = null, fileName = 'archivo' }) {
+    if (invoicePath) {
+      const { data, error } = await supabase.storage.from('invoices').createSignedUrl(invoicePath, 60 * 10, { download: fileName });
+      if (error) throw error;
+      return data.signedUrl;
+    }
+    if (!publicUrl) throw new Error('Archivo no disponible.');
+    return `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}download=${encodeURIComponent(fileName)}`;
+  },
+
   // Vuelve a descargar desde Nubox el PDF y el XML de una factura emitida, reemplazando los guardados.
   async refreshNuboxInvoiceFiles(documentId) {
     const result = await invokeNuboxFunction('nubox-classic', { action: 'files', documentId });
@@ -1508,6 +1541,7 @@ export const supabaseService = {
     if (updates.actualInvoiceDate !== undefined) dbUpdates.actual_invoice_date = updates.actualInvoiceDate;
     if (updates.invoiceNumber !== undefined) dbUpdates.invoice_number = updates.invoiceNumber;
     if (updates.invoiceFileUrl !== undefined) dbUpdates.invoice_file_url = updates.invoiceFileUrl;
+    if (updates.invoiceXmlUrl !== undefined) dbUpdates.invoice_xml_url = updates.invoiceXmlUrl || null;
     if (updates.actualPaymentDate !== undefined) dbUpdates.actual_payment_date = updates.actualPaymentDate;
     if (updates.paymentBackupUrl !== undefined) dbUpdates.payment_backup_url = updates.paymentBackupUrl;
     if (updates.otherFiles !== undefined) dbUpdates.other_files = updates.otherFiles;
@@ -1543,6 +1577,7 @@ export const supabaseService = {
       date_confirmed: installment.dateConfirmed || false,
       invoice_number: installment.invoiceNumber || null,
       invoice_file_url: installment.invoiceFileUrl || null,
+      invoice_xml_url: installment.invoiceXmlUrl || null,
       actual_invoice_date: installment.actualInvoiceDate || null,
       actual_payment_date: installment.actualPaymentDate || null,
       payment_backup_url: installment.paymentBackupUrl || null,
@@ -1715,6 +1750,7 @@ export const supabaseService = {
         date_confirmed: inst.dateConfirmed || false,
         invoice_number: inst.invoiceNumber || null,
         invoice_file_url: inst.invoiceFileUrl || null,
+        invoice_xml_url: inst.invoiceXmlUrl || null,
         actual_invoice_date: inst.actualInvoiceDate || null,
         actual_payment_date: inst.actualPaymentDate || null,
         payment_backup_url: inst.paymentBackupUrl || null,

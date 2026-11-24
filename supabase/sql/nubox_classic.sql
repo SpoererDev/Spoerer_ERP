@@ -105,3 +105,6 @@ alter table public.nubox_classic_sessions add column if not exists api_user text
 
 -- XML del DTE (se guarda junto al PDF en el bucket invoices).
 alter table public.dte_documents add column if not exists xml_path text;
+
+-- XML de la factura adjuntado a la cuota (obtenido desde Nubox por folio).
+alter table public.billing_installments add column if not exists invoice_xml_url text;

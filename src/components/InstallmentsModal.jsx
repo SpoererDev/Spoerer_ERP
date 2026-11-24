@@ -149,9 +149,13 @@ export default function InstallmentsModal({
     return dte?.pdfPath ? dte : null;
   };
 
-  const openDteFile = async (path, label) => {
+  const openDteFile = async (path, label, downloadName = null) => {
     try {
-      window.open(await supabaseService.getInvoicePdfUrl(path), '_blank', 'noopener,noreferrer');
+      // XML files are downloaded instead of being displayed in the browser.
+      const url = downloadName
+        ? await supabaseService.getDownloadUrl({ invoicePath: path, fileName: downloadName })
+        : await supabaseService.getInvoicePdfUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       console.error(`Error obteniendo ${label} de la factura:`, err);
       alert(`No se pudo abrir el ${label} de la factura.`);
@@ -1126,6 +1130,16 @@ export default function InstallmentsModal({
   // Execute actual uploads and deletes
   const processFilesAndGetUrls = async (inst) => {
     let invoiceFileUrl = inst.invoiceFileUrl;
+    let invoiceXmlUrl = inst.invoiceXmlUrl || '';
+
+    // Invoice XML (obtained from Nubox): delete the previous one if replaced, then upload the new one.
+    if (inst.deleteInvoiceXml && inst.invoiceXmlUrl) {
+      await supabaseService.deleteInstallmentFile(inst.invoiceXmlUrl);
+      invoiceXmlUrl = '';
+    }
+    if (inst.invoiceXmlFileObject) {
+      invoiceXmlUrl = await supabaseService.uploadInstallmentFile('facturas', projectNumber, inst.invoiceXmlFileObject);
+    }
     let paymentBackupUrl = inst.paymentBackupUrl;
     let ocFileUrl = inst.ocFileUrl;
 
@@ -1209,6 +1223,7 @@ export default function InstallmentsModal({
     return {
       ...inst,
       invoiceFileUrl,
+      invoiceXmlUrl,
       paymentBackupUrl,
       ocFileUrl,
       otherFiles: finalOtherFiles
@@ -1270,6 +1285,8 @@ export default function InstallmentsModal({
         delete updatedInst.paymentBackupFileObject;
         delete updatedInst.ocFileObject;
         delete updatedInst.deleteInvoiceFile;
+        delete updatedInst.invoiceXmlFileObject;
+        delete updatedInst.deleteInvoiceXml;
         delete updatedInst.deletePaymentBackup;
         delete updatedInst.deleteOcFile;
         // Strip group property before saving
@@ -1314,8 +1331,11 @@ export default function InstallmentsModal({
     setNuboxPdfLoading(true);
     try {
       const documentType = Number(row.taxPercent) === 0 ? '34' : '33';
-      const file = await supabaseService.fetchNuboxInvoicePdf(folio, documentType);
-      setNuboxPdfPreview({ idx, file, url: URL.createObjectURL(file) });
+      const rawDate = String(row.actualInvoiceDate || '');
+      const emissionDate = /^\d{4}-\d{2}-\d{2}/.test(rawDate) ? rawDate.slice(0, 10) : (rawDate ? formatToIsoDate(rawDate) : null);
+      const { pdfFile, xmlFile, xmlError } = await supabaseService.fetchNuboxInvoiceFiles(folio, documentType, emissionDate);
+      const replacing = Boolean((row.invoiceFileUrl && !row.deleteInvoiceFile) || row.invoiceFileObject);
+      setNuboxPdfPreview({ idx, file: pdfFile, xmlFile, xmlError, replacing, url: URL.createObjectURL(pdfFile) });
     } catch (err) {
       setNuboxPdfError(err.message || 'No se pudo obtener la factura desde Nubox.');
     } finally {
@@ -1327,6 +1347,10 @@ export default function InstallmentsModal({
     if (!nuboxPdfPreview) return;
     handleFieldChange(nuboxPdfPreview.idx, 'invoiceFileObject', nuboxPdfPreview.file);
     handleFieldChange(nuboxPdfPreview.idx, 'deleteInvoiceFile', true);
+    if (nuboxPdfPreview.xmlFile) {
+      handleFieldChange(nuboxPdfPreview.idx, 'invoiceXmlFileObject', nuboxPdfPreview.xmlFile);
+      handleFieldChange(nuboxPdfPreview.idx, 'deleteInvoiceXml', true);
+    }
     closeNuboxPdfPreview();
   };
 
@@ -2288,12 +2312,23 @@ export default function InstallmentsModal({
               </button>
             </div>
             <iframe title="Vista previa factura Nubox" src={nuboxPdfPreview.url} className="w-full h-[60vh] rounded-lg border border-outline-variant" />
-            <p className="text-xs text-on-surface-variant">Revise que corresponda a la cuota {localInstallments[nuboxPdfPreview.idx]?.numQuota}. Se adjuntará como PDF de factura al guardar la facturación.</p>
+            {nuboxPdfPreview.replacing && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-sm text-xs text-amber-900 flex gap-xs">
+                <span className="material-symbols-outlined text-[16px]">warning</span>
+                <span>Se reemplazará el PDF de factura actual de la cuota{nuboxPdfPreview.xmlFile ? ' y su XML' : ''}.</span>
+              </div>
+            )}
+            <p className="text-xs text-on-surface-variant">
+              Revise que corresponda a la cuota {localInstallments[nuboxPdfPreview.idx]?.numQuota}. Se adjuntará al guardar la facturación.
+              {nuboxPdfPreview.xmlFile
+                ? ' También se guardará el XML de la factura.'
+                : ` No se pudo obtener el XML${nuboxPdfPreview.xmlError ? `: ${nuboxPdfPreview.xmlError}` : '.'}`}
+            </p>
             <div className="flex justify-end gap-md border-t border-outline-variant/30 pt-md">
               <button type="button" onClick={closeNuboxPdfPreview} className="px-lg py-sm font-semibold text-on-surface-variant hover:text-on-surface transition-all">Cancelar</button>
               <button type="button" onClick={attachNuboxPdf} className="bg-primary text-white px-xl py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all flex items-center gap-xs">
                 <span className="material-symbols-outlined text-[18px]">attach_file</span>
-                Usar este PDF
+                {nuboxPdfPreview.replacing ? 'Reemplazar PDF' : 'Usar este PDF'}
               </button>
             </div>
           </div>
@@ -2322,9 +2357,27 @@ export default function InstallmentsModal({
 
               {/* Sección Factura (PDF) */}
               <div className="space-y-sm">
-                <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
-                  Documento de Factura (PDF)
-                </span>
+                <div className="flex items-center justify-between gap-sm">
+                  <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                    Documento de Factura (PDF)
+                  </span>
+                  {/* PDF adjuntado por el usuario: permite traer desde Nubox la factura (PDF + XML) por su folio */}
+                  {!getIssuedDte(currentEditingRow.id) && ((currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile) || currentEditingRow.invoiceFileObject) && (
+                    <button
+                      type="button"
+                      onClick={() => fetchInvoiceFromNubox(editingFileIdx)}
+                      disabled={nuboxPdfLoading}
+                      title={currentEditingRow.invoiceNumber ? `Obtener la factura N° ${currentEditingRow.invoiceNumber} (PDF y XML) desde Nubox` : 'Registre el N° de factura para obtenerla desde Nubox'}
+                      className="text-xs font-semibold text-secondary hover:underline flex items-center gap-1 disabled:opacity-60"
+                    >
+                      <span className={`material-symbols-outlined text-[16px] ${nuboxPdfLoading ? 'animate-spin' : ''}`}>{nuboxPdfLoading ? 'sync' : 'cloud_download'}</span>
+                      {nuboxPdfLoading ? 'Obteniendo...' : 'Obtener desde Nubox'}
+                    </button>
+                  )}
+                </div>
+                {!getIssuedDte(currentEditingRow.id) && ((currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile) || currentEditingRow.invoiceFileObject) && nuboxPdfError && (
+                  <p className="text-[11px] text-error">{nuboxPdfError}</p>
+                )}
 
                 {/* Factura emitida con Nubox: PDF y XML guardados por el ERP, con opción de volver a obtenerlos */}
                 {(() => {
@@ -2423,10 +2476,53 @@ export default function InstallmentsModal({
                 )}
               </div>
 
-              {/* Sección XML de la factura (solo facturas emitidas con Nubox) */}
+              {/* Sección XML de la factura */}
               {(() => {
                 const dte = getIssuedDte(currentEditingRow.id);
-                if (!dte) return null;
+                if (!dte) {
+                  const savedXml = currentEditingRow.invoiceXmlUrl && !currentEditingRow.deleteInvoiceXml ? currentEditingRow.invoiceXmlUrl : null;
+                  const pendingXml = currentEditingRow.invoiceXmlFileObject || null;
+                  if (!savedXml && !pendingXml) return null;
+                  return (
+                    <div className="space-y-sm">
+                      <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                        Documento de Factura (XML)
+                      </span>
+                      {pendingXml ? (
+                        <div className="flex items-center justify-between p-sm bg-emerald-50/20 border border-emerald-100 rounded-lg">
+                          <div className="flex items-center gap-1.5 text-emerald-800 font-semibold text-body-sm truncate pr-4">
+                            <span className="material-symbols-outlined text-[18px] text-emerald-600 flex-shrink-0">code</span>
+                            <span className="truncate">{pendingXml.name}</span>
+                          </div>
+                          <button type="button" onClick={() => handleFieldChange(editingFileIdx, 'invoiceXmlFileObject', null)} className="text-error hover:bg-red-50 p-1 rounded transition-all" title="Descartar XML">
+                            <span className="material-symbols-outlined text-[18px]">close</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const url = await supabaseService.getDownloadUrl({ publicUrl: savedXml, fileName: `factura_${currentEditingRow.invoiceNumber || currentEditingRow.numQuota}.xml` });
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                              } catch (err) {
+                                console.error('Error descargando XML:', err);
+                              }
+                            }}
+                            className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate pr-4"
+                          >
+                            <span className="material-symbols-outlined text-[18px] flex-shrink-0">code</span>
+                            <span className="truncate">Descargar XML{currentEditingRow.invoiceNumber ? ` Factura N° ${currentEditingRow.invoiceNumber}` : ''}</span>
+                          </button>
+                          <button type="button" onClick={() => handleFieldChange(editingFileIdx, 'deleteInvoiceXml', true)} className="text-error hover:bg-red-50 p-1 rounded transition-all" title="Eliminar XML">
+                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 return (
                   <div className="space-y-sm">
                     <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
@@ -2435,7 +2531,7 @@ export default function InstallmentsModal({
                     <div className="p-sm bg-slate-50 border rounded-lg space-y-1.5">
                       <div className="flex items-center justify-between gap-sm">
                         {dte.xmlPath ? (
-                          <button type="button" onClick={() => openDteFile(dte.xmlPath, 'XML')} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
+                          <button type="button" onClick={() => openDteFile(dte.xmlPath, 'XML', `factura_${dte.folio || 'nubox'}.xml`)} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
                             <span className="material-symbols-outlined text-[18px] flex-shrink-0">code</span>
                             <span className="truncate">XML Factura{dte.folio ? ` N° ${dte.folio}` : ''}</span>
                           </button>

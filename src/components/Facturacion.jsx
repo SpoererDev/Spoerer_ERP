@@ -1536,18 +1536,23 @@ export default function Facturacion({
             <span className="material-symbols-outlined text-[16px]">receipt_long</span>
           </button>
         )}
-        {dte?.status === 'issued' && dte.xmlPath && (
+        {((dte?.status === 'issued' && dte.xmlPath) || inst.invoiceXmlUrl) && (
           <button
             type="button"
             onClick={async () => {
+              // El XML se descarga (no se visualiza en el navegador).
               try {
-                window.open(await supabaseService.getInvoicePdfUrl(dte.xmlPath), '_blank', 'noopener,noreferrer');
+                const fileName = `factura_${(dte?.status === 'issued' && dte.folio) || inst.invoiceNumber || inst.numQuota}.xml`;
+                const url = dte?.status === 'issued' && dte.xmlPath
+                  ? await supabaseService.getDownloadUrl({ invoicePath: dte.xmlPath, fileName })
+                  : await supabaseService.getDownloadUrl({ publicUrl: inst.invoiceXmlUrl, fileName });
+                window.open(url, '_blank', 'noopener,noreferrer');
               } catch (err) {
                 console.error('Error obteniendo XML de la factura:', err);
               }
             }}
             className={neutral ? neutralClass : 'inline-flex items-center text-primary hover:text-primary-container p-1 bg-surface-container-high rounded transition-colors'}
-            title={`XML Factura${dte.folio ? ` N° ${dte.folio}` : ''}`}
+            title={`Descargar XML Factura${inst.invoiceNumber ? ` N° ${inst.invoiceNumber}` : ''}`}
           >
             <span className="material-symbols-outlined text-[16px]">code</span>
           </button>

@@ -3,7 +3,7 @@
 import { corsHeaders, db, getActiveProfile, json, type DteDocument } from '../_shared/nubox.ts';
 import {
   NuboxClassicError, classicConfigProblems, classicEnvironment, classicFetch, cleanRut, getClassicConfig,
-  acceptedFolio, fetchClassicPdf, isValidRut, nuboxMessage, rutWithDash, splitGlosa, storeClassicPdf, toBase64,
+  acceptedFolio, fetchClassicPdf, fetchClassicXml, isValidRut, nuboxMessage, rutWithDash, splitGlosa, storeClassicPdf, toBase64,
   updateClassicDocument,
 } from '../_shared/nubox_classic.ts';
 
@@ -55,6 +55,26 @@ Deno.serve(async (req: Request) => {
       const documentType = String(body.documentType) === '34' ? '34' : '33';
       const bytes = await fetchClassicPdf(config!, folio, documentType);
       return json({ folio, documentType, fileName: `factura_${folio}.pdf`, contentBase64: toBase64(bytes) });
+    }
+    if (body.action === 'filesByFolio') {
+      // PDF y XML de una factura ya emitida en Nubox, para adjuntarlos a la cuota. El XML exige la fecha de emisión;
+      // si falla, se devuelve el PDF con el motivo en xmlError.
+      const folio = String(body.folio ?? '').trim();
+      if (!/^\d{1,10}$/.test(folio)) return json({ error: 'Ingrese un folio numérico válido.' }, 400);
+      const documentType = String(body.documentType) === '34' ? '34' : '33';
+      const pdf = await fetchClassicPdf(config!, folio, documentType);
+      let xml: { fileName: string; contentBase64: string } | null = null;
+      let xmlError: string | null = null;
+      if (isIsoDate(body.emissionDate)) {
+        try {
+          xml = { fileName: `factura_${folio}.xml`, contentBase64: toBase64(await fetchClassicXml(config!, folio, documentType, body.emissionDate)) };
+        } catch (err) {
+          xmlError = err instanceof Error ? err.message : String(err);
+        }
+      } else {
+        xmlError = 'La cuota no tiene fecha de facturación: es necesaria para obtener el XML.';
+      }
+      return json({ folio, documentType, pdf: { fileName: `factura_${folio}.pdf`, contentBase64: toBase64(pdf) }, xml, xmlError });
     }
     return await issue(body, profile.id);
   } catch (err) {
