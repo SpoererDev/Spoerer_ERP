@@ -113,10 +113,10 @@ export const getDefaultTemplate = (inst, clientEmails) => {
 
 /**
  * Asunto, cuerpo y destinatario sugeridos para una plantilla.
- * ctx: { inst, project, budget, contact: { name, email }, encargado: { name, email }, dte }
+ * ctx: { inst, project, budget, contact: { name, email }, encargado: { name, email }, dte, sii: { name, email } }
  */
 export const buildTemplate = (templateId, ctx) => {
-  const { inst, project, budget, contact, encargado, dte } = ctx;
+  const { inst, project, budget, contact, encargado, dte, sii } = ctx;
   const projectText = projectLabel(project);
   const rawName = project?.rawProjectName || '';
   const contactName = contact?.name || '';
@@ -156,8 +156,14 @@ export const buildTemplate = (templateId, ctx) => {
 
     case 'invoice': {
       const folio = dte?.folio || inst.invoiceNumber || '[Folio factura]';
+      // Destinatarios: contacto del cliente y el correo SII de la razón social (si está registrado y es distinto).
+      const to = contact?.email ? [{ name: contactName, email: contact.email }] : [];
+      const siiEmail = sii?.email?.trim();
+      if (siiEmail && !to.some(r => r.email.trim().toLowerCase() === siiEmail.toLowerCase())) {
+        to.push({ name: sii.name || '', email: siiEmail });
+      }
       return {
-        to: contact?.email ? [{ name: contactName, email: contact.email }] : [],
+        to,
         subject: `Factura n° ${folio} proyecto ${projectText}`,
         body: [
           // Saludo con el nombre de pila del contacto.

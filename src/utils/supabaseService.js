@@ -46,6 +46,7 @@ const mapClientFromDb = (dbClient) => ({
   name: dbClient.contact_name,
   email: dbClient.contact_email,
   phone: dbClient.contact_phone,
+  siiEmail: dbClient.sii_email || '',
   initials: dbClient.company_name 
     ? dbClient.company_name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() 
     : 'CL'
@@ -62,7 +63,8 @@ const mapClientToDb = (client) => ({
   ciudad: client.ciudad,
   contact_name: client.name,
   contact_email: client.email,
-  contact_phone: client.phone
+  contact_phone: client.phone,
+  sii_email: client.siiEmail?.trim() || null
 });
 
 // Helper: Format amount with currency symbol/unit

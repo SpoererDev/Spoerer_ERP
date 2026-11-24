@@ -150,6 +150,7 @@ export default function CRM({
   const [name, setName] = useState(''); // Contacto
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [siiEmail, setSiiEmail] = useState(''); // Correo SII (opcional)
   const [rutError, setRutError] = useState('');
 
   // Notification state
@@ -256,6 +257,7 @@ export default function CRM({
           setName(existingClient.name || '');
           setEmail(existingClient.email || '');
           setPhone(existingClient.phone || '');
+          setSiiEmail(existingClient.siiEmail || '');
           setRutError('');
         } else {
           if (isAutoMatchedByRut) {
@@ -282,6 +284,7 @@ export default function CRM({
     setName('');
     setEmail('');
     setPhone('');
+    setSiiEmail('');
     setRutError('');
     setIsModalOpen(false);
   };
@@ -305,6 +308,7 @@ export default function CRM({
     setName(client.name || '');
     setEmail(client.email || '');
     setPhone(client.phone || '');
+    setSiiEmail(client.siiEmail || '');
     setRutError('');
     setIsModalOpen(true);
   };
@@ -382,6 +386,7 @@ export default function CRM({
       name,
       email,
       phone: phone || 'N/A',
+      siiEmail: siiEmail.trim(),
       initials: company.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)
     };
 
@@ -1424,6 +1429,21 @@ export default function CRM({
                     onChange={(e) => setPhone(e.target.value)}
                   />
                 </div>
+
+                {/* Correo SII (casilla de recepción de DTE) */}
+                <div className="flex flex-col gap-xs">
+                  <label className="text-label-sm text-on-surface-variant uppercase tracking-wider font-bold">
+                    Correo SII (Opcional)
+                  </label>
+                  <input
+                    type="email"
+                    className="w-full border-slate-300 rounded-lg text-body-md py-2 px-3 focus:ring-1 focus:ring-secondary focus:border-secondary outline-none transition-all bg-white"
+                    placeholder="Ej: dte@empresa.cl"
+                    value={siiEmail}
+                    onChange={(e) => setSiiEmail(e.target.value)}
+                  />
+                  <span className="text-[11px] text-on-surface-variant">Se agrega como destinatario al enviar facturas.</span>
+                </div>
               </div>
 
               {/* Footer Actions */}
@@ -1578,6 +1598,13 @@ export default function CRM({
                   <div className="bg-surface-container-low p-md rounded border border-outline-variant/30">
                     <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Teléfono</span>
                     <span className="font-body-lg text-body-lg text-primary mt-1 block">{viewingClient.phone || 'N/A'}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-xs">
+                  <div className="bg-surface-container-low p-md rounded border border-outline-variant/30">
+                    <span className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider block font-bold">Correo SII</span>
+                    <span className="font-body-lg text-body-lg text-primary mt-1 block">{viewingClient.siiEmail || 'Sin registrar'}</span>
                   </div>
                 </div>
               </div>

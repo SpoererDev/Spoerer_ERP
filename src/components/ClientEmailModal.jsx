@@ -95,7 +95,10 @@ export default function ClientEmailModal({
   );
 
   const buildState = (templateId) => {
-    const tpl = buildTemplate(templateId, { inst: installment, project, budget, contact, encargado, dte: getIssuedDte(dteDocuments, installment.id) });
+    const tpl = buildTemplate(templateId, {
+      inst: installment, project, budget, contact, encargado, dte: getIssuedDte(dteDocuments, installment.id),
+      sii: razonSocial?.siiEmail ? { name: razonSocial.company || '', email: razonSocial.siiEmail } : null
+    });
     const settingType = EMAIL_TEMPLATES.find(t => t.id === templateId)?.settingType;
     const setting = notificationSettings.find(s => s.notificationType === settingType);
     const ccIds = setting?.userIds || [];
