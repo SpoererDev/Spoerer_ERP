@@ -10,13 +10,53 @@ export const EMAIL_TEMPLATES = [
   { id: 'other', label: 'Otro', settingType: 'client_email_other' }
 ];
 
-const BANK_DETAILS = [
-  'Razón Social: Spoerer Ingenieros Asociados SpA',
-  'RUT: 76.127.237-3',
-  'Cta. Cte. 02-01651-6',
-  'Banco BICE',
-  'Enviar comprobante a secretaria@spoerer.cl'
-];
+// Datos por empresa emisora (billingCompany). FPF emite sólo facturas exentas de IVA.
+const COMPANY_DATA = {
+  Spoerer: {
+    ivaText: 'afecta de IVA',
+    billing: [
+      'Razón Social: Spoerer Ingenieros Asociados Spa',
+      'Rut 76.127.237-3',
+      'Giro: Actividades de consultoría de Gestión – Cod 702000',
+      'Dirección: Marchant Pereira 367 Of 501- Providencia',
+      'Teléfono: 22 2697795',
+      'Contacto: Daniela Cifuentes',
+      'Correo: dcifuentes@spoerer.cl'
+    ],
+    bank: [
+      'Razón Social: Spoerer Ingenieros Asociados SpA',
+      'RUT: 76.127.237-3',
+      'Cta. Cte. 02-01651-6',
+      'Banco BICE',
+      'Enviar comprobante a secretaria@spoerer.cl'
+    ]
+  },
+  FPF: {
+    ivaText: 'exenta de IVA',
+    billing: [
+      'Razón Social: Sociedad de Profesionales FPF Ltda',
+      'Rut 77.956.161-5',
+      'Giro: Actividades de consultoría de Gestión – Cod 702000',
+      'Dirección: Marchant Pereira 367 Of 501- Providencia',
+      'Teléfono: 22 2697795',
+      'Contacto: Daniela Cifuentes',
+      'Correo: dcifuentes@spoerer.cl'
+    ],
+    bank: [
+      'Razón Social: Sociedad de Profesionales FPF Ltda',
+      'Rut 77.956.161-5',
+      'Cta. Cte. 02-03419-0',
+      'Banco BICE',
+      'Enviar comprobante a secretaria@spoerer.cl'
+    ]
+  }
+};
+
+// Empresa emisora de la cuota: cuota -> presupuesto -> proyecto -> Spoerer.
+export const resolveBillingCompany = (inst, budget, project) => {
+  const company = inst?.billingCompany || budget?.billingCompany || project?.billingCompany || 'Spoerer';
+  return String(company).trim().toUpperCase() === 'FPF' ? 'FPF' : 'Spoerer';
+};
 
 const projectLabel = (project) =>
   project ? `${project.projectNumber} - ${project.rawProjectName}` : '';
@@ -80,6 +120,7 @@ export const buildTemplate = (templateId, ctx) => {
   const projectText = projectLabel(project);
   const rawName = project?.rawProjectName || '';
   const contactName = contact?.name || '';
+  const companyData = COMPANY_DATA[resolveBillingCompany(inst, budget, project)];
 
   switch (templateId) {
     case 'approval_request':
@@ -102,18 +143,12 @@ export const buildTemplate = (templateId, ctx) => {
         body: [
           `Estimado ${contactName || '[Contacto cliente]'}:`,
           '',
-          `Junto con saludar, envío nuestros datos de facturación para emisión de orden de compra por el proyecto ${rawName}, esta debe ser afecta de IVA y en UF:`,
+          `Junto con saludar, envío nuestros datos de facturación para emisión de orden de compra por el proyecto ${rawName}, esta debe ser ${companyData.ivaText} y en UF:`,
           '',
-          'Razón Social: Spoerer Ingenieros Asociados Spa',
-          'Rut 76.127.237-3',
-          'Giro: Actividades de consultoría de Gestión – Cod 702000',
-          'Dirección: Marchant Pereira 367 Of 501- Providencia',
-          'Teléfono: 22 2697795',
-          'Contacto: Daniela Cifuentes',
-          'Correo: dcifuentes@spoerer.cl',
+          ...companyData.billing,
           '',
           'Para el pago de los documentos solicitamos realizar transferencia a nuestra cuenta bancaria',
-          ...BANK_DETAILS,
+          ...companyData.bank,
           '',
           'Saludos'
         ].join('\n')
@@ -125,18 +160,21 @@ export const buildTemplate = (templateId, ctx) => {
         to: contact?.email ? [{ name: contactName, email: contact.email }] : [],
         subject: `Factura n° ${folio} proyecto ${projectText}`,
         body: [
-          'Por intermedio del presente correo, enviamos a ustedes, Factura(s) electrónica(s) correspondiente(s) al(los) siguiente(s) proyecto(s):',
+          // Saludo con el nombre de pila del contacto.
+          `Estimado ${contactName.trim().split(/\s+/)[0] || '[Contacto cliente]'}:`,
+          '',
+          'Por intermedio del presente correo, enviamos a ustedes factura electrónica correspondiente al siguiente proyecto:',
           '',
           `${folio} - ${rawName}`,
           '',
-          'Podrá verificar su validez en www.sii.cl',
+          'Podrá verificar su validez en www.sii.cl.',
           'Agradeceremos confirmar la recepción del presente correo.',
           '',
-          'Para el pago de los documentos solicitamos realizar transferencia a nuestra cuenta bancaria',
-          ...BANK_DETAILS.map(line => `• ${line}`),
+          'Para el pago de los documentos solicitamos realizar transferencia a nuestra cuenta bancaria:',
+          ...companyData.bank.map(line => `• ${line}`),
           '',
-          'Quedo atenta a sus comentarios',
-          'Saludos'
+          'Quedo atenta a sus comentarios.',
+          'Saludos.'
         ].join('\n')
       };
     }
