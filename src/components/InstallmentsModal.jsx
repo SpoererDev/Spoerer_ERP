@@ -161,20 +161,48 @@ export default function InstallmentsModal({
 
   // Re-downloads the PDF and XML from Nubox, replacing the stored files.
   const [dteRefreshing, setDteRefreshing] = useState(false);
-  const [dteRefreshMessage, setDteRefreshMessage] = useState(null); // { type: 'ok' | 'error', text }
-  const refreshDteFiles = async (dte) => {
+  const [dteRefreshMessage, setDteRefreshMessage] = useState(null); // { dteId, section, type: 'ok' | 'error', text }
+  // PDF and XML are always refreshed together, whichever section the button was clicked in.
+  const refreshDteFiles = async (dte, section) => {
     setDteRefreshing(true);
     setDteRefreshMessage(null);
     try {
       const { document, warning } = await supabaseService.refreshNuboxInvoiceFiles(dte.id);
       setRefreshedDtes(prev => ({ ...prev, [document.id]: document }));
       onDteDocumentChange?.(document);
-      setDteRefreshMessage(warning ? { type: 'error', text: warning } : { type: 'ok', text: 'PDF y XML actualizados desde Nubox.' });
+      setDteRefreshMessage({ dteId: dte.id, section, type: warning ? 'error' : 'ok', text: warning || 'PDF y XML actualizados desde Nubox.' });
     } catch (err) {
-      setDteRefreshMessage({ type: 'error', text: err.message || 'No se pudo actualizar desde Nubox.' });
+      setDteRefreshMessage({ dteId: dte.id, section, type: 'error', text: err.message || 'No se pudo actualizar desde Nubox.' });
     } finally {
       setDteRefreshing(false);
     }
+  };
+  const renderDteRefreshButton = (dte, section) => (
+    <button
+      type="button"
+      onClick={() => refreshDteFiles(dte, section)}
+      disabled={dteRefreshing}
+      title="Volver a obtener el PDF y el XML desde Nubox, reemplazando los guardados"
+      className="flex items-center gap-1 px-2 py-1 rounded-md border border-secondary/40 text-secondary text-xs font-semibold hover:bg-secondary-container/30 transition-all disabled:opacity-60 flex-shrink-0"
+    >
+      <span className={`material-symbols-outlined text-[16px] ${dteRefreshing ? 'animate-spin' : ''}`}>sync</span>
+      {dteRefreshing ? 'Actualizando...' : 'Actualizar'}
+    </button>
+  );
+  const renderDteRefreshMessage = (dte, section) =>
+    dteRefreshMessage && dteRefreshMessage.dteId === dte.id && dteRefreshMessage.section === section ? (
+      <p className={`text-[11px] ${dteRefreshMessage.type === 'ok' ? 'text-emerald-700' : 'text-error'}`}>{dteRefreshMessage.text}</p>
+    ) : null;
+  // Messages belong to the open "Respaldos" editor: clear them when it opens or closes.
+  const openFilesEditor = (idx) => {
+    setDteRefreshMessage(null);
+    setNuboxPdfError('');
+    setEditingFileIdx(idx);
+  };
+  const closeFilesEditor = () => {
+    setDteRefreshMessage(null);
+    setNuboxPdfError('');
+    setEditingFileIdx(null);
   };
   const [editingFileIdx, setEditingFileIdx] = useState(null);
   // Vista previa del PDF obtenido desde Nubox (por folio) antes de adjuntarlo a la cuota.
@@ -1891,7 +1919,7 @@ export default function InstallmentsModal({
                               return (
                                 <button
                                   type="button"
-                                  onClick={() => setEditingFileIdx(idx)}
+                                  onClick={() => openFilesEditor(idx)}
                                   disabled={isSlave || isMaster}
                                   className={`p-1.5 rounded transition-all flex items-center justify-center relative ${
                                     isSlave || isMaster
@@ -2283,7 +2311,7 @@ export default function InstallmentsModal({
               </h4>
               <button
                 type="button"
-                onClick={() => setEditingFileIdx(null)}
+                onClick={closeFilesEditor}
                 className="p-1 hover:bg-slate-100 rounded-full text-on-surface-variant transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
@@ -2306,36 +2334,17 @@ export default function InstallmentsModal({
                   return (
                     <div className="p-sm bg-slate-50 border rounded-lg space-y-1.5">
                       <div className="flex items-center justify-between gap-sm">
-                        <div className="flex items-center gap-md min-w-0">
-                          {dte.pdfPath ? (
-                            <button type="button" onClick={() => openDtePdf(dte)} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
-                              <span className="material-symbols-outlined text-[18px] flex-shrink-0">picture_as_pdf</span>
-                              <span className="truncate">Factura Nubox{folioLabel}</span>
-                            </button>
-                          ) : (
-                            <span className="text-body-sm text-on-surface-variant truncate">Factura Nubox{folioLabel}: sin PDF</span>
-                          )}
-                          {dte.xmlPath && (
-                            <button type="button" onClick={() => openDteFile(dte.xmlPath, 'XML')} className="flex items-center gap-1 text-secondary font-semibold text-body-sm hover:underline flex-shrink-0">
-                              <span className="material-symbols-outlined text-[18px]">code</span>
-                              <span>XML</span>
-                            </button>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => refreshDteFiles(dte)}
-                          disabled={dteRefreshing}
-                          title="Volver a obtener el PDF y el XML desde Nubox, reemplazando los guardados"
-                          className="flex items-center gap-1 px-2 py-1 rounded-md border border-secondary/40 text-secondary text-xs font-semibold hover:bg-secondary-container/30 transition-all disabled:opacity-60 flex-shrink-0"
-                        >
-                          <span className={`material-symbols-outlined text-[16px] ${dteRefreshing ? 'animate-spin' : ''}`}>sync</span>
-                          {dteRefreshing ? 'Actualizando...' : 'Actualizar'}
-                        </button>
+                        {dte.pdfPath ? (
+                          <button type="button" onClick={() => openDtePdf(dte)} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
+                            <span className="material-symbols-outlined text-[18px] flex-shrink-0">picture_as_pdf</span>
+                            <span className="truncate">Factura Nubox{folioLabel}</span>
+                          </button>
+                        ) : (
+                          <span className="text-body-sm text-on-surface-variant truncate">Factura Nubox{folioLabel}: sin PDF</span>
+                        )}
+                        {renderDteRefreshButton(dte, 'pdf')}
                       </div>
-                      {dteRefreshMessage && (
-                        <p className={`text-[11px] ${dteRefreshMessage.type === 'ok' ? 'text-emerald-700' : 'text-error'}`}>{dteRefreshMessage.text}</p>
-                      )}
+                      {renderDteRefreshMessage(dte, 'pdf')}
                     </div>
                   );
                 })()}
@@ -2413,6 +2422,33 @@ export default function InstallmentsModal({
                   </div>
                 )}
               </div>
+
+              {/* Sección XML de la factura (solo facturas emitidas con Nubox) */}
+              {(() => {
+                const dte = getIssuedDte(currentEditingRow.id);
+                if (!dte) return null;
+                return (
+                  <div className="space-y-sm">
+                    <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
+                      Documento de Factura (XML)
+                    </span>
+                    <div className="p-sm bg-slate-50 border rounded-lg space-y-1.5">
+                      <div className="flex items-center justify-between gap-sm">
+                        {dte.xmlPath ? (
+                          <button type="button" onClick={() => openDteFile(dte.xmlPath, 'XML')} className="flex items-center gap-1.5 text-secondary font-semibold text-body-sm hover:underline truncate">
+                            <span className="material-symbols-outlined text-[18px] flex-shrink-0">code</span>
+                            <span className="truncate">XML Factura{dte.folio ? ` N° ${dte.folio}` : ''}</span>
+                          </button>
+                        ) : (
+                          <span className="text-body-sm text-on-surface-variant truncate">Sin XML: use Actualizar para obtenerlo desde Nubox</span>
+                        )}
+                        {renderDteRefreshButton(dte, 'xml')}
+                      </div>
+                      {renderDteRefreshMessage(dte, 'xml')}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Sección Comprobante de Pago */}
               <div className="space-y-sm">
@@ -2632,7 +2668,7 @@ export default function InstallmentsModal({
             <div className="pt-md border-t border-outline-variant/15 flex justify-end">
               <button
                 type="button"
-                onClick={() => setEditingFileIdx(null)}
+                onClick={closeFilesEditor}
                 className="bg-primary text-white px-lg py-2 rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-colors"
               >
                 Listo
