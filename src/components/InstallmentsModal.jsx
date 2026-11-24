@@ -213,6 +213,7 @@ export default function InstallmentsModal({
   const [nuboxPdfPreview, setNuboxPdfPreview] = useState(null); // { idx, file, url }
   const [nuboxPdfLoading, setNuboxPdfLoading] = useState(false);
   const [nuboxPdfError, setNuboxPdfError] = useState('');
+  const [nuboxFetchSource, setNuboxFetchSource] = useState('pdf'); // 'pdf' | 'xml'
   const [validationError, setValidationError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1320,9 +1321,10 @@ export default function InstallmentsModal({
     setNuboxPdfPreview(null);
   };
 
-  const fetchInvoiceFromNubox = async (idx) => {
+  const fetchInvoiceFromNubox = async (idx, source = 'pdf') => {
     const row = localInstallments[idx];
     const folio = String(row?.invoiceNumber || '').trim();
+    setNuboxFetchSource(source);
     setNuboxPdfError('');
     if (!/^\d+$/.test(folio)) {
       setNuboxPdfError('Registre primero el N° de factura (folio) de la cuota.');
@@ -1351,6 +1353,14 @@ export default function InstallmentsModal({
       handleFieldChange(nuboxPdfPreview.idx, 'invoiceXmlFileObject', nuboxPdfPreview.xmlFile);
       handleFieldChange(nuboxPdfPreview.idx, 'deleteInvoiceXml', true);
     }
+    closeNuboxPdfPreview();
+  };
+
+  // Keeps the current PDF and attaches only the XML obtained from Nubox.
+  const attachNuboxXmlOnly = () => {
+    if (!nuboxPdfPreview?.xmlFile) return;
+    handleFieldChange(nuboxPdfPreview.idx, 'invoiceXmlFileObject', nuboxPdfPreview.xmlFile);
+    handleFieldChange(nuboxPdfPreview.idx, 'deleteInvoiceXml', true);
     closeNuboxPdfPreview();
   };
 
@@ -2326,6 +2336,12 @@ export default function InstallmentsModal({
             </p>
             <div className="flex justify-end gap-md border-t border-outline-variant/30 pt-md">
               <button type="button" onClick={closeNuboxPdfPreview} className="px-lg py-sm font-semibold text-on-surface-variant hover:text-on-surface transition-all">Cancelar</button>
+              {nuboxPdfPreview.xmlFile && (
+                <button type="button" onClick={attachNuboxXmlOnly} className="px-lg py-sm rounded-lg font-semibold border border-secondary/40 text-secondary hover:bg-secondary-container/30 transition-all flex items-center gap-xs">
+                  <span className="material-symbols-outlined text-[18px]">code</span>
+                  Guardar solo XML
+                </button>
+              )}
               <button type="button" onClick={attachNuboxPdf} className="bg-primary text-white px-xl py-sm rounded-lg font-semibold shadow-sm hover:bg-primary-container active:scale-95 transition-all flex items-center gap-xs">
                 <span className="material-symbols-outlined text-[18px]">attach_file</span>
                 {nuboxPdfPreview.replacing ? 'Reemplazar PDF' : 'Usar este PDF'}
@@ -2375,7 +2391,7 @@ export default function InstallmentsModal({
                     </button>
                   )}
                 </div>
-                {!getIssuedDte(currentEditingRow.id) && ((currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile) || currentEditingRow.invoiceFileObject) && nuboxPdfError && (
+                {!getIssuedDte(currentEditingRow.id) && ((currentEditingRow.invoiceFileUrl && !currentEditingRow.deleteInvoiceFile) || currentEditingRow.invoiceFileObject) && nuboxPdfError && nuboxFetchSource === 'pdf' && (
                   <p className="text-[11px] text-error">{nuboxPdfError}</p>
                 )}
 
@@ -2468,8 +2484,8 @@ export default function InstallmentsModal({
                       <span>{nuboxPdfLoading ? 'Obteniendo...' : 'Obtener de Nubox'}</span>
                     </button>
                   </div>
-                  {nuboxPdfError && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
-                  {!nuboxPdfError && currentEditingRow.invoiceNumber && (
+                  {nuboxPdfError && nuboxFetchSource === 'pdf' && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
+                  {!(nuboxPdfError && nuboxFetchSource === 'pdf') && currentEditingRow.invoiceNumber && (
                     <p className="text-[10px] text-on-surface-variant">Nubox: factura N° {currentEditingRow.invoiceNumber}</p>
                   )}
                   </div>
@@ -2482,7 +2498,6 @@ export default function InstallmentsModal({
                 if (!dte) {
                   const savedXml = currentEditingRow.invoiceXmlUrl && !currentEditingRow.deleteInvoiceXml ? currentEditingRow.invoiceXmlUrl : null;
                   const pendingXml = currentEditingRow.invoiceXmlFileObject || null;
-                  if (!savedXml && !pendingXml) return null;
                   return (
                     <div className="space-y-sm">
                       <span className="block text-label-sm text-on-surface-variant font-bold uppercase tracking-wider">
@@ -2498,7 +2513,7 @@ export default function InstallmentsModal({
                             <span className="material-symbols-outlined text-[18px]">close</span>
                           </button>
                         </div>
-                      ) : (
+                      ) : savedXml ? (
                         <div className="flex items-center justify-between p-sm bg-slate-50 border rounded-lg">
                           <button
                             type="button"
@@ -2518,6 +2533,21 @@ export default function InstallmentsModal({
                           <button type="button" onClick={() => handleFieldChange(editingFileIdx, 'deleteInvoiceXml', true)} className="text-error hover:bg-red-50 p-1 rounded transition-all" title="Eliminar XML">
                             <span className="material-symbols-outlined text-[18px]">delete</span>
                           </button>
+                        </div>
+                      ) : (
+                        // Sin XML: se obtiene desde Nubox por el folio de la cuota (también trae la factura).
+                        <div className="space-y-1.5">
+                          <button
+                            type="button"
+                            onClick={() => fetchInvoiceFromNubox(editingFileIdx, 'xml')}
+                            disabled={nuboxPdfLoading}
+                            title={currentEditingRow.invoiceNumber ? `Obtener el XML de la factura N° ${currentEditingRow.invoiceNumber} desde Nubox` : 'Registre el N° de factura para obtenerla desde Nubox'}
+                            className="flex items-center justify-center gap-1.5 w-full px-4 py-2 bg-white hover:bg-secondary-container/30 border border-dashed border-secondary/40 rounded-lg text-body-sm font-semibold text-secondary transition-all disabled:opacity-60"
+                          >
+                            <span className={`material-symbols-outlined text-[18px] ${nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'animate-spin' : ''}`}>{nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'sync' : 'cloud_download'}</span>
+                            <span>{nuboxPdfLoading && nuboxFetchSource === 'xml' ? 'Obteniendo...' : 'Obtener de Nubox'}</span>
+                          </button>
+                          {nuboxPdfError && nuboxFetchSource === 'xml' && <p className="text-[11px] text-error">{nuboxPdfError}</p>}
                         </div>
                       )}
                     </div>
